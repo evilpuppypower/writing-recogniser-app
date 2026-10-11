@@ -66,8 +66,8 @@ This repository is public. Nothing written to it may identify the owner: no name
 - Never write the owner's details into the repo to make a check work, including in tests and in the check itself.
 - No Claude session links anywhere (commit messages, PR descriptions, comments). Credit Claude only with a `Co-Authored-By: ... <noreply@anthropic.com>` line in commits and "Generated with Claude Code" in PRs and comments (owner, 2026-10-11).
 - **The GitHub posting tool adds a session link by itself.** When Claude creates a PR, comment or review, the tool appends (or rewrites) a footer containing the Claude session link, even when the text already has a plain footer. When an existing PR description is *updated* and the text ends with the plain footer below, the tool removes the footer instead. So:
-  1. Avoid posting comments and reviews unless truly needed.
-  2. Right after creating a PR (or comment), update it with the same text ending in exactly these lines (no session link):
+  1. **Don't create PRs, comments or reviews with the tool** (owner decision pending, 2026-10-11): the session link in a newly created post is copied by GitHub's public event feed within minutes, and stays in the edit history, even if fixed straight away. Instead, push the branch and give the owner the PR title and description (privacy-checked) to open the PR themselves.
+  2. When updating an existing PR description, end the text with exactly these lines (no session link):
 
   ```
   ---
