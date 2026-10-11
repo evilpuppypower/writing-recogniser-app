@@ -420,6 +420,19 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         viewWidth: pageRect.width,
         controller: _ink,
         tools: _tools,
+        // Pen double-tap on a word's label: correct it (task 2.4b).
+        doubleTapActionAt: (at) {
+          final place = SettingsScope.valueOf(context).textLabels;
+          if (place == TextLabelPlace.off) return null;
+          final word = PageTextLabels.wordAtLabel(
+            _text.wordsOn(page.pageNumber),
+            at,
+            geometry: _geometryOf(page),
+            viewWidth: pageRect.width,
+            above: place == TextLabelPlace.above,
+          );
+          return word == null ? null : () => _fixWord(page.pageNumber, word);
+        },
       ),
     ),
     Positioned.fill(

@@ -21,7 +21,8 @@ class PageTextLabels extends StatefulWidget {
   });
 
   /// Called when a label is double-tapped with a finger (to correct it,
-  /// task 2.4).
+  /// task 2.4). Pen double-taps reach the ink layer instead; see
+  /// [wordAtLabel].
   final void Function(RecognizedWord word)? onDoubleTap;
 
   /// Labels sit above the words (owner's default) or below them.
@@ -37,6 +38,63 @@ class PageTextLabels extends StatefulWidget {
 
   @override
   State<PageTextLabels> createState() => _PageTextLabelsState();
+
+  /// The word whose label is at [point] (in the page's pixels), or null.
+  /// Slightly generous, so a pen tap near the edge still counts.
+  static RecognizedWord? wordAtLabel(
+    List<RecognizedWord> words,
+    Offset point, {
+    required PageGeometry geometry,
+    required double viewWidth,
+    required bool above,
+  }) {
+    for (final w in words.reversed) {
+      final l = _labelLayout(w, geometry, viewWidth, above);
+      final painter = TextPainter(
+        text: TextSpan(
+          text: w.text,
+          style: TextStyle(fontSize: l.fontSize, height: 1.15),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final rect = Rect.fromLTWH(
+        l.topLeft.dx,
+        l.topLeft.dy,
+        painter.width + 6,
+        painter.height,
+      ).inflate(6);
+      painter.dispose();
+      if (rect.contains(point)) return w;
+    }
+    return null;
+  }
+}
+
+/// Where a word's label goes (top-left, in the page's pixels) and its text
+/// size, which follows the zoom: about half a letter high.
+({Offset topLeft, double fontSize}) _labelLayout(
+  RecognizedWord w,
+  PageGeometry g,
+  double viewWidth,
+  bool above,
+) {
+  final r = g.rectToView(
+    PdfPageRect(
+      left: w.box.left,
+      bottom: w.box.bottom,
+      right: w.box.right,
+      top: w.box.top,
+    ),
+    viewWidth,
+  );
+  final pxPerPt = viewWidth / g.displayWidth;
+  final size = (w.box.height * pxPerPt * 0.45).clamp(9.0, 22.0);
+  return (
+    topLeft: above
+        ? Offset(r.left, r.top - size * 1.15 - 3)
+        : Offset(r.left, r.top + r.height + 1),
+    fontSize: size,
+  );
 }
 
 class _PageTextLabelsState extends State<PageTextLabels> {
@@ -53,24 +111,18 @@ class _PageTextLabelsState extends State<PageTextLabels> {
       listenable: widget.text,
       builder: (context, _) {
         final words = widget.text.wordsOn(widget.pageNumber);
-        final g = widget.geometry;
-        // Text size follows the page zoom: about half a letter high.
-        final pxPerPt = widget.viewWidth / g.displayWidth;
         return Stack(
           clipBehavior: Clip.none,
           children: [
             for (final w in words)
               () {
-                final r = g.rectToView(
-                  PdfPageRect(
-                    left: w.box.left,
-                    bottom: w.box.bottom,
-                    right: w.box.right,
-                    top: w.box.top,
-                  ),
+                final l = _labelLayout(
+                  w,
+                  widget.geometry,
                   widget.viewWidth,
+                  widget.above,
                 );
-                final size = (w.box.height * pxPerPt * 0.45).clamp(9.0, 22.0);
+                final size = l.fontSize;
                 final box = DecoratedBox(
                   decoration: BoxDecoration(
                     color: scheme.primaryContainer.withValues(alpha: 0.85),
@@ -105,18 +157,11 @@ class _PageTextLabelsState extends State<PageTextLabels> {
                           child: box,
                         ),
                       );
-                return widget.above
-                    ? Positioned(
-                        left: r.left,
-                        bottom: null,
-                        top: r.top - size * 1.15 - 3,
-                        child: label,
-                      )
-                    : Positioned(
-                        left: r.left,
-                        top: r.top + r.height + 1,
-                        child: label,
-                      );
+                return Positioned(
+                  left: l.topLeft.dx,
+                  top: l.topLeft.dy,
+                  child: label,
+                );
               }(),
           ],
         );

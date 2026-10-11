@@ -308,3 +308,9 @@ Two rounds of independent privacy and security reviews; fixes:
 - **Opened files:** zip backups are unpacked with a hard size cap even if the zip lies about its size.
 - **Crash details** use UTC and leave out the device maker and model.
 - **Checks:** the privacy check also catches times with UTC offsets, phone numbers without spaces, real addresses next to allowed ones, text inside binary files, broken owner patterns, and blocks photos, PDFs, office files and archives. The workflow check catches risky triggers in any syntax, write permissions in any style, event text anywhere but an env value, and workflows without a permissions block. CI checks every new commit's added lines, author, committer and UTC time, and fails if the owner's patterns are missing.
+
+## 2026-10-11 — Pen double-tap to correct a word (2.4b, owner decision: finger or pen)
+
+- **Pen double-tap on a word's label** opens the correction pop-up, like a finger double-tap. The pen normally writes, so a pen tap that lands on a label is held back for about 0.65 s: if a second tap follows close by (within 0.4 s and 24 px), both are dropped and the pop-up opens; otherwise the tap is drawn as a dot. Taps away from labels, and any real writing, are drawn straight away.
+- A tap is a touch shorter than 0.25 s that moves less than 8 px (`lib/core/pen_tap.dart`).
+- The labels and the pen's hit test share one layout function, so they always agree where a label is.

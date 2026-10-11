@@ -48,7 +48,7 @@ flutter build apk --release --target-platform android-arm64   # what CI builds a
 
 ## Owner conventions
 
-- **Time zone: the owner's local time zone**, kept private: CI reads it from the `BUILD_TZ` secret. Don't write the zone or city into the repo; make commits with `TZ=UTC`. CI stamps each APK with this time and shows it on the home screen.
+- **Time zone: the owner's local time zone**, kept private: CI reads it from the `BUILD_TZ` secret. Don't write the zone or city into the repo; make commits with `TZ=UTC`. Dates written in docs, PRs and commits are UTC dates too (`date -u`): a date that runs ahead of UTC hints at the zone. CI stamps each APK with this time and shows it on the home screen.
 - **CI must stay lean (GitHub Free plan).** CI is one job that builds one APK: release, 64-bit ARM only. It then opens the same code on an Android 16 emulator (the "launch check", owner-approved 2026-10-11) and fails if the app doesn't stay open; the emulator can't run ARM code, so CI makes a test-only x86_64 build for it, which is never uploaded. Don't add debug builds, extra CPU types, build matrices or extra jobs without asking. Documentation-only changes don't trigger CI.
 - **Buttons explain themselves.** Every icon-only button has a tooltip, which shows on long-press and when a stylus or mouse hovers over it. Use a visible text label when the icon alone isn't obvious.
 - **Notify the owner's phone only when needed** (owner request), using the push-notification tool:
