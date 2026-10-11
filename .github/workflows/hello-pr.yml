@@ -1,0 +1,10 @@
+name: Actions check (PR)
+# Temporary: checks that pull request events run workflows. Removed after.
+on: pull_request
+permissions: {}
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo hello
