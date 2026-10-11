@@ -8,6 +8,7 @@ import '../recognition/myscript_keys.dart';
 import '../viewer/pen_tools_controller.dart';
 import 'settings_controller.dart';
 import '../storage/sqlite_ink_store.dart';
+import 'learning_screen.dart';
 import 'open_times_screen.dart';
 import 'stored_copies_screen.dart';
 
@@ -539,6 +540,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'MyScript Cloud sends your pen strokes (only) over the internet '
               'to MyScript to be recognised. ML Kit works entirely on the '
               'tablet.',
+            ),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.insights_outlined),
+            title: const Text('How well is it learning?'),
+            subtitle: const Text(
+              'Whether your corrections make recognition better over time.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const LearningScreen()),
             ),
           ),
           const Divider(),

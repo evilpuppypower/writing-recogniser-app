@@ -132,7 +132,11 @@ class InkTextController extends ChangeNotifier {
       autoReplaced: false,
     );
     _notify();
-    if (t == word.engineReading) return; // undoing a swap: nothing to learn
+    final undo = t == word.engineReading; // undoing a swap
+    if (undo) {
+      _logCorrection(page, word, t, undo: true);
+      return; // nothing to learn
+    }
     final record = CorrectionRecord(
       recognized: word.engineReading,
       corrected: t,
@@ -143,33 +147,50 @@ class InkTextController extends ChangeNotifier {
     );
     feedback.learn(record);
     unawaited(corrections?.add(record).catchError((_) {}));
-    unawaited(
-      eventLog
-              ?.log(
-                LoggedEvent(
-                  type: 'correction',
-                  at: record.at,
-                  engine: engine.name,
-                  data: {
-                    'source': 'pdf',
-                    'page': page,
-                    'recognized': record.recognized,
-                    'shown': word.text,
-                    'corrected': t,
-                    'wasAutoReplaced': word.autoReplaced,
-                  },
-                ),
-              )
-              .catchError((_) {}) ??
-          Future<void>.value(),
-    );
+    _logCorrection(page, word, t, at: record.at);
   }
+
+  void _logCorrection(
+    int page,
+    RecognizedWord word,
+    String corrected, {
+    bool undo = false,
+    DateTime? at,
+  }) => _log(
+    LoggedEvent(
+      type: 'correction',
+      at: at ?? DateTime.now(),
+      engine: engine.name,
+      data: {
+        'source': 'pdf',
+        'page': page,
+        'recognized': word.engineReading,
+        'shown': word.text,
+        'corrected': corrected,
+        'wasAutoReplaced': word.autoReplaced,
+        'undo': undo,
+        'word': word.key,
+        'doc': ?documentId,
+      },
+    ),
+  );
+
+  void _log(LoggedEvent e) =>
+      unawaited(eventLog?.log(e).catchError((_) {}) ?? Future<void>.value());
 
   /// The user says this ink isn't writing (a drawing, a tick): it's no
   /// longer read on this page. (The mark is saved on the strokes
   /// themselves by [DocumentInkController.markNotWriting].)
   void markNotWriting(int page, RecognizedWord word) {
     _notWriting.putIfAbsent(page, () => {}).addAll(word.key.split(','));
+    _log(
+      LoggedEvent(
+        type: 'not_writing',
+        at: DateTime.now(),
+        engine: engine.name,
+        data: {'page': page, 'word': word.key, 'doc': ?documentId},
+      ),
+    );
     _words[page]?.remove(word.key);
     _notify();
   }
@@ -374,6 +395,13 @@ class InkTextController extends ChangeNotifier {
                         'text': texts.first,
                         'alternatives': texts.skip(1).take(4).toList(),
                         'engineMs': now - sent,
+                        // For the learning screen (task 3.1): what the
+                        // engine read before the feedback layer, and which
+                        // word this is, to match later corrections.
+                        'engineText': engineTexts.first,
+                        'autoReplaced': fed.autoReplaced,
+                        'word': job.key,
+                        'doc': ?documentId,
                       },
                     ),
                   )

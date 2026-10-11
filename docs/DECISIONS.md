@@ -327,3 +327,10 @@ Two rounds of independent privacy and security reviews; fixes:
 - **Each word is invisible text** (PDF text render mode 3, Helvetica) stretched over its handwriting, with a space after it, so other PDF apps can search, select and copy it. Only the export gets it; the source PDF is never changed.
 - **If the engine isn't set up,** the export goes ahead without text and says why.
 - **Interpretation (flagged in the PR):** "some pages" chooses which pages get searchable text; the exported PDF always has every page.
+
+## 2026-10-11 — "How well is it learning?" (3.1, first version)
+
+- **From real use, not a replay:** every word read on a PDF is logged (on the tablet) with what the engine read, what was shown after the feedback layer, and a word id; corrections, undone swaps and "This isn't writing" are logged with the same id. The final text is the correction, or what was shown if it was left alone.
+- **"Engine on its own" vs "with your corrections"** compares the engine's reading and the shown text against the final text. It's fair without re-running the engine: the feedback layer only learns from corrections made before each word was read.
+- **Shown in Settings → "How well is it learning?":** words and letters wrong (engine alone vs with corrections), words written before vs new, the GATE B measure (fewer fixes on words written before; target a third), automatic swaps and how many were undone, pen-lift-to-text time, and corrections per 100 words by week. "Save as CSV" exports one row per word.
+- **Not built yet:** replaying the GATE A samples through both pipelines (planned in 3.1; needs the engine on the tablet, so it's a separate step).
