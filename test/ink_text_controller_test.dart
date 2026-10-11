@@ -283,6 +283,33 @@ void main() {
       c.dispose();
     });
 
+    testWidgets('readNow reads a page straight away and waits for it', (
+      tester,
+    ) async {
+      final engine = FakeEngine();
+      final c = InkTextController(engine: engine);
+      final page = [...word(100, 700, 3, 0), ...word(135, 700, 2, 1000)];
+      final words = await tester.runAsync(() => c.readNow(2, page));
+      expect(words!.map((w) => w.text), ['w3', 'w2']);
+      final calls = engine.calls.length;
+      // Again with the same ink: nothing new is sent.
+      await tester.runAsync(() => c.readNow(2, page));
+      expect(engine.calls.length, calls);
+      c.dispose();
+    });
+
+    testWidgets('readNow gives no words when the engine is not set up', (
+      tester,
+    ) async {
+      final c = InkTextController(engine: FakeEngine(ready: false));
+      final words = await tester.runAsync(
+        () => c.readNow(1, word(100, 700, 2, 0)),
+      );
+      expect(words, isEmpty);
+      expect(c.problem, 'Add keys');
+      c.dispose();
+    });
+
     testWidgets('"not writing" lasts when the PDF is reopened (task 2.4c)', (
       tester,
     ) async {

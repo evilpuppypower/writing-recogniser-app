@@ -111,3 +111,25 @@ List<ExportLine> exportLines(
 
 double _round(double w) =>
     ((w / exportWidthStep).round() * exportWidthStep).clamp(0.1, 1000.0);
+
+/// A recognised word to put into an exported PDF as invisible text over
+/// its handwriting, so the PDF can be searched and copied (task 1.4b). The
+/// box is in PDF page coordinates (points, y up from the visible page's
+/// bottom-left corner).
+class ExportWord {
+  const ExportWord(this.text, this.left, this.bottom, this.right, this.top);
+
+  final String text;
+  final double left, bottom, right, top;
+
+  /// For sending to the PDFium worker isolate.
+  List<Object> toMessage() => [text, left, bottom, right, top];
+
+  factory ExportWord.fromMessage(List<Object?> m) => ExportWord(
+    m[0]! as String,
+    (m[1]! as num).toDouble(),
+    (m[2]! as num).toDouble(),
+    (m[3]! as num).toDouble(),
+    (m[4]! as num).toDouble(),
+  );
+}

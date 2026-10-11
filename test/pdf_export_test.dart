@@ -174,6 +174,57 @@ void main() {
       lib.FPDF_CloseDocument(doc);
     });
 
+    test('recognised words become invisible, searchable text', () {
+      final src = blankPdf(lib, dir, 2);
+      final bytes = writeInkIntoPdf(
+        lib,
+        src,
+        const {},
+        text: const {
+          2: [
+            ExportWord('hello', 100, 600, 160, 620),
+            ExportWord('world', 170, 600, 240, 620),
+          ],
+          7: [ExportWord('ignored', 1, 1, 2, 2)], // no such page
+        },
+      );
+      final out = File('${dir.path}/text.pdf')..writeAsBytesSync(bytes);
+      final path = out.path.toNativeUtf8();
+      final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+      malloc.free(path);
+      expect(doc, isNot(nullptr));
+
+      // What a PDF reader's search sees on each page.
+      String textOn(int i) {
+        final page = lib.FPDF_LoadPage(doc, i);
+        final tp = lib.FPDFText_LoadPage(page);
+        final n = lib.FPDFText_CountChars(tp);
+        final buf = calloc<UnsignedShort>(n + 1);
+        lib.FPDFText_GetText(tp, 0, n, buf);
+        final text = String.fromCharCodes([for (var k = 0; k < n; k++) buf[k]]);
+        calloc.free(buf);
+        lib.FPDFText_ClosePage(tp);
+        lib.FPDF_ClosePage(page);
+        return text;
+      }
+
+      expect(textOn(0).trim(), isEmpty);
+      expect(textOn(1), contains('hello'));
+      expect(textOn(1), contains('world'));
+
+      // Invisible: the words are text objects drawn in render mode 3.
+      final page = lib.FPDF_LoadPage(doc, 1);
+      expect(lib.FPDFPage_CountObjects(page), 2);
+      final obj = lib.FPDFPage_GetObject(page, 0);
+      expect(lib.FPDFPageObj_GetType(obj), 1, reason: 'a text object');
+      expect(
+        lib.FPDFTextObj_GetTextRenderMode(obj),
+        pdfium.FPDF_TEXT_RENDERMODE.FPDF_TEXTRENDERMODE_INVISIBLE,
+      );
+      lib.FPDF_ClosePage(page);
+      lib.FPDF_CloseDocument(doc);
+    });
+
     test('a file that is not a PDF gives a plain error', () {
       final bad = File('${dir.path}/bad.pdf')..writeAsStringSync('hello');
       expect(

@@ -319,3 +319,11 @@ Two rounds of independent privacy and security reviews; fixes:
 
 - The mark is saved on the strokes themselves (`PageStroke.notWriting`, stored with the page's ink), not in a separate list, so it lasts when the PDF is reopened and stays right when part of a stroke is rubbed out (the pieces keep it).
 - It isn't undoable with Undo; the correction pop-up is where it's set. (Undoing it would need a "This is writing" option; not built until asked.)
+
+## 2026-10-11 — Searchable handwriting in exported PDFs (1.4b; owner: on by default, all or some pages)
+
+- **Export asks first:** "Make handwriting searchable" (on by default), for all pages or only the pages typed (e.g. "1-3, 7"). Turning it off exports the ink only, as before.
+- **The text comes from the same recognition as the labels,** including corrections and swaps. Pages not read yet are read before exporting, with a progress bar, the time left and Cancel. Ink marked "This isn't writing" is left out.
+- **Each word is invisible text** (PDF text render mode 3, Helvetica) stretched over its handwriting, with a space after it, so other PDF apps can search, select and copy it. Only the export gets it; the source PDF is never changed.
+- **If the engine isn't set up,** the export goes ahead without text and says why.
+- **Interpretation (flagged in the PR):** "some pages" chooses which pages get searchable text; the exported PDF always has every page.

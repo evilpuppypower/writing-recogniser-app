@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -9,6 +10,7 @@ import 'package:pdfrx/pdfrx.dart';
 import '../core/app_settings.dart';
 import '../core/document_state.dart';
 import '../core/feedback/correction_store.dart';
+import '../core/ink_export_plan.dart' show ExportWord;
 import '../core/ink_classifier.dart';
 import '../core/event_log.dart';
 import '../core/ink_store.dart';
@@ -17,7 +19,7 @@ import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/pen_tools.dart';
 import '../core/recognition/recognizer.dart';
-import '../core/transfer_estimate.dart' show formatBytes;
+import '../core/transfer_estimate.dart' show formatBytes, formatRemaining;
 import '../export/pdf_exporter.dart';
 import '../platform/file_transfer.dart';
 import '../platform/share_file.dart';
@@ -32,6 +34,7 @@ import '../storage/sqlite_ink_store.dart';
 import 'ink_text_controller.dart';
 import 'page_ink_layer.dart';
 import 'correct_word_sheet.dart';
+import 'export_options_dialog.dart';
 import 'page_text_labels.dart';
 import 'pen_toolbar.dart';
 import 'pen_tools_controller.dart';
@@ -125,6 +128,7 @@ class PdfViewerScreen extends StatefulWidget {
     required String sourcePath,
     required DocumentInk ink,
     PressureResponse pressure,
+    Map<int, List<ExportWord>> text,
   })
   exportPdf;
   final Future<bool> Function(String name, String mime, List<int> bytes)
@@ -603,6 +607,95 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// Makes a new PDF with the ink drawn in (task 1.4) and saves it where
   /// the user picks, or opens the share menu with it when [share]. The
   /// original PDF is never changed.
+  /// Reads the handwriting on [only] (or every page with ink) so the export
+  /// can carry it as searchable text (task 1.4b), with a progress bar and
+  /// the time left. Null if the user cancels.
+  Future<Map<int, List<ExportWord>>?> _readForExport(Set<int>? only) async {
+    final pages = [
+      for (final p in _ink.ink.pagesWithInk.toList()..sort())
+        if (only == null || only.contains(p)) p,
+    ];
+    final progress = ValueNotifier<(int, String)>((
+      0,
+      'Reading your handwriting…',
+    ));
+    var cancelled = false;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('Making the text searchable'),
+          content: ValueListenableBuilder<(int, String)>(
+            valueListenable: progress,
+            builder: (_, p, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LinearProgressIndicator(
+                  value: pages.isEmpty ? null : p.$1 / pages.length,
+                ),
+                const SizedBox(height: 12),
+                Text(p.$2),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                cancelled = true;
+                Navigator.of(context).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final words = <int, List<ExportWord>>{};
+    final watch = Stopwatch()..start();
+    for (var i = 0; i < pages.length && !cancelled; i++) {
+      final page = pages[i];
+      final left = i == 0
+          ? ''
+          : ', ${formatRemaining(Duration(milliseconds: watch.elapsedMilliseconds * (pages.length - i) ~/ i))}';
+      progress.value = (
+        i,
+        'Reading page $page (${i + 1} of ${pages.length})$left…',
+      );
+      final read = await _text.readNow(page, _ink.ink.strokesOn(page));
+      words[page] = [
+        for (final w in read)
+          if (w.text.trim().isNotEmpty)
+            ExportWord(
+              w.text,
+              w.box.left,
+              w.box.bottom,
+              w.box.right,
+              w.box.top,
+            ),
+      ];
+    }
+    if (!cancelled && mounted) {
+      Navigator.of(context, rootNavigator: true).pop(); // the progress dialog
+    }
+    progress.dispose();
+    if (cancelled) return null;
+    final problem = _text.problem;
+    if (problem != null && words.values.every((w) => w.isEmpty) && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Handwriting couldn't be read, so the export won't be "
+            'searchable: $problem',
+          ),
+        ),
+      );
+    }
+    return words;
+  }
+
   Future<void> _export({bool share = false}) async {
     if (widget.sourcePath == null) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -633,6 +726,19 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       );
       return;
     }
+    final choice = await showExportOptions(
+      context,
+      pageCount: _pageCount ?? _ink.ink.pagesWithInk.fold(1, math.max),
+      share: share,
+    );
+    if (choice == null || !mounted) return;
+    var text = const <int, List<ExportWord>>{};
+    if (choice.searchable) {
+      final read = await _readForExport(choice.pages);
+      if (read == null || !mounted) return; // cancelled
+      text = read;
+    }
+    if (!mounted) return;
     final pressure = SettingsScope.of(context).value.pressureResponse;
     final watch = Stopwatch()..start();
     showDialog<void>(
@@ -658,6 +764,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         sourcePath: source,
         ink: _ink.ink,
         pressure: pressure,
+        text: text,
       );
     } catch (e) {
       error = e;

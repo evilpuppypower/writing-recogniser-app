@@ -15,7 +15,9 @@ class PdfExportException implements Exception {
 }
 
 /// Draws [pages] (1-based page number -> lines in PDF page coordinates) onto
-/// the PDF at [sourcePath] and returns the new PDF's bytes. The source file is
+/// the PDF at [sourcePath], adds [text] (recognised words, page number ->
+/// words) as invisible text over the handwriting so the PDF can be searched
+/// (task 1.4b), and returns the new PDF's bytes. The source file is
 /// never changed (CLAUDE.md rule 6): PDFium works on a copy in memory and
 /// writes a new file.
 ///
@@ -25,8 +27,9 @@ class PdfExportException implements Exception {
 Uint8List writeInkIntoPdf(
   pdfium.PDFium lib,
   String sourcePath,
-  Map<int, List<ExportLine>> pages,
-) {
+  Map<int, List<ExportLine>> pages, {
+  Map<int, List<ExportWord>> text = const {},
+}) {
   final path = sourcePath.toNativeUtf8();
   final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
   malloc.free(path);
@@ -40,10 +43,16 @@ Uint8List writeInkIntoPdf(
     final pageCount = lib.FPDF_GetPageCount(doc);
     final box = calloc<pdfium.FS_RECTF>();
     final blend = 'Multiply'.toNativeUtf8();
+    final font = 'Helvetica'.toNativeUtf8();
+    final bounds = calloc<Float>(4);
     try {
-      for (final entry in pages.entries) {
-        final n = entry.key;
-        if (n < 1 || n > pageCount || entry.value.isEmpty) continue;
+      final numbers = {...pages.keys, ...text.keys}.toList()..sort();
+      for (final n in numbers) {
+        final lines = pages[n] ?? const <ExportLine>[];
+        final words = text[n] ?? const <ExportWord>[];
+        if (n < 1 || n > pageCount || (lines.isEmpty && words.isEmpty)) {
+          continue;
+        }
         final page = lib.FPDF_LoadPage(doc, n - 1);
         if (page == nullptr) continue;
         // Saved ink is relative to the visible page's bottom-left corner;
@@ -53,7 +62,7 @@ Uint8List writeInkIntoPdf(
           dx = box.ref.left;
           dy = box.ref.bottom;
         }
-        for (final line in entry.value) {
+        for (final line in lines) {
           final p = line.points;
           if (p.length < 4) continue;
           final obj = lib.FPDFPageObj_CreateNewPath(p[0] + dx, p[1] + dy);
@@ -76,17 +85,81 @@ Uint8List writeInkIntoPdf(
           lib.FPDFPath_SetDrawMode(obj, 0, 1); // no fill, stroke
           lib.FPDFPage_InsertObject(page, obj);
         }
+        for (final w in words) {
+          _addInvisibleWord(lib, doc, page, font, bounds, w, dx, dy);
+        }
         lib.FPDFPage_GenerateContent(page);
         lib.FPDF_ClosePage(page);
       }
     } finally {
       calloc.free(box);
+      calloc.free(bounds);
       malloc.free(blend);
+      malloc.free(font);
     }
     return _save(lib, doc);
   } finally {
     lib.FPDF_CloseDocument(doc);
   }
+}
+
+/// Adds [w] to [page] as invisible text stretched over the word's box, so
+/// searching finds it and selecting it highlights the handwriting.
+void _addInvisibleWord(
+  pdfium.PDFium lib,
+  pdfium.FPDF_DOCUMENT doc,
+  pdfium.FPDF_PAGE page,
+  Pointer<Utf8> font,
+  Pointer<Float> bounds,
+  ExportWord w,
+  double dx,
+  double dy,
+) {
+  final text = w.text.trim();
+  final width = w.right - w.left, height = w.top - w.bottom;
+  if (text.isEmpty || width <= 0 || height <= 0) return;
+  final obj = lib.FPDFPageObj_NewTextObj(doc, font.cast(), 1);
+  if (obj == nullptr) return;
+  // A trailing space keeps words apart when the text is copied.
+  final units = '$text '.codeUnits;
+  final wide = calloc<UnsignedShort>(units.length + 1);
+  for (var i = 0; i < units.length; i++) {
+    wide[i] = units[i];
+  }
+  wide[units.length] = 0;
+  final ok = lib.FPDFText_SetText(obj, wide.cast()) != 0;
+  calloc.free(wide);
+  if (!ok) {
+    lib.FPDFPageObj_Destroy(obj);
+    return;
+  }
+  lib.FPDFTextObj_SetTextRenderMode(
+    obj,
+    pdfium.FPDF_TEXT_RENDERMODE.FPDF_TEXTRENDERMODE_INVISIBLE,
+  );
+  // Measure the text at size 1, then stretch it over the word's box.
+  var textWidth = 0.5 * units.length;
+  if (lib.FPDFPageObj_GetBounds(
+        obj,
+        bounds,
+        bounds + 1,
+        bounds + 2,
+        bounds + 3,
+      ) !=
+      0) {
+    final measured = bounds[2] - bounds[0];
+    if (measured > 0) textWidth = measured;
+  }
+  lib.FPDFPageObj_Transform(
+    obj,
+    width / textWidth,
+    0,
+    0,
+    height * 0.9,
+    w.left + dx,
+    w.bottom + dy + height * 0.15,
+  );
+  lib.FPDFPage_InsertObject(page, obj);
 }
 
 /// Bytes written by PDFium while saving (one save at a time per isolate).
