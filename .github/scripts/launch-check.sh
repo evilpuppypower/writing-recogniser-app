@@ -20,6 +20,19 @@ adb shell am start -W -a android.intent.action.MAIN \
 # Flutter takes a while to start on the emulator; give it time to crash.
 sleep 30
 
+# Only crashes in this app count. The emulator's own apps (e.g. Google Play
+# services) sometimes crash on their own, which says nothing about ours.
+# Java crashes name the process on the line after "FATAL EXCEPTION";
+# native ones name it on the "Fatal signal" line.
+own_crash() {
+  awk -v pkg="$pkg" '
+    /FATAL EXCEPTION/ { next_line = 1; next }
+    next_line { if (index($0, "Process: " pkg) > 0) found = 1; next_line = 0 }
+    /Fatal signal/ && index($0, pkg) > 0 { found = 1 }
+    END { exit found ? 0 : 1 }
+  ' "$1"
+}
+
 pid=$(adb shell pidof "$pkg" | tr -d '\r')
 top=$(adb shell dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity' | tr -d '\r')
 adb logcat -d -v time > launch-logcat.txt 2>&1 || true
@@ -27,8 +40,8 @@ adb logcat -d -v time > launch-logcat.txt 2>&1 || true
 if [ -z "$pid" ]; then
   echo "App is NOT running 30 s after launch" > launch-result.txt
   result=1
-elif grep -q -E 'FATAL EXCEPTION|Fatal signal' launch-logcat.txt; then
-  echo "App is running but a crash was logged" > launch-result.txt
+elif own_crash launch-logcat.txt; then
+  echo "App is running but it logged a crash" > launch-result.txt
   result=1
 elif grep -q -E 'Error registering plugin|W/ComponentDiscovery' launch-logcat.txt; then
   # The app runs, but a plugin (e.g. ML Kit) failed to load, so one of its
@@ -37,6 +50,9 @@ elif grep -q -E 'Error registering plugin|W/ComponentDiscovery' launch-logcat.tx
   result=1
 else
   echo "App opened and is still running (pid $pid)" > launch-result.txt
+  if grep -q -E 'FATAL EXCEPTION|Fatal signal' launch-logcat.txt; then
+    echo "(Another app on the emulator crashed; not counted.)" >> launch-result.txt
+  fi
 fi
 echo "Top activity: $top" >> launch-result.txt
 cat launch-result.txt
