@@ -8,6 +8,7 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../core/app_settings.dart';
 import '../core/document_state.dart';
+import '../core/feedback/correction_store.dart';
 import '../core/ink_classifier.dart';
 import '../core/event_log.dart';
 import '../core/ink_store.dart';
@@ -24,14 +25,17 @@ import '../recognition/engines.dart';
 import '../recognition/myscript_ink_classifier.dart';
 import '../settings/settings_controller.dart';
 import '../storage/app_database.dart';
+import '../storage/sqlite_correction_store.dart';
 import '../storage/sqlite_document_store.dart';
 import '../storage/sqlite_event_log.dart';
 import '../storage/sqlite_ink_store.dart';
 import 'ink_text_controller.dart';
 import 'page_ink_layer.dart';
+import 'correct_word_sheet.dart';
 import 'page_text_labels.dart';
 import 'pen_toolbar.dart';
 import 'pen_tools_controller.dart';
+import 'text_panel.dart';
 
 /// The PDF viewer (task 1.1): scroll and zoom with fingers, page number and
 /// "Go to page", a draggable scroll tab, and it reopens each PDF on the page
@@ -48,6 +52,7 @@ class PdfViewerScreen extends StatefulWidget {
     this.openEventLog = _openEventLog,
     this.makeRecognizer = _mainEngine,
     this.makeClassifier = _mainClassifier,
+    this.openCorrections = SqliteCorrectionStore.open,
     this.openStore = SqliteDocumentStore.open,
     this.openInkStore = SqliteInkStore.open,
     this.sourcePath,
@@ -83,6 +88,9 @@ class PdfViewerScreen extends StatefulWidget {
   final InkClassifier Function() makeClassifier;
 
   static InkClassifier _mainClassifier() => MyScriptInkClassifier();
+
+  /// Where corrections are saved (the app database by default).
+  final Future<CorrectionStore> Function() openCorrections;
 
   static Future<EventLog> _openEventLog() async =>
       SqliteEventLog(await AppDatabase.open());
@@ -138,10 +146,55 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   late final InkTextController _text = InkTextController(
     engine: widget.makeRecognizer(),
     classifier: widget.makeClassifier(),
+    documentId: widget.documentId,
   );
 
+  /// Double-tap on a label: correct the word (task 2.4).
+  Future<void> _fixWord(int page, RecognizedWord word) async {
+    final fix = await showCorrectWordSheet(context, word);
+    switch (fix) {
+      case UseText(:final text):
+        await _text.correct(page, word, text);
+      case NotWriting():
+        _text.markNotWriting(page, word);
+      case null:
+        break;
+    }
+  }
+
   /// Whether recognised text shows under the ink.
-  final _showText = ValueNotifier<bool>(true);
+  /// Labels on or off from the title bar (remembers above/below).
+  TextLabelPlace _lastLabels = TextLabelPlace.above;
+
+  void _toggleLabels() {
+    final settings = SettingsScope.of(context);
+    final s = settings.value;
+    if (s.textLabels != TextLabelPlace.off) _lastLabels = s.textLabels;
+    settings.update(
+      s.copyWith(
+        textLabels: s.textLabels == TextLabelPlace.off
+            ? _lastLabels
+            : TextLabelPlace.off,
+      ),
+    );
+  }
+
+  /// The text panel on or off from the title bar (opens on the right).
+  TextPanelPlace _lastPanel = TextPanelPlace.right;
+
+  void _togglePanel() {
+    final settings = SettingsScope.of(context);
+    final s = settings.value;
+    if (s.textPanel != TextPanelPlace.off) _lastPanel = s.textPanel;
+    _placePanel(
+      s.textPanel == TextPanelPlace.off ? _lastPanel : TextPanelPlace.off,
+    );
+  }
+
+  void _placePanel(TextPanelPlace place) {
+    final settings = SettingsScope.of(context);
+    settings.update(settings.value.copyWith(textPanel: place));
+  }
 
   void _inkChangedForText(int page) => _text.inkChanged(
     page,
@@ -370,76 +423,24 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       ),
     ),
     Positioned.fill(
-      child: ValueListenableBuilder(
-        valueListenable: _showText,
-        builder: (context, show, _) => !show
-            ? const SizedBox.shrink()
-            : PageTextLabels(
-                pageNumber: page.pageNumber,
-                geometry: _geometryOf(page),
-                viewWidth: pageRect.width,
-                text: _text,
-                strokes: () => _ink.ink.strokesOn(page.pageNumber),
-              ),
+      child: Builder(
+        builder: (context) {
+          final place = SettingsScope.valueOf(context).textLabels;
+          return place == TextLabelPlace.off
+              ? const SizedBox.shrink()
+              : PageTextLabels(
+                  above: place == TextLabelPlace.above,
+                  pageNumber: page.pageNumber,
+                  geometry: _geometryOf(page),
+                  viewWidth: pageRect.width,
+                  text: _text,
+                  strokes: () => _ink.ink.strokesOn(page.pageNumber),
+                  onDoubleTap: (w) => _fixWord(page.pageNumber, w),
+                );
+        },
       ),
     ),
   ];
-
-  /// Shows the recognised text of the current page, to read or copy.
-  void _showPageText() {
-    final page = _pageNumber.value ?? 1;
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => ListenableBuilder(
-        listenable: _text,
-        builder: (context, _) {
-          final text = _text.textOf(page);
-          final problem = _text.problem;
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Recognised text, page $page '
-                        '(${_text.engine.name})',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Copy the text',
-                      icon: const Icon(Icons.copy),
-                      onPressed: text.isEmpty
-                          ? null
-                          : () {
-                              Clipboard.setData(ClipboardData(text: text));
-                              Navigator.pop(context);
-                            },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (problem != null)
-                  Text("Handwriting can't be read right now: $problem"),
-                SelectableText(
-                  text.isEmpty
-                      ? 'No handwriting recognised on this page yet. Write '
-                            'with the pen and pause; the text appears above '
-                            'your ink.'
-                      : text,
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
 
   Future<void> _askForPage() async {
     final pages = _pageCount;
@@ -538,6 +539,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       onPause: () => _autosaver?.flush(),
     );
     _loadInk();
+    widget
+        .openCorrections()
+        .then<void>((store) {
+          _text.corrections = store;
+          return _text.loadCorrections();
+        })
+        .catchError((_) {}); // corrections then last only while open
     widget
         .openEventLog()
         .then<void>((log) => _text.eventLog = log)
@@ -713,7 +721,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   @override
   void dispose() {
     _text.dispose();
-    _showText.dispose();
     _saveTimer?.cancel();
     _resumeNoteTimer?.cancel();
     _slowOpenTimer?.cancel();
@@ -762,21 +769,33 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     icon: const Icon(Icons.redo),
                     onPressed: _ink.canRedo ? _ink.redo : null,
                   ),
-                  ValueListenableBuilder(
-                    valueListenable: _showText,
-                    builder: (context, show, _) => IconButton(
-                      tooltip: show
-                          ? 'Hide recognised text above the ink'
-                          : 'Show recognised text above the ink',
-                      isSelected: show,
-                      icon: const Icon(Icons.text_fields),
-                      onPressed: () => _showText.value = !show,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: "This page's recognised text",
-                    icon: const Icon(Icons.notes),
-                    onPressed: _showPageText,
+                  Builder(
+                    builder: (context) {
+                      final s = SettingsScope.valueOf(context);
+                      final labels = s.textLabels != TextLabelPlace.off;
+                      final panel = s.textPanel != TextPanelPlace.off;
+                      return Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: labels
+                                ? 'Hide recognised text over the ink'
+                                : 'Show recognised text over the ink',
+                            isSelected: labels,
+                            icon: const Icon(Icons.text_fields),
+                            onPressed: _toggleLabels,
+                          ),
+                          IconButton(
+                            tooltip: panel
+                                ? 'Close the text panel'
+                                : "Show this page's text in a panel",
+                            isSelected: panel,
+                            icon: const Icon(Icons.notes),
+                            onPressed: _togglePanel,
+                          ),
+                        ],
+                      );
+                    },
                   ),
                   if (widget.sourcePath != null)
                     PopupMenuButton<bool>(
@@ -870,24 +889,35 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               ),
             ],
           ),
-          builder: (context, tools, page) {
+          builder: (context, tools, pdf) {
             final bar = PenToolbar(controller: _tools);
+            final place = SettingsScope.valueOf(context).textPanel;
+            final page = TextPanelLayout(
+              place: place,
+              page: pdf!,
+              panel: RecognisedTextPanel(
+                text: _text,
+                page: _pageNumber,
+                place: place,
+                onPlace: _placePanel,
+              ),
+            );
             return switch (tools.dock) {
               ToolbarDock.top => Column(
                 children: [
                   bar,
-                  Expanded(child: page!),
+                  Expanded(child: page),
                 ],
               ),
               ToolbarDock.left => Row(
                 children: [
                   bar,
-                  Expanded(child: page!),
+                  Expanded(child: page),
                 ],
               ),
               ToolbarDock.right => Row(
                 children: [
-                  Expanded(child: page!),
+                  Expanded(child: page),
                   bar,
                 ],
               ),

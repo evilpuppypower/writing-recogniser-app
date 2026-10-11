@@ -56,6 +56,30 @@ enum WritingHand {
   final String label;
 }
 
+/// Where recognised text appears over the handwriting (owner: above).
+enum TextLabelPlace {
+  above('Above each word'),
+  below('Below each word'),
+  off('Off');
+
+  const TextLabelPlace(this.label);
+  final String label;
+}
+
+/// Where the recognised-text panel sits next to the PDF (owner: docked to
+/// any side, or floating and movable).
+enum TextPanelPlace {
+  off('Off'),
+  right('Right side'),
+  left('Left side'),
+  top('Top'),
+  bottom('Bottom'),
+  floating('Floating window');
+
+  const TextPanelPlace(this.label);
+  final String label;
+}
+
 class AppSettings {
   const AppSettings({
     this.appColour = AppColour.system,
@@ -72,6 +96,8 @@ class AppSettings {
     this.pressureRangePercent = defaultPressureRangePercent,
     this.arrowHookMs = defaultArrowHookMs,
     this.keepInkOnDelete = true,
+    this.textLabels = TextLabelPlace.above,
+    this.textPanel = TextPanelPlace.off,
   });
 
   static const minWritingBoxPercent = 40;
@@ -159,6 +185,12 @@ class AppSettings {
   /// still delete it for one PDF.
   final bool keepInkOnDelete;
 
+  /// Recognised text over the handwriting: above, below or off.
+  final TextLabelPlace textLabels;
+
+  /// The recognised-text panel: off, docked to a side, or floating.
+  final TextPanelPlace textPanel;
+
   AppSettings copyWith({
     AppColour? appColour,
     ScrollTabIdle? scrollTabIdle,
@@ -174,6 +206,8 @@ class AppSettings {
     int? pressureRangePercent,
     int? arrowHookMs,
     bool? keepInkOnDelete,
+    TextLabelPlace? textLabels,
+    TextPanelPlace? textPanel,
   }) => AppSettings(
     appColour: appColour ?? this.appColour,
     scrollTabIdle: scrollTabIdle ?? this.scrollTabIdle,
@@ -203,6 +237,8 @@ class AppSettings {
         .clamp(minPressureRangePercent, maxPressureRangePercent),
     arrowHookMs: (arrowHookMs ?? this.arrowHookMs).clamp(0, maxArrowHookMs),
     keepInkOnDelete: keepInkOnDelete ?? this.keepInkOnDelete,
+    textLabels: textLabels ?? this.textLabels,
+    textPanel: textPanel ?? this.textPanel,
   );
 
   Map<String, Object> toMap() => {
@@ -220,6 +256,8 @@ class AppSettings {
     'pressureRangePercent': pressureRangePercent,
     'arrowHookMs': arrowHookMs,
     'keepInkOnDelete': keepInkOnDelete,
+    'textLabels': textLabels.name,
+    'textPanel': textPanel.name,
   };
 
   /// Reads settings saved by [toMap] (or by older versions, see
@@ -288,6 +326,8 @@ class AppSettings {
           : d.pressureRangePercent,
       arrowHookMs: hook is int ? hook.clamp(0, maxArrowHookMs) : d.arrowHookMs,
       keepInkOnDelete: keepInk is bool ? keepInk : d.keepInkOnDelete,
+      textLabels: byName(TextLabelPlace.values, m['textLabels'], d.textLabels),
+      textPanel: byName(TextPanelPlace.values, m['textPanel'], d.textPanel),
     );
   }
 
@@ -307,7 +347,9 @@ class AppSettings {
       other.pressurePercent == pressurePercent &&
       other.pressureRangePercent == pressureRangePercent &&
       other.arrowHookMs == arrowHookMs &&
-      other.keepInkOnDelete == keepInkOnDelete;
+      other.keepInkOnDelete == keepInkOnDelete &&
+      other.textLabels == textLabels &&
+      other.textPanel == textPanel;
 
   @override
   int get hashCode => Object.hash(
@@ -325,5 +367,7 @@ class AppSettings {
     pressureRangePercent,
     arrowHookMs,
     keepInkOnDelete,
+    textLabels,
+    textPanel,
   );
 }

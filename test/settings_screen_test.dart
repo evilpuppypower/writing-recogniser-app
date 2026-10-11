@@ -154,6 +154,8 @@ void main() {
       ),
       matching: find.byType(Slider),
     );
+    await tester.ensureVisible(storageSlider);
+    await tester.pumpAndSettle();
     await tester.drag(storageSlider, const Offset(-1000, 0));
     await tester.pumpAndSettle();
 
