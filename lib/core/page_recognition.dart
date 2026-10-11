@@ -8,10 +8,8 @@ import 'stroke_grouping.dart';
 
 /// Identifies a word by its strokes, so its text is kept until a stroke is
 /// added to it or erased from it.
-String wordKey(List<PageStroke> strokes, InkWord word) => [
-  for (final i in word.strokes)
-    '${strokes[i].points.first.t}/${strokes[i].points.length}',
-].join(',');
+String wordKey(List<PageStroke> strokes, InkWord word) =>
+    [for (final i in word.strokes) strokes[i].id].join(',');
 
 /// One word to send to the recognizer.
 class RecognitionJob {

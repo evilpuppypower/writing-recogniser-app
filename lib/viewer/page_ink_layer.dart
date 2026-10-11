@@ -71,6 +71,14 @@ class DocumentInkController extends ChangeNotifier {
     onChanged?.call(page);
   }
 
+  /// Marks strokes on [page] as not writing (task 2.4c) and saves them.
+  /// Not undoable: the correction pop-up is how it's changed.
+  void markNotWriting(int page, Set<String> strokeIds) {
+    if (!ink.markNotWriting(page, strokeIds)) return;
+    notifyListeners();
+    onChanged?.call(page);
+  }
+
   /// Puts previously saved ink on the pages, under anything written since
   /// the PDF opened (saved ink loads in the background). Not undoable.
   /// Returns the pages that had new ink too, which need saving again.

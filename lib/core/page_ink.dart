@@ -42,6 +42,7 @@ class PageStroke {
     this.width = 1.2,
     this.tool = InkTool.pen,
     this.arrow = false,
+    this.notWriting = false,
   });
 
   final List<PageInkPoint> points;
@@ -54,11 +55,29 @@ class PageStroke {
   /// Draw an arrowhead at the end of the stroke.
   final bool arrow;
 
+  /// The user said this ink isn't writing (a drawing, a tick), so it's
+  /// never read as text. Saved with the ink, so it lasts (task 2.4c).
+  final bool notWriting;
+
+  /// Identifies the stroke on its page: when it started and how many
+  /// points it has (stable across saving and reopening).
+  String get id => '${points.first.t}/${points.length}';
+
+  PageStroke copyWith({bool? notWriting}) => PageStroke(
+    points: points,
+    colorArgb: colorArgb,
+    width: width,
+    tool: tool,
+    arrow: arrow,
+    notWriting: notWriting ?? this.notWriting,
+  );
+
   Map<String, Object?> toJson() => {
     'color': colorArgb,
     'width': width,
     'tool': tool.name,
     if (arrow) 'arrow': true,
+    if (notWriting) 'notWriting': true,
     'points': [for (final p in points) p.toJson()],
   };
 
@@ -67,6 +86,7 @@ class PageStroke {
     width: (j['width'] as num?)?.toDouble() ?? 1.2,
     tool: InkTool.values.asNameMap()[j['tool']] ?? InkTool.pen,
     arrow: j['arrow'] == true,
+    notWriting: j['notWriting'] == true,
     points: [
       for (final p in (j['points'] as List? ?? const []))
         PageInkPoint.fromJson(p as List<dynamic>),
@@ -202,6 +222,23 @@ class DocumentInk {
   }
 
   /// Replaces all of [page]'s strokes (used by undo and redo).
+  /// Marks the strokes with these [PageStroke.id]s on [page] as not
+  /// writing. Returns whether anything changed.
+  bool markNotWriting(int page, Set<String> ids) {
+    var changed = false;
+    _pages[page] = [
+      for (final s in strokesOn(page))
+        if (!s.notWriting && s.points.isNotEmpty && ids.contains(s.id))
+          () {
+            changed = true;
+            return s.copyWith(notWriting: true);
+          }()
+        else
+          s,
+    ];
+    return changed;
+  }
+
   void setPage(int page, List<PageStroke> strokes) {
     _pages[page] = strokes;
   }
@@ -285,6 +322,7 @@ class DocumentInk {
             tool: s.tool,
             // The arrowhead stays only if the stroke's end survived.
             arrow: s.arrow && identical(run.last, dense.last),
+            notWriting: s.notWriting,
           ),
         );
       }

@@ -166,7 +166,8 @@ class InkTextController extends ChangeNotifier {
   }
 
   /// The user says this ink isn't writing (a drawing, a tick): it's no
-  /// longer read on this page.
+  /// longer read on this page. (The mark is saved on the strokes
+  /// themselves by [DocumentInkController.markNotWriting].)
   void markNotWriting(int page, RecognizedWord word) {
     _notWriting.putIfAbsent(page, () => {}).addAll(word.key.split(','));
     _words[page]?.remove(word.key);
@@ -268,14 +269,13 @@ class InkTextController extends ChangeNotifier {
       final kinds = await classifier.classify(strokes);
       if (_disposed) return;
       final flipped = _notWriting[page] ?? const <String>{};
-      String id(int i) =>
-          '${strokes[i].points.first.t}/${strokes[i].points.length}';
       final plan = planRecognition(
         strokes,
         known,
         include: (i) =>
+            !strokes[i].notWriting &&
             (i >= kinds.length || kinds[i] == InkKind.writing) &&
-            (flipped.isEmpty || !flipped.contains(id(i))),
+            (flipped.isEmpty || !flipped.contains(strokes[i].id)),
       );
       final before = words.length;
       words.removeWhere((key, _) => !plan.keys.contains(key));

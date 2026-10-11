@@ -314,3 +314,8 @@ Two rounds of independent privacy and security reviews; fixes:
 - **Pen double-tap on a word's label** opens the correction pop-up, like a finger double-tap. The pen normally writes, so a pen tap that lands on a label is held back for about 0.65 s: if a second tap follows close by (within 0.4 s and 24 px), both are dropped and the pop-up opens; otherwise the tap is drawn as a dot. Taps away from labels, and any real writing, are drawn straight away.
 - A tap is a touch shorter than 0.25 s that moves less than 8 px (`lib/core/pen_tap.dart`).
 - The labels and the pen's hit test share one layout function, so they always agree where a label is.
+
+## 2026-10-11 — "This isn't writing" is remembered (2.4c)
+
+- The mark is saved on the strokes themselves (`PageStroke.notWriting`, stored with the page's ink), not in a separate list, so it lasts when the PDF is reopened and stays right when part of a stroke is rubbed out (the pieces keep it).
+- It isn't undoable with Undo; the correction pop-up is where it's set. (Undoing it would need a "This is writing" option; not built until asked.)

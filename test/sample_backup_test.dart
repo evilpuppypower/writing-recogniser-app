@@ -286,10 +286,7 @@ void main() {
           if (lied[i + 2] == 1 && lied[i + 3] == 2) setSize(i + 24);
         }
       }
-      expect(
-        () => decodeSampleBackup(lied, maxJsonBytes: 50000),
-        tooBig(),
-      );
+      expect(() => decodeSampleBackup(lied, maxJsonBytes: 50000), tooBig());
     });
 
     test('a zip whose samples.json unpacks to more than the limit', () {

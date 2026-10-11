@@ -282,6 +282,34 @@ void main() {
       expect(engine.calls.length, calls);
       c.dispose();
     });
+
+    testWidgets('"not writing" lasts when the PDF is reopened (task 2.4c)', (
+      tester,
+    ) async {
+      // First visit: mark the second group as not writing, on the ink.
+      final ink = DocumentInk();
+      for (final s in [...word(100, 700, 3, 0), ...word(135, 700, 2, 1000)]) {
+        ink.add(1, s);
+      }
+      final first = InkTextController(engine: FakeEngine());
+      first.inkChanged(1, ink.strokesOn(1), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      final drawing = first.wordsOn(1).last;
+      expect(ink.markNotWriting(1, drawing.key.split(',').toSet()), isTrue);
+      first.dispose();
+
+      // Saved and reopened: a fresh controller doesn't read it.
+      final saved = DocumentInk.fromJson(ink.toJson());
+      final engine = FakeEngine();
+      final reopened = InkTextController(engine: engine);
+      reopened.inkChanged(1, saved.strokesOn(1), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      expect(reopened.textOf(1), 'w3');
+      expect(engine.calls, hasLength(1), reason: 'the drawing is not sent');
+      reopened.dispose();
+    });
   });
 }
 

@@ -35,6 +35,29 @@ void main() {
       expect(ink.strokesOn(2), hasLength(1));
     });
 
+    test('"not writing" marks are kept by id, saved, and survive a split', () {
+      // Real strokes start at different times, so their ids differ.
+      final ink = DocumentInk()
+        ..add(1, line(0, 0, 100, 0))
+        ..add(
+          1,
+          const PageStroke(
+            points: [PageInkPoint(0, 50, 2000), PageInkPoint(100, 50, 2010)],
+          ),
+        );
+      final target = ink.strokesOn(1).last;
+      expect(ink.markNotWriting(1, {target.id}), isTrue);
+      expect(ink.markNotWriting(1, {target.id}), isFalse, reason: 'no change');
+      expect(ink.strokesOn(1).map((s) => s.notWriting), [false, true]);
+      final back = DocumentInk.fromJson(ink.toJson());
+      expect(back.strokesOn(1).map((s) => s.notWriting), [false, true]);
+      // Rubbing out the middle splits the stroke; both pieces keep the mark.
+      back.eraseArea(1, 50, 50, 5);
+      final pieces = back.strokesOn(1).where((s) => s.points.first.y == 50);
+      expect(pieces, hasLength(2));
+      expect(pieces.every((s) => s.notWriting), isTrue);
+    });
+
     test('JSON round trip keeps points, time, pressure, colour and width', () {
       final ink = DocumentInk()
         ..add(

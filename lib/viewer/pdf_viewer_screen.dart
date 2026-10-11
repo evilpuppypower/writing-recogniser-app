@@ -156,6 +156,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       case UseText(:final text):
         await _text.correct(page, word, text);
       case NotWriting():
+        // Saved on the strokes, so it lasts when the PDF is reopened.
+        _ink.markNotWriting(page, word.key.split(',').toSet());
         _text.markNotWriting(page, word);
       case null:
         break;
