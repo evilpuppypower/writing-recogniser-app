@@ -1,0 +1,412 @@
+name: CI
+
+# Kept deliberately lean for the GitHub Free plan: one job, one APK
+# (release, 64-bit ARM only), a launch check on an emulator, and no runs for
+# documentation-only changes.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write # lets the "Report build errors" step post a check
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # The secrets can be kept in the "release" environment, which can
+    # require the owner's approval before a run may use them (Settings ->
+    # Environments). Without that, runs on any branch of this repo get them.
+    environment: release
+    # This repo and its CI logs, checks and artifact names are public, so
+    # nothing here may reveal the owner's time zone, country or identity:
+    # the job runs in UTC, and only the build label inside the APK (which is
+    # only uploaded inside a password zip) uses the owner's local time.
+    steps:
+      # Remove large preinstalled tools we don't use (.NET, Haskell, CodeQL,
+      # Swift) so the Android build has disk space. The Android SDK is kept.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/share/swift
+          df -h /
+
+      # Every action is pinned to an exact commit, not a tag that its owner
+      # could move: this job holds the signing key and MyScript certificate.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # Don't leave the GitHub token in .git/config for later steps.
+          persist-credentials: false
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      # The label shown on the home screen: build number and the owner's
+      # local time (time zone from the BUILD_TZ secret, UTC without it). The
+      # file and artifact names use only the build number, because they are
+      # public and a local time next to GitHub's UTC times gives away the
+      # time zone.
+      - name: Build stamp
+        id: stamp
+        env:
+          BUILD_TZ: ${{ secrets.BUILD_TZ }}
+        run: |
+          # Kept in a file, not a step output: GitHub prints each step's
+          # command (with outputs filled in) in the public log.
+          echo "${{ github.run_number }} · $(TZ="${BUILD_TZ:-UTC}" date '+%Y-%m-%d %H:%M')" > "$RUNNER_TEMP/build-label"
+          echo "file=build-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      # MyScript offline engine. The owner's certificate comes from a repo
+      # secret and is never committed; builds without it still work (the
+      # engine then says it has no certificate). English recognition files
+      # are downloaded from MyScript (British first, then US).
+      - name: Add MyScript certificate and recognition files
+        env:
+          MYSCRIPT_CERT: ${{ secrets.MYSCRIPT_CERTIFICATE_JAVA }}
+        run: |
+          if [ -n "$MYSCRIPT_CERT" ]; then
+            dir=android/app/src/main/java/com/myscript/certificate
+            mkdir -p "$dir"
+            printf '%s\n' "$MYSCRIPT_CERT" > "$dir/MyCertificate.java"
+            grep -q 'class MyCertificate' "$dir/MyCertificate.java" \
+              || { echo '::error::MYSCRIPT_CERTIFICATE_JAVA is not a MyCertificate.java file'; exit 1; }
+            echo 'MyScript certificate added.'
+          else
+            echo '::warning::No MYSCRIPT_CERTIFICATE_JAVA secret; MyScript offline will be unavailable in this build.'
+          fi
+          base=https://download.myscript.com/iink/recognitionAssets_iink_4.5
+          # Fingerprints (SHA-256) of MyScript's files, so a changed or
+          # tampered download can't get into the app. Empty means not pinned
+          # yet: the build prints the fingerprint to pin.
+          declare -A pin=(
+            [text-en_GB]=''
+            [text-en_US]=''
+            [raw-content]=''
+            [raw-content2]=''
+          )
+          check() { # $1 = file, $2 = name
+            local got want
+            got=$(sha256sum "$1" | cut -c1-64)
+            want=${pin[$2]:-}
+            if [ -z "$want" ]; then
+              echo "::warning::MyScript $2 is not pinned yet. SHA-256: $got"
+            elif [ "$got" != "$want" ]; then
+              echo "::error::MyScript $2 changed (SHA-256 $got). MyScript may have updated it, or it was tampered with: check before updating the pin."
+              exit 1
+            fi
+          }
+          for lang in en_GB en_US; do
+            if curl -fsSL --retry 3 -o text.zip "$base/myscript-iink-recognition-text-$lang.zip"; then
+              check text.zip "text-$lang"
+              unzip -q -o text.zip -d myscript-assets
+              # The folder that holds conf/ and resources/.
+              conf=$(find myscript-assets -type d -name conf | head -n 1)
+              [ -n "$conf" ] || { echo "::error::MyScript $lang files have no conf folder"; exit 1; }
+              root=$(dirname "$conf")
+              mkdir -p android/app/src/main/assets/myscript
+              cp -r "$root"/. android/app/src/main/assets/myscript/
+              rm -rf text.zip myscript-assets
+              echo "MyScript recognition files added: $lang"
+              ls android/app/src/main/assets/myscript/conf
+              du -sh android/app/src/main/assets/myscript
+              break
+            fi
+            echo "No MyScript files for $lang"
+          done
+          # Optional: the files MyScript needs to sort ink into writing and
+          # drawings ("Raw Content", task 2.2b). Without them the app uses
+          # its own shape check instead, so a failed download isn't an error.
+          for pack in raw-content raw-content2; do
+            if curl -fsSL --retry 3 -o raw.zip "$base/myscript-iink-recognition-$pack.zip"; then
+              check raw.zip "$pack"
+              unzip -q -o raw.zip -d myscript-raw
+              conf=$(find myscript-raw -type d -name conf | head -n 1)
+              [ -n "$conf" ] || { echo "::error::MyScript $pack files have no conf folder"; exit 1; }
+              root=$(dirname "$conf")
+              cp -r "$root"/. android/app/src/main/assets/myscript/
+              rm -rf raw.zip myscript-raw
+              echo "MyScript writing/drawing sorting files added: $pack"
+              ls android/app/src/main/assets/myscript/conf
+              break
+            fi
+            echo "No MyScript $pack files"
+          done
+
+      # Release mode runs at full speed, so this is the APK to test on the
+      # tablet. 64-bit ARM only: every Android 16 tablet uses it, and building
+      # one CPU type keeps the job small. Built with a throwaway key and
+      # signed with the owner's key in the next step, so the signing key is
+      # never on disk while build tools and plugins run. Not a Play Store
+      # build. The log drops any line about the MyScript certificate.
+      - name: Build release APK
+        id: release
+        run: |
+          set -o pipefail
+          flutter build apk --release --target-platform android-arm64 \
+            --dart-define=BUILD_STAMP="$(cat "$RUNNER_TEMP/build-label")" \
+            2>&1 | { grep -v -i -E 'MyCertificate|com/myscript/certificate|BYTES *=' || true; } | tee build.log
+          mv build/app/outputs/flutter-apk/app-release.apk \
+            "writing-recogniser-${{ steps.stamp.outputs.file }}.apk"
+
+      # The owner's signing key (repo secrets), so each APK installs over the
+      # previous one and keeps the app's data. Only Google's apksigner sees
+      # it, and the key file is deleted as soon as signing ends.
+      - name: Sign APK with the owner's key
+        if: steps.release.outcome == 'success'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          apk="writing-recogniser-${{ steps.stamp.outputs.file }}.apk"
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo '::warning::No ANDROID_KEYSTORE_BASE64 secret; this APK uses a throwaway key and will not install over other builds.'
+            exit 0
+          fi
+          ks="$RUNNER_TEMP/app.jks"
+          trap 'rm -f "$ks"' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$ks"
+          signer="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/apksigner"
+          "$signer" sign --ks "$ks" --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEYSTORE_PASSWORD --v4-signing-enabled false \
+            --out signed.apk "$apk"
+          "$signer" verify signed.apk > /dev/null
+          mv signed.apk "$apk"
+          echo 'Signed with the owner key.'
+
+      # If the build fails, publish the error lines as a separate check
+      # ("build-errors") so they can be read without downloading the raw log.
+      - name: Report build errors
+        if: failure() && steps.release.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          {
+            echo '== Lines mentioning errors =='
+            grep -n -i -E -A6 'error|what went wrong|exception|failed' build.log | head -n 300 || true
+            echo
+            echo '== Last 60 lines =='
+            tail -n 60 build.log || true
+          } | grep -v -i -E 'MyCertificate|com/myscript/certificate|BYTES *=|dart-define' \
+            | sed -E 's/[A-Za-z0-9+\/=_-]{40,}/[long value removed]/g; s/(-?(0x)?[0-9A-Fa-f]{1,4}, *){8,}/[number list removed]/g' \
+            | cut -c1-300 | head -c 60000 > build-errors.txt || true
+          jq -n --arg sha "$HEAD_SHA" --rawfile text build-errors.txt '{
+            name: "build-errors", head_sha: $sha, status: "completed",
+            conclusion: "failure",
+            output: {title: "APK build failed", summary: "Error lines from flutter build apk", text: $text}
+          }' | gh api "repos/${{ github.repository }}/check-runs" --input -
+
+      # A short report on what's inside the APK (start-up components, native
+      # libraries), published as an "apk-info" check so it can be read
+      # without downloading the APK. Takes a few seconds.
+      # Fingerprints (SHA-256) of things downloaded during the build that end
+      # up in, or build, the APK: PDFium (the PDF engine, downloaded by the
+      # pdfium_dart package) and Gradle. Empty means not pinned yet: the
+      # build prints the fingerprint to pin.
+      - name: Check downloaded build parts
+        if: steps.release.outcome == 'success'
+        run: |
+          status=0
+          check() { # $1 = name, $2 = fingerprint, $3 = pinned fingerprint
+            if [ -z "$2" ]; then
+              echo "::error::$1 not found"; status=1
+            elif [ -z "$3" ]; then
+              echo "::warning::$1 is not pinned yet. SHA-256: $2"
+            elif [ "$2" != "$3" ]; then
+              echo "::error::$1 changed (SHA-256 $2): check before updating the pin."; status=1
+            fi
+          }
+          apk="writing-recogniser-${{ steps.stamp.outputs.file }}.apk"
+          pdfium=$(unzip -p "$apk" lib/arm64-v8a/libpdfium.so 2>/dev/null | sha256sum | cut -c1-64)
+          [ "$pdfium" = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 ] && pdfium=''
+          check "PDFium (libpdfium.so)" "$pdfium" ''
+          gradle=$(find ~/.gradle/wrapper/dists -name 'gradle-*-all.zip' -exec sha256sum {} + 2>/dev/null | head -n 1 | cut -c1-64)
+          if [ -n "$gradle" ]; then
+            check "Gradle distribution" "$gradle" ''
+          else
+            echo "::warning::Gradle download not found in the cache; not checked."
+          fi
+          exit $status
+
+      - name: APK info
+        if: steps.release.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          apk="writing-recogniser-${{ steps.stamp.outputs.file }}.apk"
+          manifest=$(find build/app/intermediates -name AndroidManifest.xml -path '*merged_manifest*release*' | head -n 1)
+          {
+            echo "== APK: $apk ($(du -h "$apk" | cut -f1))"
+            echo
+            echo "== Signing certificate"
+            "$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/apksigner" \
+              verify --print-certs "$apk" | grep -E 'SHA-256' || true
+            echo
+            echo "== Native libraries"
+            unzip -l "$apk" | grep -E 'lib/.*\.so' || true
+            echo
+            echo "== Merged manifest ($manifest)"
+            cat "$manifest" || true
+          } | grep -v -i -E 'MyCertificate|com/myscript/certificate|BYTES *=' | cut -c1-300 | head -c 60000 > apk-info.txt
+          jq -n --arg sha "$HEAD_SHA" --rawfile text apk-info.txt '{
+            name: "apk-info", head_sha: $sha, status: "completed",
+            conclusion: "neutral",
+            output: {title: "What is inside the APK", summary: "Native libraries and merged manifest", text: $text}
+          }' | gh api "repos/${{ github.repository }}/check-runs" --input - > /dev/null
+
+      # The APK contains MyScript's SDK and the owner's MyScript certificate,
+      # so it is only ever uploaded inside a password-protected zip
+      # (AES-256; password in the APK_ZIP_PASSWORD secret). Never uploaded
+      # without it.
+      - name: Protect APK with a password
+        env:
+          APK_ZIP_PASSWORD: ${{ secrets.APK_ZIP_PASSWORD }}
+        run: |
+          if [ -z "$APK_ZIP_PASSWORD" ]; then
+            echo '::error::No APK_ZIP_PASSWORD secret: the APK is not uploaded unprotected.'
+            exit 1
+          fi
+          # Anyone can download the zip and try passwords offline, so a short
+          # one is refused.
+          if [ "${#APK_ZIP_PASSWORD}" -lt 16 ]; then
+            echo '::error::APK_ZIP_PASSWORD is too short: use at least 16 random characters.'
+            exit 1
+          fi
+          name=writing-recogniser-${{ steps.stamp.outputs.file }}
+          7z a -tzip -mem=AES256 -p"$APK_ZIP_PASSWORD" "$name.zip" "$name.apk" > /dev/null
+          # No unprotected copy is left for the later steps.
+          rm -f "$name.apk"
+
+      - name: Upload APK (password-protected zip)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: writing-recogniser-${{ steps.stamp.outputs.file }}
+          path: writing-recogniser-${{ steps.stamp.outputs.file }}.zip
+          if-no-files-found: error
+          # Kept briefly: anyone can download artifacts from a public repo.
+          retention-days: 7
+
+      # Launch check (owner-approved): open the APK on an Android 16 emulator
+      # and make sure it stays open. Its log is published as the
+      # "launch-check" check. The APK is uploaded first so it is available
+      # even if this fails.
+      - name: Enable KVM for the emulator
+        if: steps.release.outcome == 'success'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # The emulator is x86_64 and can't run ARM code, so the launch check
+      # uses a test-only x86_64 build of the same code (not uploaded).
+      - name: Build emulator APK (test only)
+        id: emulator_apk
+        if: steps.release.outcome == 'success'
+        env:
+          APP_ABIS: x86_64
+        run: |
+          flutter build apk --release --target-platform android-x64 \
+            --dart-define=BUILD_STAMP="$(cat "$RUNNER_TEMP/build-label")"
+          mv build/app/outputs/flutter-apk/app-release.apk emulator-test.apk
+          # Builds are done: remove the MyScript certificate before the
+          # third-party emulator steps.
+          rm -rf android/app/src/main/java/com/myscript/certificate
+          # Two builds fill the disk; the emulator needs several GB free.
+          rm -rf build android/.gradle android/app/.cxx ~/.gradle/caches/transforms-* \
+            ~/.gradle/caches/*/transforms || true
+          # The build tools stay in memory (Gradle is allowed 8 GB); stop them
+          # so the emulator has room, otherwise the runner can run out of
+          # memory and stop mid-check.
+          (cd android && ./gradlew --stop) || true
+          pkill -f 'GradleDaemon|KotlinCompileDaemon' || true
+          df -h / | tee disk.txt
+          free -h | tee -a disk.txt
+
+      # The emulator sometimes fails to boot on GitHub's runners; if it never
+      # produced a result, try once more before giving up.
+      - name: Launch check
+        id: launch
+        continue-on-error: true
+        if: steps.emulator_apk.outcome == 'success'
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          ram-size: 2048M
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/launch-check.sh emulator-test.apk
+
+      - name: Launch check (second try, emulator didn't start)
+        id: launch2
+        if: steps.launch.outcome == 'failure' && hashFiles('launch-result.txt') == ''
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          ram-size: 2048M
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/launch-check.sh emulator-test.apk
+
+      - name: Report launch check
+        if: always() && steps.emulator_apk.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          OUTCOME: ${{ steps.launch2.outcome == 'success' && 'success' || steps.launch.outcome }}
+        run: |
+          {
+            cat launch-result.txt 2>/dev/null || echo "No result (emulator didn't start?)"
+            echo
+            echo '== Disk and memory before the emulator =='
+            cat disk.txt 2>/dev/null || true
+            echo
+            echo '== Crash lines =='
+            grep -n -E -A60 'FATAL EXCEPTION|Fatal signal|AndroidRuntime|DEBUG   :|libc   :|Error registering plugin|ComponentDiscovery' launch-logcat.txt | head -n 400 || true
+            echo
+            echo '== App log lines =='
+            grep -E 'writingrecogniser|flutter|MlKit|myscript' launch-logcat.txt | tail -n 150 || true
+            echo
+            echo '== Last 120 log lines =='
+            tail -n 120 launch-logcat.txt 2>/dev/null || true
+          } | grep -v -i -E 'MyCertificate|com/myscript/certificate|BYTES *=' | cut -c1-300 | head -c 60000 > launch-report.txt
+          if [ "$OUTCOME" = success ]; then c=success; else c=failure; fi
+          jq -n --arg sha "$HEAD_SHA" --arg c "$c" --rawfile text launch-report.txt '{
+            name: "launch-check", head_sha: $sha, status: "completed",
+            conclusion: $c,
+            output: {title: "Does the app open on an Android 16 emulator?", summary: "Result and device log", text: $text}
+          }' | gh api "repos/${{ github.repository }}/check-runs" --input - > /dev/null
+          [ "$c" = success ] || { echo "Launch check failed"; exit 1; }

@@ -1,0 +1,82 @@
+import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart';
+
+/// The app's SQLite database (samples, event log, PDF library state;
+/// annotations and corrections later). Everything stays on the tablet (CLAUDE.md rule 7).
+class AppDatabase {
+  AppDatabase._();
+
+  static const fileName = 'writing_recogniser.db';
+  static const version = 5;
+
+  /// Opens (and creates or upgrades) the database. [factory] and [path] can
+  /// be overridden for tests.
+  static Future<Database> open({DatabaseFactory? factory, String? path}) async {
+    final f = factory ?? databaseFactory;
+    final dbPath = path ?? p.join(await f.getDatabasesPath(), fileName);
+    return f.openDatabase(
+      dbPath,
+      options: OpenDatabaseOptions(
+        version: version,
+        onCreate: (db, version) => _migrate(db, 0, version),
+        onUpgrade: _migrate,
+      ),
+    );
+  }
+
+  static Future<void> _migrate(Database db, int from, int to) async {
+    if (from < 1) {
+      await db.execute('''
+        CREATE TABLE samples (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          text TEXT NOT NULL,
+          strokes TEXT NOT NULL,      -- JSON: [[[x, y, t, pressure], ...], ...]
+          created_at INTEGER NOT NULL, -- ms since epoch
+          canvas_width REAL,
+          canvas_height REAL
+        )
+      ''');
+    }
+    if (from < 2) {
+      await db.execute('''
+        CREATE TABLE events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          type TEXT NOT NULL,          -- recognition, correction, accept, ...
+          at INTEGER NOT NULL,         -- ms since epoch
+          engine TEXT,
+          latency_ms INTEGER,          -- pen lift to text shown
+          data TEXT NOT NULL           -- JSON with extra details
+        )
+      ''');
+      await db.execute('CREATE INDEX events_type ON events(type)');
+    }
+    if (from < 3) {
+      await db.execute('''
+        CREATE TABLE documents (
+          id TEXT PRIMARY KEY,         -- library id (same as stored copy)
+          last_page INTEGER NOT NULL,  -- 1-based page the user was on
+          page_count INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL  -- ms since epoch
+        )
+      ''');
+    }
+    if (from < 4) {
+      // Pen hover between strokes: JSON [[x, y, t], ...]; null for older
+      // samples.
+      await db.execute('ALTER TABLE samples ADD COLUMN hover TEXT');
+    }
+    if (from < 5) {
+      // Ink written on PDFs (task 1.3): one row per page with ink, strokes
+      // in PDF page coordinates. The PDF itself is never changed.
+      await db.execute('''
+        CREATE TABLE page_ink (
+          document_id TEXT NOT NULL,   -- library id (as in documents)
+          page INTEGER NOT NULL,       -- 1-based
+          strokes TEXT NOT NULL,       -- JSON list of PageStroke
+          updated_at INTEGER NOT NULL, -- ms since epoch
+          PRIMARY KEY (document_id, page)
+        )
+      ''');
+    }
+  }
+}

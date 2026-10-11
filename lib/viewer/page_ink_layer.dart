@@ -1,0 +1,615 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../core/page_coordinates.dart';
+import '../core/page_ink.dart';
+import '../core/pen_tools.dart';
+import '../settings/settings_controller.dart';
+
+/// One undoable change: a page's strokes before and after.
+class _InkEdit {
+  const _InkEdit(this.page, this.before, this.after);
+  final int page;
+  final List<PageStroke> before;
+  final List<PageStroke> after;
+}
+
+/// The ink of one open PDF, shared by every page's [PageInkLayer]. Notifies
+/// listeners whenever a page's ink changes. Keeps an undo/redo history
+/// (one step per stroke or per eraser gesture).
+class DocumentInkController extends ChangeNotifier {
+  DocumentInkController([DocumentInk? ink]) : ink = ink ?? DocumentInk();
+
+  final DocumentInk ink;
+
+  /// Called after a stroke is added, erased, undone or redone (e.g. to
+  /// save, task 1.3).
+  void Function(int page)? onChanged;
+
+  static const maxHistory = 200;
+  final _undo = <_InkEdit>[];
+  final _redo = <_InkEdit>[];
+  ({int page, List<PageStroke> before})? _gesture;
+
+  bool get canUndo => _undo.isNotEmpty;
+  bool get canRedo => _redo.isNotEmpty;
+
+  void _record(int page, List<PageStroke> before) {
+    final after = ink.strokesOn(page);
+    if (identical(before, after)) return;
+    _undo.add(_InkEdit(page, before, after));
+    if (_undo.length > maxHistory) _undo.removeAt(0);
+    _redo.clear();
+  }
+
+  /// Starts an eraser gesture on [page]: everything it removes until
+  /// [endGesture] is undone in one step.
+  void beginGesture(int page) {
+    _gesture = (page: page, before: ink.strokesOn(page));
+  }
+
+  void endGesture() {
+    final g = _gesture;
+    _gesture = null;
+    if (g != null) {
+      _record(g.page, g.before);
+      notifyListeners(); // undo availability may have changed
+    }
+  }
+
+  void add(int page, PageStroke stroke) {
+    final before = ink.strokesOn(page);
+    ink.add(page, stroke);
+    if (_gesture == null) _record(page, before);
+    notifyListeners();
+    onChanged?.call(page);
+  }
+
+  /// Puts previously saved ink on the pages, under anything written since
+  /// the PDF opened (saved ink loads in the background). Not undoable.
+  /// Returns the pages that had new ink too, which need saving again.
+  Set<int> restore(DocumentInk saved) {
+    final mixed = <int>{};
+    for (final page in saved.pagesWithInk) {
+      final old = saved.strokesOn(page);
+      final now = ink.strokesOn(page);
+      if (now.isNotEmpty) mixed.add(page);
+      ink.setPage(page, [...old, ...now]);
+      // Undo and redo of earlier edits on this page keep the saved ink.
+      for (final h in [_undo, _redo]) {
+        for (var i = 0; i < h.length; i++) {
+          final e = h[i];
+          if (e.page != page) continue;
+          h[i] = _InkEdit(page, [...old, ...e.before], [...old, ...e.after]);
+        }
+      }
+    }
+    notifyListeners();
+    return mixed;
+  }
+
+  void undo() => _step(_undo, _redo, (e) => e.before);
+
+  void redo() => _step(_redo, _undo, (e) => e.after);
+
+  void _step(
+    List<_InkEdit> from,
+    List<_InkEdit> to,
+    List<PageStroke> Function(_InkEdit) pick,
+  ) {
+    if (from.isEmpty) return;
+    final edit = from.removeLast();
+    ink.setPage(edit.page, pick(edit));
+    to.add(edit);
+    notifyListeners();
+    onChanged?.call(edit.page);
+  }
+
+  bool eraseAt(int page, double x, double y, double radius) {
+    final before = ink.strokesOn(page);
+    final removed = ink.eraseAt(page, x, y, radius);
+    if (removed.isEmpty) return false;
+    if (_gesture == null) _record(page, before);
+    notifyListeners();
+    onChanged?.call(page);
+    return true;
+  }
+
+  /// Partial erase (only where the eraser touches).
+  bool eraseArea(int page, double x, double y, double radius) {
+    final before = ink.strokesOn(page);
+    if (!ink.eraseArea(page, x, y, radius)) return false;
+    if (_gesture == null) _record(page, before);
+    notifyListeners();
+    onChanged?.call(page);
+    return true;
+  }
+}
+
+/// Lets the pen write on one PDF page while fingers keep scrolling and
+/// zooming the document. Draws that page's ink.
+///
+/// Ink is converted to PDF page coordinates as it is written, so it stays
+/// locked to the page at any zoom (CLAUDE.md rule 6).
+class PageInkLayer extends StatefulWidget {
+  const PageInkLayer({
+    super.key,
+    required this.pageNumber,
+    required this.geometry,
+    required this.viewWidth,
+    required this.controller,
+    this.tools,
+  });
+
+  final int pageNumber;
+  final PageGeometry geometry;
+
+  /// Width of the page as laid out (before zoom), in logical pixels.
+  final double viewWidth;
+  final DocumentInkController controller;
+
+  /// The current pen, highlighter or eraser (default pen if null).
+  final ValueListenable<PenToolsState>? tools;
+
+  @override
+  State<PageInkLayer> createState() => _PageInkLayerState();
+}
+
+class _PageInkLayerState extends State<PageInkLayer> {
+  final _active = ValueNotifier<List<PageInkPoint>>(const []);
+  bool _erasing = false;
+
+  /// Where to draw the eraser outline (the area it will clear), while the
+  /// pen hovers or erases in eraser mode or with the side button held.
+  /// Null when hidden.
+  final _eraserAt = ValueNotifier<Offset?>(null);
+  Timer? _eraserHide;
+
+  void _showEraser(Offset at) {
+    _eraserAt.value = at;
+    // Hidden as soon as the pen leaves hover range (onExit below); as a
+    // backstop, Android doesn't always say so, also hide it shortly after
+    // the pen stops reporting.
+    _eraserHide?.cancel();
+    _eraserHide = Timer(const Duration(milliseconds: 200), _hideEraser);
+  }
+
+  void _hideEraser() {
+    _eraserHide?.cancel();
+    _eraserAt.value = null;
+  }
+
+  void _hover(PointerEvent e) {
+    if (e.kind != PointerDeviceKind.stylus &&
+        e.kind != PointerDeviceKind.invertedStylus) {
+      return;
+    }
+    // The outline shows only while erasing (owner: the tablet's own hover
+    // circle already shows where the pen is), so hovering hides it.
+    if (_eraserAt.value != null) _hideEraser();
+  }
+
+  /// Style of the stroke being written (fixed when the pen touches down).
+  PenStyle _style = PenStyle.defaultPen;
+
+  /// Hold to snap: where the pen last came to rest, the countdown to
+  /// straighten the stroke, and whether it has been straightened.
+  Offset? _stillAt;
+  Timer? _snapTimer;
+  bool _snapped = false;
+
+  void _restartSnapTimer(Offset at) {
+    _stillAt = at;
+    _snapTimer?.cancel();
+    _snapTimer = Timer(snapHoldTime, _snap);
+  }
+
+  void _snap() {
+    final pts = _active.value;
+    if (_erasing || _snapped || pts.length < 2) return;
+    final dx = (pts.last.x - pts.first.x) * _pixelsPerPoint;
+    final dy = (pts.last.y - pts.first.y) * _pixelsPerPoint;
+    if (math.sqrt(dx * dx + dy * dy) < snapMinLengthPixels) return;
+    _snapped = true;
+    _active.value = straightLine(pts.first, pts.last);
+    HapticFeedback.selectionClick();
+  }
+
+  PenToolsState get _tools => widget.tools?.value ?? const PenToolsState();
+
+  double get _pixelsPerPoint => widget.viewWidth / widget.geometry.displayWidth;
+
+  PageInkPoint _pointOf(PointerEvent e) {
+    final p = widget.geometry.toPdf(
+      ViewPoint(e.localPosition.dx, e.localPosition.dy),
+      widget.viewWidth,
+    );
+    final range = e.pressureMax - e.pressureMin;
+    final pressure = range <= 0
+        ? 0.5
+        : ((e.pressure - e.pressureMin) / range).clamp(0.0, 1.0);
+    return PageInkPoint(
+      p.x,
+      p.y,
+      DateTime.now().millisecondsSinceEpoch,
+      pressure.toDouble(),
+    );
+  }
+
+  /// Side button held (stylus primary or secondary), or the eraser end.
+  static bool _isEraser(PointerEvent e) =>
+      e.kind == PointerDeviceKind.invertedStylus ||
+      e.buttons & (kPrimaryStylusButton | kSecondaryStylusButton) != 0;
+
+  /// Where the eraser was at the previous event, so a fast movement erases
+  /// everything along its path, not just where events landed.
+  PageInkPoint? _lastErase;
+
+  void _erase(PointerEvent e) {
+    _showEraser(e.localPosition);
+    final p = _pointOf(e);
+    final tools = _tools;
+    final radius = tools.eraserSize / _pixelsPerPoint;
+    final from = _lastErase ?? p;
+    _lastErase = p;
+    final dx = p.x - from.x, dy = p.y - from.y;
+    final steps = (math.sqrt(dx * dx + dy * dy) / (radius / 2)).ceil();
+    for (var i = 0; i <= steps; i++) {
+      final f = steps == 0 ? 1.0 : i / steps;
+      final x = from.x + dx * f, y = from.y + dy * f;
+      if (tools.eraser == EraserKind.area) {
+        widget.controller.eraseArea(widget.pageNumber, x, y, radius);
+      } else {
+        widget.controller.eraseAt(widget.pageNumber, x, y, radius);
+      }
+    }
+  }
+
+  void _down(PointerEvent e) {
+    _lastErase = null;
+    final current = _tools.current;
+    _erasing = current == null || _isEraser(e);
+    if (current != null) _style = current;
+    if (_erasing) widget.controller.beginGesture(widget.pageNumber);
+    if (_erasing) {
+      _erase(e);
+    } else {
+      _active.value = [_pointOf(e)];
+      _snapped = false;
+      _restartSnapTimer(e.localPosition);
+    }
+  }
+
+  void _move(PointerEvent e) {
+    if (!_erasing && _isEraser(e)) {
+      _lastErase = null;
+      widget.controller.beginGesture(widget.pageNumber);
+      _active.value = const []; // button pressed mid-stroke: erase instead
+      _snapTimer?.cancel();
+      _erasing = true;
+    }
+    if (_erasing) {
+      _erase(e);
+    } else if (_snapped) {
+      // Straightened: the end follows the pen until it lifts.
+      _active.value = straightLine(_active.value.first, _pointOf(e));
+    } else {
+      _active.value = [..._active.value, _pointOf(e)];
+      final still = _stillAt;
+      if (still == null ||
+          (e.localPosition - still).distance > snapStillPixels) {
+        _restartSnapTimer(e.localPosition);
+      }
+    }
+  }
+
+  void _up(PointerEvent e) {
+    _snapTimer?.cancel();
+    if (_erasing) {
+      _erasing = false;
+      widget.controller.endGesture();
+      _hideEraser();
+      return;
+    }
+    var points = _snapped
+        ? straightLine(_active.value.first, _pointOf(e))
+        : [..._active.value, _pointOf(e)];
+    if (_style.arrow && !_snapped) {
+      // Drop the flick as the pen lifts, so the head points along the line.
+      points = trimLiftHook(
+        points,
+        arrowheadSize(_style.width) * 1.5,
+        withinMs: SettingsScope.valueOf(context).arrowHookMs,
+      );
+    }
+    _active.value = const [];
+    _snapped = false;
+    widget.controller.add(
+      widget.pageNumber,
+      PageStroke(
+        points: points,
+        colorArgb: _style.colorArgb,
+        width: _style.width,
+        tool: _style.tool,
+        arrow: _style.arrow,
+      ),
+    );
+  }
+
+  void _cancel() {
+    _snapTimer?.cancel();
+    _snapped = false;
+    if (_erasing) widget.controller.endGesture();
+    _erasing = false;
+    _active.value = const [];
+    _hideEraser();
+  }
+
+  @override
+  void dispose() {
+    _snapTimer?.cancel();
+    _eraserHide?.cancel();
+    _active.dispose();
+    _eraserAt.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final layer = RawGestureDetector(
+      behavior: HitTestBehavior.translucent,
+      gestures: {
+        StylusInkRecognizer:
+            GestureRecognizerFactoryWithHandlers<StylusInkRecognizer>(
+              () => StylusInkRecognizer(debugOwner: this),
+              (r) => r
+                ..onDown = _down
+                ..onMove = _move
+                ..onUp = _up
+                ..onCancel = _cancel,
+            ),
+      },
+      child: RepaintBoundary(
+        child: CustomPaint(
+          painter: _PageInkPainter(
+            controller: widget.controller,
+            active: _active,
+            pageNumber: widget.pageNumber,
+            geometry: widget.geometry,
+            viewWidth: widget.viewWidth,
+            activeStyle: () => _style,
+            pressure: SettingsScope.valueOf(context).pressureResponse,
+            eraserAt: _eraserAt,
+            eraserRadius: () => _tools.eraserSize,
+          ),
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    // Hover events from the pen (it reports its position before touching).
+    return MouseRegion(
+      opaque: false,
+      hitTestBehavior: HitTestBehavior.translucent,
+      onExit: (_) => _hideEraser(),
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerHover: _hover,
+        child: layer,
+      ),
+    );
+  }
+}
+
+/// Claims stylus pointers the moment they touch, so the pen writes instead
+/// of scrolling the PDF. Fingers are not accepted and keep scrolling and
+/// zooming as usual.
+class StylusInkRecognizer extends OneSequenceGestureRecognizer {
+  StylusInkRecognizer({super.debugOwner})
+    : super(
+        supportedDevices: const {
+          PointerDeviceKind.stylus,
+          PointerDeviceKind.invertedStylus,
+        },
+      );
+
+  void Function(PointerEvent event)? onDown;
+  void Function(PointerEvent event)? onMove;
+  void Function(PointerEvent event)? onUp;
+  VoidCallback? onCancel;
+
+  int? _pointer;
+
+  @override
+  bool isPointerAllowed(PointerDownEvent event) =>
+      _pointer == null && super.isPointerAllowed(event);
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    super.addAllowedPointer(event);
+    _pointer = event.pointer;
+    resolve(GestureDisposition.accepted);
+    onDown?.call(event);
+  }
+
+  @override
+  void handleEvent(PointerEvent event) {
+    if (event.pointer != _pointer) return;
+    if (event is PointerMoveEvent) {
+      onMove?.call(event);
+    } else if (event is PointerUpEvent) {
+      onUp?.call(event);
+      _finish(event.pointer);
+    } else if (event is PointerCancelEvent) {
+      onCancel?.call();
+      _finish(event.pointer);
+    }
+  }
+
+  void _finish(int pointer) {
+    _pointer = null;
+    stopTrackingPointer(pointer);
+  }
+
+  @override
+  void rejectGesture(int pointer) {
+    if (pointer == _pointer) {
+      onCancel?.call();
+      _pointer = null;
+    }
+    super.rejectGesture(pointer);
+  }
+
+  @override
+  void didStopTrackingLastPointer(int pointer) {}
+
+  @override
+  String get debugDescription => 'stylus ink';
+}
+
+class _PageInkPainter extends CustomPainter {
+  _PageInkPainter({
+    required this.controller,
+    required this.active,
+    required this.pageNumber,
+    required this.geometry,
+    required this.viewWidth,
+    required this.activeStyle,
+    required this.pressure,
+    required this.eraserAt,
+    required this.eraserRadius,
+  }) : super(repaint: Listenable.merge([controller, active, eraserAt]));
+
+  final DocumentInkController controller;
+  final ValueNotifier<List<PageInkPoint>> active;
+  final int pageNumber;
+  final PageGeometry geometry;
+  final double viewWidth;
+  final PenStyle Function() activeStyle;
+  final PressureResponse pressure;
+  final ValueListenable<Offset?> eraserAt;
+  final double Function() eraserRadius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = viewWidth / geometry.displayWidth;
+    for (final s in controller.ink.strokesOn(pageNumber)) {
+      _draw(
+        canvas,
+        s.points,
+        PenStyle(
+          tool: s.tool,
+          colorArgb: s.colorArgb,
+          width: s.width,
+          arrow: s.arrow,
+        ),
+        scale,
+      );
+    }
+    _draw(canvas, active.value, activeStyle(), scale);
+    final at = eraserAt.value;
+    if (at != null) {
+      // Dark ring inside a light one, so it shows on any page colour.
+      final r = eraserRadius();
+      canvas.drawCircle(
+        at,
+        r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+          ..color = const Color(0xCCFFFFFF),
+      );
+      canvas.drawCircle(
+        at,
+        r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = const Color(0xCC333333),
+      );
+    }
+  }
+
+  void _draw(
+    Canvas canvas,
+    List<PageInkPoint> points,
+    PenStyle style,
+    double scale,
+  ) {
+    if (points.isEmpty) return;
+    Offset at(PageInkPoint p) {
+      final v = geometry.toView(PdfPagePoint(p.x, p.y), viewWidth);
+      return Offset(v.x, v.y);
+    }
+
+    if (style.tool == InkTool.highlighter) {
+      // See-through, flat-ended, and multiplied so printed text stays
+      // readable underneath.
+      final paint = Paint()
+        ..color = Color(style.colorArgb).withValues(alpha: 0.4)
+        ..blendMode = BlendMode.multiply
+        ..strokeWidth = style.width * scale
+        ..strokeCap = StrokeCap.butt
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke;
+      final path = Path()..moveTo(at(points.first).dx, at(points.first).dy);
+      for (final p in points.skip(1)) {
+        final o = at(p);
+        path.lineTo(o.dx, o.dy);
+      }
+      if (points.length == 1) {
+        path.lineTo(at(points.first).dx + 0.1, at(points.first).dy);
+      }
+      canvas.drawPath(path, paint);
+      return;
+    }
+
+    // Pen: each segment's width follows the pen pressure.
+    final paint = Paint()
+      ..color = Color(style.colorArgb)
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke
+      ..isAntiAlias = true;
+    if (points.length == 1) {
+      final w = widthAtPressure(style, points.first.pressure, pressure) * scale;
+      canvas.drawCircle(
+        at(points.first),
+        w / 2,
+        paint..style = PaintingStyle.fill,
+      );
+      return;
+    }
+    for (var i = 1; i < points.length; i++) {
+      final a = points[i - 1], b = points[i];
+      paint.strokeWidth =
+          widthAtPressure(style, (a.pressure + b.pressure) / 2, pressure) *
+          scale;
+      canvas.drawLine(at(a), at(b), paint);
+    }
+    if (style.arrow) {
+      final size = arrowheadSize(style.width);
+      paint.strokeWidth = style.width * scale;
+      final tip = at(points.last);
+      for (final (x, y) in arrowheadPoints(points, size)) {
+        canvas.drawLine(tip, at(PageInkPoint(x, y, 0)), paint);
+      }
+    }
+  }
+
+  // Never claim a touch: pdfrx stacks this layer on top of its scroll/zoom
+  // view, so claiming would stop fingers reaching it. The pen still gets
+  // here through the (translucent) gesture detector around the painting.
+  @override
+  bool hitTest(Offset position) => false;
+
+  @override
+  bool shouldRepaint(_PageInkPainter old) =>
+      old.pageNumber != pageNumber ||
+      old.viewWidth != viewWidth ||
+      old.pressure != pressure ||
+      old.controller != controller;
+}

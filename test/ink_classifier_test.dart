@@ -1,0 +1,87 @@
+import 'dart:math' as math;
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:writing_recogniser/core/ink_classifier.dart';
+import 'package:writing_recogniser/core/page_ink.dart';
+
+PageStroke stroke(List<(double, double)> pts) => PageStroke(
+  points: [
+    for (var i = 0; i < pts.length; i++)
+      PageInkPoint(pts[i].$1, pts[i].$2, i * 10),
+  ],
+);
+
+/// A letter about 10 pt tall.
+PageStroke letter(double x) => stroke([(x, 700), (x + 3, 710), (x + 6, 700)]);
+
+/// A joined-up word: one stroke wiggling up and down, [n] letters long.
+PageStroke cursive(double x, int n) => stroke([
+  for (var i = 0; i <= n * 4; i++)
+    (x + i * 2.0, 700 + (i.isOdd ? 9.0 : 0) + (i % 8 == 3 ? 6 : 0)),
+]);
+
+void main() {
+  const c = ShapeInkClassifier();
+
+  test('letters and long joined-up words are writing', () {
+    final strokes = [
+      for (var i = 0; i < 6; i++) letter(100 + i * 8.0),
+      cursive(200, 12), // ~100 pt long, one stroke
+    ];
+    expect(c.classifySync(strokes).toSet(), {InkKind.writing});
+  });
+
+  test('an underline and a strike-through are drawings', () {
+    final strokes = [
+      for (var i = 0; i < 6; i++) letter(100 + i * 8.0),
+      stroke([(98, 696), (130, 695.5), (150, 696.5)]), // underline
+      stroke([(98, 705), (150, 704)]), // strike-through
+    ];
+    final kinds = c.classifySync(strokes);
+    expect(kinds.sublist(0, 6).toSet(), {InkKind.writing});
+    expect(kinds.sublist(6), [InkKind.drawing, InkKind.drawing]);
+  });
+
+  test('a circle round a word and a tall bracket are drawings', () {
+    final circle = stroke([
+      for (var a = 0.0; a <= 2 * math.pi + 0.01; a += 0.2)
+        (124 + 35 * math.cos(a), 705 + 18 * math.sin(a)),
+    ]);
+    final bracket = stroke([(80, 760), (75, 700), (80, 640)]);
+    final strokes = [
+      for (var i = 0; i < 6; i++) letter(100 + i * 8.0),
+      circle,
+      bracket,
+    ];
+    final kinds = c.classifySync(strokes);
+    expect(kinds.sublist(6), [InkKind.drawing, InkKind.drawing]);
+  });
+
+  test('small loops like o and dots stay writing', () {
+    final o = stroke([
+      for (var a = 0.0; a <= 2 * math.pi + 0.01; a += 0.4)
+        (200 + 3 * math.cos(a), 704 + 4 * math.sin(a)),
+    ]);
+    final dot = stroke([(210, 712)]);
+    final strokes = [for (var i = 0; i < 6; i++) letter(100 + i * 8.0), o, dot];
+    expect(c.classifySync(strokes).sublist(6), [
+      InkKind.writing,
+      InkKind.writing,
+    ]);
+  });
+
+  test('highlighter and arrows are never writing', () {
+    final kinds = c.classifySync([
+      letter(100),
+      const PageStroke(
+        tool: InkTool.highlighter,
+        points: [PageInkPoint(90, 702, 0), PageInkPoint(130, 702, 9)],
+      ),
+      const PageStroke(
+        arrow: true,
+        points: [PageInkPoint(90, 650, 0), PageInkPoint(95, 652, 9)],
+      ),
+    ]);
+    expect(kinds, [InkKind.writing, InkKind.drawing, InkKind.drawing]);
+  });
+}

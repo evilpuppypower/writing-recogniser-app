@@ -1,0 +1,185 @@
+import 'dart:ffi';
+import 'dart:io';
+
+import 'package:ffi/ffi.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pdfium_dart/pdfium_dart.dart' as pdfium;
+import 'package:writing_recogniser/core/ink_export_plan.dart';
+import 'package:writing_recogniser/core/page_ink.dart';
+import 'package:writing_recogniser/core/pressure_response.dart';
+import 'package:writing_recogniser/export/pdf_exporter.dart';
+import 'package:writing_recogniser/export/pdf_ink_writer.dart';
+
+PageStroke pen(List<(double, double, double)> pts, {bool arrow = false}) =>
+    PageStroke(
+      points: [for (final (x, y, p) in pts) PageInkPoint(x, y, 0, p)],
+      colorArgb: 0xFF1565C0,
+      width: 2,
+      arrow: arrow,
+    );
+
+/// A blank PDF with [pages] US Letter pages, made with PDFium itself.
+String blankPdf(pdfium.PDFium lib, Directory dir, int pages) {
+  final doc = lib.FPDF_CreateNewDocument();
+  for (var i = 0; i < pages; i++) {
+    lib.FPDF_ClosePage(lib.FPDFPage_New(doc, i, 612, 792));
+  }
+  final file = File('${dir.path}/blank.pdf');
+  // Save through the same writer path by exporting no ink.
+  final tmp = File('${dir.path}/tmp.pdf');
+  tmp.writeAsBytesSync(_saveNew(lib, doc));
+  lib.FPDF_CloseDocument(doc);
+  tmp.renameSync(file.path);
+  return file.path;
+}
+
+List<int> _saveNew(pdfium.PDFium lib, pdfium.FPDF_DOCUMENT doc) {
+  final out = <int>[];
+  int write(Pointer<pdfium.FPDF_FILEWRITE> s, Pointer<Void> d, int n) {
+    out.addAll(d.cast<Uint8>().asTypedList(n));
+    return 1;
+  }
+
+  final cb =
+      NativeCallable<
+        Int Function(
+          Pointer<pdfium.FPDF_FILEWRITE>,
+          Pointer<Void>,
+          UnsignedLong,
+        )
+      >.isolateLocal(write, exceptionalReturn: 0);
+  final w = calloc<pdfium.FPDF_FILEWRITE>();
+  w.ref.version = 1;
+  w.ref.WriteBlock = cb.nativeFunction;
+  lib.FPDF_SaveAsCopy(doc, w, 0);
+  calloc.free(w);
+  cb.close();
+  return out;
+}
+
+/// The desktop PDFium library that pdfium_dart's build step downloads for
+/// tests (the app itself uses the Android one).
+String? _findPdfium() {
+  for (final root in ['.dart_tool', 'build']) {
+    final dir = Directory(root);
+    if (!dir.existsSync()) continue;
+    for (final f in dir.listSync(recursive: true, followLinks: false)) {
+      if (f is File && f.path.endsWith('libpdfium.so')) return f.path;
+    }
+  }
+  return null;
+}
+
+void main() {
+  test('exported file name', () {
+    expect(exportFileName('Lecture 3.pdf'), 'Lecture 3 (with ink).pdf');
+    expect(exportFileName('Notes.PDF'), 'Notes (with ink).pdf');
+    expect(exportFileName('Scan'), 'Scan (with ink).pdf');
+  });
+
+  group('export plan', () {
+    test('a pen stroke is split where its pressure width changes', () {
+      final lines = exportLines([
+        pen([(0, 0, 0.5), (10, 0, 0.5), (20, 0, 0.5), (30, 0, 1), (40, 0, 1)]),
+      ]);
+      // 2 pt at normal pressure, 2.4 where it rises, 2.8 pressing hard.
+      expect(lines.map((l) => l.width), [
+        closeTo(2, 1e-9),
+        closeTo(2.4, 1e-9),
+        closeTo(2.8, 1e-9),
+      ]);
+      // Each run starts where the previous one ended: no gaps.
+      for (var i = 1; i < lines.length; i++) {
+        final a = lines[i - 1].points, b = lines[i].points;
+        expect([a[a.length - 2], a.last], [b[0], b[1]]);
+      }
+    });
+
+    test('pressure 0% gives one line at the set width', () {
+      final lines = exportLines([
+        pen([(0, 0, 0), (10, 0, 1), (20, 0, 0.2)]),
+      ], pressure: PressureResponse.none);
+      expect(lines.single.width, 2);
+      expect(lines.single.points, hasLength(6));
+    });
+
+    test('highlighter: one see-through line; arrows add two lines', () {
+      final lines = exportLines([
+        const PageStroke(
+          points: [PageInkPoint(0, 0, 0), PageInkPoint(50, 0, 0)],
+          tool: InkTool.highlighter,
+          width: 10,
+          colorArgb: 0xFFFFEB3B,
+        ),
+        pen([(0, 0, 0.5), (60, 0, 0.5)], arrow: true),
+      ], pressure: PressureResponse.none);
+      expect(lines, hasLength(4));
+      expect(lines.first.highlighter, isTrue);
+      expect(lines.first.alpha, 102);
+      expect(lines[1].alpha, 255);
+    });
+
+    test('lines survive the trip to the worker isolate', () {
+      final l = exportLines([
+        pen([(1, 2, 0.5), (3, 4, 0.5)]),
+      ]).single;
+      final back = ExportLine.fromMessage(l.toMessage());
+      expect(back.points, l.points);
+      expect(back.width, l.width);
+      expect(back.colorArgb, l.colorArgb);
+    });
+  });
+
+  group('writing ink into a real PDF (PDFium)', () {
+    late pdfium.PDFium lib;
+    late Directory dir;
+
+    setUpAll(() {
+      lib = pdfium.getPdfium(modulePath: _findPdfium());
+      lib.FPDF_InitLibrary();
+    });
+    setUp(() => dir = Directory.systemTemp.createTempSync('export'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('adds one path per line on the right pages; source unchanged', () {
+      final src = blankPdf(lib, dir, 3);
+      final before = File(src).readAsBytesSync();
+      final bytes = writeInkIntoPdf(lib, src, {
+        2: exportLines([
+          pen([(100, 100, 0.5), (200, 150, 0.5)], arrow: true),
+        ], pressure: PressureResponse.none),
+        9: exportLines([
+          pen([(1, 1, 0.5), (2, 2, 0.5)]),
+        ]), // no such page: ignored
+      });
+      expect(File(src).readAsBytesSync(), before, reason: 'never changed');
+
+      final out = File('${dir.path}/out.pdf')..writeAsBytesSync(bytes);
+      final path = out.path.toNativeUtf8();
+      final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+      malloc.free(path);
+      expect(doc, isNot(nullptr), reason: 'the export is a valid PDF');
+      expect(lib.FPDF_GetPageCount(doc), 3);
+      int objects(int i) {
+        final page = lib.FPDF_LoadPage(doc, i);
+        final n = lib.FPDFPage_CountObjects(page);
+        lib.FPDF_ClosePage(page);
+        return n;
+      }
+
+      expect([objects(0), objects(1), objects(2)], [0, 3, 0]);
+      final page = lib.FPDF_LoadPage(doc, 1);
+      expect(lib.FPDFPageObj_GetType(lib.FPDFPage_GetObject(page, 0)), 2);
+      lib.FPDF_ClosePage(page);
+      lib.FPDF_CloseDocument(doc);
+    });
+
+    test('a file that is not a PDF gives a plain error', () {
+      final bad = File('${dir.path}/bad.pdf')..writeAsStringSync('hello');
+      expect(
+        () => writeInkIntoPdf(lib, bad.path, const {}),
+        throwsA(isA<PdfExportException>()),
+      );
+    });
+  });
+}

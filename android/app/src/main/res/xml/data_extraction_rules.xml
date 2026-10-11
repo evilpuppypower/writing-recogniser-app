@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What Android may copy off the tablet. Cloud backup: nothing (ink,
+     corrections, stored PDFs and MyScript keys stay on the device).
+     Device-to-device transfer (new tablet, by cable or Wi-Fi Direct): all
+     of it, so moving tablets keeps the user's work. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="."/>
+        <exclude domain="file" path="."/>
+        <exclude domain="database" path="."/>
+        <exclude domain="sharedpref" path="."/>
+        <exclude domain="external" path="."/>
+        <exclude domain="device_root" path="."/>
+        <exclude domain="device_file" path="."/>
+        <exclude domain="device_database" path="."/>
+        <exclude domain="device_sharedpref" path="."/>
+    </cloud-backup>
+</data-extraction-rules>

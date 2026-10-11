@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Encrypted connections only (https), and only to certificates Android
+     itself trusts: never to ones a user or another app added. The app's
+     only network use is owner-approved (ML Kit's model download and
+     MyScript Cloud); see docs/DECISIONS.md. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

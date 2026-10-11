@@ -1,0 +1,71 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Widget Preview related
+.widget_preview/
+
+# MyScript: the owner's certificate and the recognition files are added by CI
+# at build time. Never commit them.
+/android/app/src/main/java/com/myscript/certificate/
+/android/app/src/main/assets/myscript/
+
+# Signing keys are never committed (CI reads the owner's key from secrets).
+*.jks
+*.keystore
+
+# Never commit secrets or private files (public repo).
+*.p12
+*.pem
+*.key
+*.pfx
+key.properties
+.env
+.env.*
+MyCertificate.java
+*privacy_patterns*
+*.apk
+*.aab
+*.zip

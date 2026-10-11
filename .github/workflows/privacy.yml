@@ -1,0 +1,74 @@
+name: Privacy and security check
+
+# This repo is public. Every PR and push is checked for anything that
+# could identify the owner (see tool/privacy_check.sh). Runs on every
+# change, docs included, and takes seconds.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # "edited" re-checks the title and description whenever they change.
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  privacy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # Don't leave the GitHub token in .git/config for later steps.
+          persist-credentials: false
+          # Full history, so the new commits' messages and authors can be
+          # checked too.
+          fetch-depth: 0
+      - name: Check files, commits, PR title and description
+        env:
+          # The owner's own details, one regular expression per line. A
+          # secret, so they never appear in the repo or the logs.
+          PRIVACY_PATTERNS: ${{ secrets.PRIVACY_PATTERNS }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          FROM_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: |
+          status=0
+          # Fork PRs can't see secrets; everything else must use the owner's
+          # patterns, or the check would quietly skip them.
+          if [ -z "$PRIVACY_PATTERNS" ] && [ "$FROM_FORK" != true ]; then
+            echo "PRIVACY: the PRIVACY_PATTERNS secret is missing (add it as a repository secret)"
+            status=1
+          fi
+          tool/privacy_check.sh || status=1
+          if [ -n "$PR_TITLE$PR_BODY" ]; then
+            printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" | tool/privacy_check.sh - || status=1
+          fi
+          # The new commits: messages, and author/committer names and
+          # emails (only no-reply addresses are allowed).
+          if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            range="$BASE..$HEAD"
+          elif git cat-file -e "$HEAD~1^{commit}" 2>/dev/null; then
+            # New branch or force-push: check the latest commit.
+            range="$HEAD~1..$HEAD"
+          else
+            range="$HEAD"
+          fi
+          git log --format='%B%n%an <%ae>%n%cn <%ce>' "$range" \
+            | tool/privacy_check.sh - || status=1
+          # Every line added by every new commit, so something added and
+          # removed again within a PR is caught too (it stays in history).
+          # (The privacy check's own pattern list is skipped, as for files.)
+          git log -p --format= "$range" -- . ':!tool/privacy_check.sh' | grep '^+' \
+            | tool/privacy_check.sh - || status=1
+          # Commit times must be in UTC: an offset gives away a time zone.
+          if git log --format='%ai%n%ci' "$range" | grep -v -q -E ' \+0000$'; then
+            echo "PRIVACY: a new commit's time isn't in UTC (make commits with TZ=UTC)"
+            status=1
+          fi
+          exit $status
+      - name: Check workflows (pinned actions, no risky triggers)
+        run: tool/security_check.sh

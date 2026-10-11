@@ -1,0 +1,3 @@
+# Every change needs the owner's review (enforced once branch protection
+# requires code-owner review on main).
+* @evilpuppypower
