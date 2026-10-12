@@ -47,6 +47,7 @@ class PageTextLabels extends StatefulWidget {
     required PageGeometry geometry,
     required double viewWidth,
     required bool above,
+    TextScaler textScaler = TextScaler.noScaling,
   }) {
     for (final w in words.reversed) {
       final l = _labelLayout(w, geometry, viewWidth, above);
@@ -56,6 +57,8 @@ class PageTextLabels extends StatefulWidget {
           style: TextStyle(fontSize: l.fontSize, height: 1.15),
         ),
         textDirection: TextDirection.ltr,
+        // Labels follow the system text size, so the hit area must too.
+        textScaler: textScaler,
       )..layout();
       final rect = Rect.fromLTWH(
         l.topLeft.dx,
