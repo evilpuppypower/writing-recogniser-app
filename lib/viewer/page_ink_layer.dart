@@ -106,6 +106,25 @@ class DocumentInkController extends ChangeNotifier {
     onChanged?.call(page);
   }
 
+  /// Converts words on [page] to typed text (task 2.3b); one undo step.
+  /// [words]: each word's stroke ids and its text.
+  void convert(int page, Map<Set<String>, String> words) {
+    final before = ink.strokesOn(page);
+    if (!ink.convert(page, words)) return;
+    if (_gesture == null) _record(page, before);
+    notifyListeners();
+    onChanged?.call(page);
+  }
+
+  /// The user edited converted word [group]'s typed text; one undo step.
+  void setTypedText(int page, String group, String text) {
+    final before = ink.strokesOn(page);
+    if (!ink.setTypedText(page, group, text)) return;
+    if (_gesture == null) _record(page, before);
+    notifyListeners();
+    onChanged?.call(page);
+  }
+
   /// Puts previously saved ink on the pages, under anything written since
   /// the PDF opened (saved ink loads in the background). Not undoable.
   /// Returns the pages that had new ink too, which need saving again.

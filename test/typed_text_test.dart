@@ -1,0 +1,106 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:writing_recogniser/core/page_ink.dart';
+import 'package:writing_recogniser/core/stroke_grouping.dart';
+import 'package:writing_recogniser/core/typed_text.dart';
+import 'package:writing_recogniser/viewer/page_ink_layer.dart';
+
+/// A letter-sized stroke at (x, y), started at time [t].
+PageStroke letter(double x, double y, int t, {int color = 0xFF1A1A1A}) =>
+    PageStroke(
+      colorArgb: color,
+      points: [
+        PageInkPoint(x, y, t),
+        PageInkPoint(x + 3, y + 10, t + 40),
+        PageInkPoint(x + 6, y, t + 80),
+      ],
+    );
+
+void main() {
+  group('converting words (task 2.3b)', () {
+    late DocumentInk ink;
+    late List<PageStroke> cat, dog;
+
+    setUp(() {
+      cat = [letter(100, 700, 0), letter(107, 700, 200), letter(114, 700, 400)];
+      dog = [letter(140, 700, 1000, color: 0xFFD32F2F), letter(147, 700, 1200)];
+      ink = DocumentInk();
+      for (final s in [...cat, ...dog, letter(300, 500, 9000)]) {
+        ink.add(1, s);
+      }
+    });
+
+    Set<String> ids(List<PageStroke> s) => {for (final x in s) x.id};
+
+    test('keeps the ink, groups the strokes, and puts the text on one', () {
+      expect(ink.convert(1, {ids(cat): 'cat', ids(dog): 'dog'}), isTrue);
+      final strokes = ink.strokesOn(1);
+      expect(strokes, hasLength(6), reason: 'nothing removed');
+      expect(strokes.where((s) => s.typedText != null), hasLength(2));
+      final words = typedWords(strokes);
+      expect(words.map((w) => w.text), ['cat', 'dog']);
+      expect(words.first.strokeIds, ids(cat));
+      expect(words.last.colorArgb, 0xFFD32F2F, reason: "the ink's colour");
+      expect(words.first.box.left, 100);
+      expect(words.first.box.right, 120);
+      expect(
+        ink.convert(1, {ids(cat): 'cat'}),
+        isFalse,
+        reason: 'already converted',
+      );
+    });
+
+    test('is saved with the ink', () {
+      ink.convert(1, {ids(cat): 'cat'});
+      final back = DocumentInk.fromJson(ink.toJson());
+      expect(typedWords(back.strokesOn(1)).single.text, 'cat');
+    });
+
+    test('editing changes the text; empty text is refused', () {
+      ink.convert(1, {ids(cat): 'cat'});
+      final group = typedWords(ink.strokesOn(1)).single.group;
+      expect(ink.setTypedText(1, group, '  cart '), isTrue);
+      expect(typedWords(ink.strokesOn(1)).single.text, 'cart');
+      expect(ink.setTypedText(1, group, '  '), isFalse);
+    });
+
+    test('rubbing out part of a word keeps it converted, text shown once', () {
+      ink.convert(1, {ids(cat): 'cat'});
+      // Cut through the middle of the first letter.
+      ink.eraseArea(1, 103, 705, 1);
+      final words = typedWords(ink.strokesOn(1));
+      expect(words.single.text, 'cat');
+      expect(ink.strokesOn(1).where((s) => s.typedText != null), hasLength(1));
+    });
+
+    test('undo takes the conversion back in one step', () {
+      final c = DocumentInkController(ink);
+      c.convert(1, {ids(cat): 'cat', ids(dog): 'dog'});
+      final group = typedWords(c.ink.strokesOn(1)).first.group;
+      c.setTypedText(1, group, 'cart');
+      c.undo();
+      expect(typedWords(c.ink.strokesOn(1)).first.text, 'cat');
+      c.undo();
+      expect(typedWords(c.ink.strokesOn(1)), isEmpty);
+      c.redo();
+      expect(typedWords(c.ink.strokesOn(1)), hasLength(2));
+    });
+  });
+
+  group('fitting the text to the handwriting', () {
+    test('as tall as the handwriting allows', () {
+      expect(fitFontSize('hi', const InkBox(0, 0, 100, 20)), 16);
+    });
+
+    test('narrower when the text is long', () {
+      final size = fitFontSize(
+        'internationalisation',
+        const InkBox(0, 0, 60, 20),
+      );
+      expect(size, closeTo(60 / (20 * averageCharWidth), 1e-9));
+    });
+
+    test('never tiny', () {
+      expect(fitFontSize('word', const InkBox(0, 0, 4, 1)), minTypedFontSize);
+    });
+  });
+}

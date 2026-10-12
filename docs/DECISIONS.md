@@ -361,3 +361,10 @@ Phase 4 is preparatory until GATE B. "Save training data" on the learning screen
 ## 2026-10-12 — "Only some pages" exports only those pages (1.4c, owner)
 
 The owner chose that "Only some pages" in the export dialog means the new PDF has just those pages (in their original order), not every page with searchable text on some. The page choice is now separate from "Make handwriting searchable", so it also works for an ink-only export; if searchable is on, only the chosen pages are read. PDFium deletes the other pages from the in-memory copy before saving; the source PDF is never changed. Page numbers past the end are ignored, and an export with none of the chosen pages left fails with a plain message.
+
+## 2026-10-12 — Converting handwriting to typed text (2.3b–2.3d, owner's choices)
+
+Owner's answers: (1b) the handwriting is kept and the user can switch between ink and typed text; (2c) convert a lasso selection or a whole page; (3b) typed text sits where the handwriting is, sized to fit it, in the ink's colour; (4a) tapping typed text edits it, and the edit also teaches the learning layer like a correction; (5b) at export the user chooses ink, typed text or both; (6) Convert is undoable.
+
+- **Stored on the strokes themselves:** each converted word's strokes share a group, and the first carries the text. So saving, reopening, undo/redo and erasing all work as they already do, with no new table. Partly rubbing out a word keeps it converted; rubbing out the stroke with the text turns the rest back into plain ink.
+- **One typed box per word,** placed over that word's handwriting. The size is as tall as the handwriting allows (80% of its height), narrowed if the text would be wider, never below 5 pt.

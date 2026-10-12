@@ -43,6 +43,8 @@ class PageStroke {
     this.tool = InkTool.pen,
     this.arrow = false,
     this.notWriting = false,
+    this.typedGroup,
+    this.typedText,
   });
 
   final List<PageInkPoint> points;
@@ -59,6 +61,13 @@ class PageStroke {
   /// never read as text. Saved with the ink, so it lasts (task 2.4c).
   final bool notWriting;
 
+  /// Converted to typed text (task 2.3b): the strokes of one converted word
+  /// share a [typedGroup], and the first of them carries the [typedText].
+  /// The ink itself is kept (owner, 2026-10-12), so the user can switch
+  /// between the handwriting and the typed text.
+  final String? typedGroup;
+  final String? typedText;
+
   /// Identifies the stroke on its page: when it started and how many
   /// points it has (stable across saving and reopening).
   String get id => '${points.first.t}/${points.length}';
@@ -70,6 +79,21 @@ class PageStroke {
     tool: tool,
     arrow: arrow,
     notWriting: notWriting ?? this.notWriting,
+    typedGroup: typedGroup,
+    typedText: typedText,
+  );
+
+  /// This stroke as part of converted word [group] (null: not converted),
+  /// carrying [text] if it's the word's first stroke.
+  PageStroke withTyped(String? group, String? text) => PageStroke(
+    points: points,
+    colorArgb: colorArgb,
+    width: width,
+    tool: tool,
+    arrow: arrow,
+    notWriting: notWriting,
+    typedGroup: group,
+    typedText: group == null ? null : text,
   );
 
   Map<String, Object?> toJson() => {
@@ -78,6 +102,8 @@ class PageStroke {
     'tool': tool.name,
     if (arrow) 'arrow': true,
     if (notWriting) 'notWriting': true,
+    'typedGroup': ?typedGroup,
+    'typedText': ?typedText,
     'points': [for (final p in points) p.toJson()],
   };
 
@@ -87,6 +113,8 @@ class PageStroke {
     tool: InkTool.values.asNameMap()[j['tool']] ?? InkTool.pen,
     arrow: j['arrow'] == true,
     notWriting: j['notWriting'] == true,
+    typedGroup: j['typedGroup'] as String?,
+    typedText: j['typedText'] as String?,
     points: [
       for (final p in (j['points'] as List? ?? const []))
         PageInkPoint.fromJson(p as List<dynamic>),
@@ -246,6 +274,63 @@ class DocumentInk {
     return changed;
   }
 
+  /// Converts words on [page] to typed text (task 2.3b): each entry is a
+  /// word's [PageStroke.id]s and its text. Each word's strokes get a group
+  /// (named after its stroke ids), and the first carries the text. The ink
+  /// stays. Returns whether anything changed.
+  bool convert(int page, Map<Set<String>, String> words) {
+    final byId = <String, ({String group, String text})>{};
+    for (final e in words.entries) {
+      final text = e.value.trim();
+      if (e.key.isEmpty || text.isEmpty) continue;
+      final group = (e.key.toList()..sort()).join(',');
+      for (final id in e.key) {
+        byId[id] = (group: group, text: text);
+      }
+    }
+    if (byId.isEmpty) return false;
+    final seen = <String>{};
+    var changed = false;
+    final next = <PageStroke>[];
+    for (final s in strokesOn(page)) {
+      final w = s.points.isEmpty ? null : byId[s.id];
+      if (w == null) {
+        next.add(s);
+        continue;
+      }
+      final first = seen.add(w.group);
+      final c = s.withTyped(w.group, first ? w.text : null);
+      if (c.typedGroup != s.typedGroup || c.typedText != s.typedText) {
+        changed = true;
+      }
+      next.add(c);
+    }
+    _pages[page] = next;
+    return changed;
+  }
+
+  /// Changes the typed text of converted word [group] on [page] (the user
+  /// edited it). Returns whether anything changed.
+  bool setTypedText(int page, String group, String text) {
+    final t = text.trim();
+    if (t.isEmpty) return false;
+    var changed = false;
+    var first = true;
+    _pages[page] = [
+      for (final s in strokesOn(page))
+        if (s.typedGroup == group)
+          () {
+            final next = s.withTyped(group, first ? t : null);
+            first = false;
+            if (next.typedText != s.typedText) changed = true;
+            return next;
+          }()
+        else
+          s,
+    ];
+    return changed;
+  }
+
   /// Replaces all of [page]'s strokes (used by undo and redo).
   void setPage(int page, List<PageStroke> strokes) {
     _pages[page] = strokes;
@@ -331,6 +416,9 @@ class DocumentInk {
             // The arrowhead stays only if the stroke's end survived.
             arrow: s.arrow && identical(run.last, dense.last),
             notWriting: s.notWriting,
+            typedGroup: s.typedGroup,
+            // Only one piece keeps the text, so it isn't shown twice.
+            typedText: pieces.isEmpty ? s.typedText : null,
           ),
         );
       }
