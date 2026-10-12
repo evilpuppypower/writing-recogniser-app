@@ -163,8 +163,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// Whether [w]'s ink is converted and the typed text is showing, so its
   /// label is left out.
-  bool _shownTyped(int page, RecognizedWord w) {
-    if (!_showTyped.value) return false;
+  bool _shownTyped(int page, RecognizedWord w) =>
+      _showTyped.value && _isConverted(page, w);
+
+  /// Whether all of [w]'s strokes were converted to typed text.
+  bool _isConverted(int page, RecognizedWord w) {
     final converted = {
       for (final t in typedWords(_ink.ink.strokesOn(page))) ...t.strokeIds,
     };
@@ -891,7 +894,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// Reads the handwriting on [only] (or every page with ink) so the export
   /// can carry it as searchable text (task 1.4b), with a progress bar and
   /// the time left. Null if the user cancels.
-  Future<Map<int, List<ExportWord>>?> _readForExport(Set<int>? only) async {
+  Future<Map<int, List<ExportWord>>?> _readForExport(
+    Set<int>? only, {
+    bool Function(int page, RecognizedWord word)? skip,
+  }) async {
     final pages = [
       for (final p in _ink.ink.pagesWithInk.toList()..sort())
         if (only == null || only.contains(p)) p,
@@ -954,7 +960,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         );
         words[page] = [
           for (final w in read)
-            if (w.text.trim().isNotEmpty)
+            if (w.text.trim().isNotEmpty && !(skip?.call(page, w) ?? false))
               ExportWord(
                 w.text,
                 w.box.left,
@@ -1031,13 +1037,31 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       context,
       pageCount: _pageCount ?? _ink.ink.pagesWithInk.fold(1, math.max),
       share: share,
+      typed: !_hasTyped
+          ? null
+          : _showTyped.value
+          ? ExportHandwriting.typed
+          : ExportHandwriting.ink,
     );
     if (choice == null || !mounted) return;
-    var text = const <int, List<ExportWord>>{};
+    final mode = choice.handwriting;
+    final text = <int, List<ExportWord>>{};
     if (choice.searchable) {
-      final read = await _readForExport(choice.pages);
+      final read = await _readForExport(
+        choice.pages,
+        // Typed text is searchable by itself: no invisible copy.
+        skip: mode == ExportHandwriting.ink
+            ? null
+            : (page, w) => _isConverted(page, w),
+      );
       if (read == null || !mounted) return; // cancelled
-      text = read;
+      text.addAll(read);
+    }
+    // Converted handwriting as visible typed text (task 2.3d).
+    for (final page in _ink.ink.pagesWithInk) {
+      if (choice.pages != null && !choice.pages!.contains(page)) continue;
+      final typed = typedForExport(_ink.ink.strokesOn(page), mode);
+      if (typed.isNotEmpty) text[page] = [...?text[page], ...typed];
     }
     if (!mounted) return;
     final pressure = SettingsScope.of(context).value.pressureResponse;
@@ -1063,7 +1087,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     try {
       bytes = await widget.exportPdf(
         sourcePath: source,
-        ink: _ink.ink,
+        ink: inkForExport(_ink.ink, mode),
         pressure: pressure,
         text: text,
         onlyPages: choice.pages,

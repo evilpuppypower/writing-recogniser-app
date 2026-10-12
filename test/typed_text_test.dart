@@ -103,4 +103,43 @@ void main() {
       expect(fitFontSize('word', const InkBox(0, 0, 4, 1)), minTypedFontSize);
     });
   });
+
+  group('exporting converted handwriting (task 2.3d)', () {
+    late DocumentInk ink;
+    setUp(() {
+      final cat = [letter(100, 700, 0), letter(107, 700, 200)];
+      ink = DocumentInk();
+      for (final s in [...cat, letter(300, 500, 9000)]) {
+        ink.add(1, s);
+      }
+      ink.convert(1, {
+        {for (final s in cat) s.id}: 'cat',
+      });
+    });
+
+    test('typed text only: the converted ink is left out, the rest stays', () {
+      final out = inkForExport(ink, ExportHandwriting.typed);
+      expect(out.strokesOn(1), hasLength(1));
+      expect(
+        inkForExport(ink, ExportHandwriting.both).strokesOn(1),
+        hasLength(3),
+      );
+      expect(
+        inkForExport(ink, ExportHandwriting.ink).strokesOn(1),
+        hasLength(3),
+      );
+    });
+
+    test('typed text goes over the ink, or under it for both', () {
+      final strokes = ink.strokesOn(1);
+      expect(typedForExport(strokes, ExportHandwriting.ink), isEmpty);
+      final over = typedForExport(strokes, ExportHandwriting.typed).single;
+      expect(over.text, 'cat');
+      expect(over.visible, isTrue);
+      expect((over.bottom, over.top), (700, 710));
+      final under = typedForExport(strokes, ExportHandwriting.both).single;
+      expect(under.top, lessThan(700), reason: 'below the handwriting');
+      expect(under.fontSize, over.fontSize);
+    });
+  });
 }

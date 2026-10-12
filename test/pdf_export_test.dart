@@ -286,6 +286,63 @@ void main() {
       lib.FPDF_CloseDocument(doc);
     });
 
+    test('typed text is visible text in the ink colour (task 2.3d)', () {
+      final src = blankPdf(lib, dir, 1);
+      final bytes = writeInkIntoPdf(
+        lib,
+        src,
+        const {},
+        text: const {
+          1: [
+            ExportWord(
+              'cat',
+              100,
+              600,
+              140,
+              620,
+              colorArgb: 0xFFD32F2F,
+              fontSize: 16,
+            ),
+          ],
+        },
+      );
+      final out = File('${dir.path}/typed.pdf')..writeAsBytesSync(bytes);
+      final path = out.path.toNativeUtf8();
+      final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+      malloc.free(path);
+      final page = lib.FPDF_LoadPage(doc, 0);
+      final obj = lib.FPDFPage_GetObject(page, 0);
+      expect(lib.FPDFPageObj_GetType(obj), 1, reason: 'a text object');
+      expect(
+        lib.FPDFTextObj_GetTextRenderMode(obj),
+        pdfium.FPDF_TEXT_RENDERMODE.FPDF_TEXTRENDERMODE_FILL,
+        reason: 'visible',
+      );
+      final rgba = calloc<UnsignedInt>(4);
+      lib.FPDFPageObj_GetFillColor(obj, rgba, rgba + 1, rgba + 2, rgba + 3);
+      expect([rgba[0], rgba[1], rgba[2]], [0xD3, 0x2F, 0x2F]);
+      calloc.free(rgba);
+      // Searchable too, and inside the handwriting's height.
+      final tp = lib.FPDFText_LoadPage(page);
+      final n = lib.FPDFText_CountChars(tp);
+      final buf = calloc<UnsignedShort>(n + 1);
+      lib.FPDFText_GetText(tp, 0, n, buf);
+      expect(
+        String.fromCharCodes([for (var k = 0; k < n; k++) buf[k]]),
+        contains('cat'),
+      );
+      calloc.free(buf);
+      final box = calloc<Double>(4);
+      lib.FPDFText_GetCharBox(tp, 0, box, box + 1, box + 2, box + 3);
+      expect(box[0], closeTo(100, 2), reason: 'starts at the left edge');
+      expect(box[2], greaterThanOrEqualTo(599));
+      expect(box[3], lessThanOrEqualTo(621));
+      calloc.free(box);
+      lib.FPDFText_ClosePage(tp);
+      lib.FPDF_ClosePage(page);
+      lib.FPDF_CloseDocument(doc);
+    });
+
     test('a file that is not a PDF gives a plain error', () {
       final bad = File('${dir.path}/bad.pdf')..writeAsStringSync('hello');
       expect(

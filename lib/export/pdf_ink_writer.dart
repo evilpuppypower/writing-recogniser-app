@@ -93,7 +93,7 @@ Uint8List writeInkIntoPdf(
           lib.FPDFPage_InsertObject(page, obj);
         }
         for (final w in words) {
-          _addInvisibleWord(lib, doc, page, font, bounds, w, dx, dy);
+          _addWord(lib, doc, page, font, bounds, w, dx, dy);
         }
         lib.FPDFPage_GenerateContent(page);
         lib.FPDF_ClosePage(page);
@@ -121,9 +121,11 @@ Uint8List writeInkIntoPdf(
   }
 }
 
-/// Adds [w] to [page] as invisible text stretched over the word's box, so
-/// searching finds it and selecting it highlights the handwriting.
-void _addInvisibleWord(
+/// Adds [w] to [page]: invisible text stretched over the word's box, so
+/// searching finds it and selecting it highlights the handwriting; or, for
+/// typed text (task 2.3d, [ExportWord.visible]), visible text in its
+/// colour and size, starting at the box's left edge and centred in it.
+void _addWord(
   pdfium.PDFium lib,
   pdfium.FPDF_DOCUMENT doc,
   pdfium.FPDF_PAGE page,
@@ -149,6 +151,34 @@ void _addInvisibleWord(
   calloc.free(wide);
   if (!ok) {
     lib.FPDFPageObj_Destroy(obj);
+    return;
+  }
+  final color = w.colorArgb;
+  if (color != null) {
+    lib.FPDFTextObj_SetTextRenderMode(
+      obj,
+      pdfium.FPDF_TEXT_RENDERMODE.FPDF_TEXTRENDERMODE_FILL,
+    );
+    lib.FPDFPageObj_SetFillColor(
+      obj,
+      (color >> 16) & 0xFF,
+      (color >> 8) & 0xFF,
+      color & 0xFF,
+      (color >> 24) & 0xFF,
+    );
+    final size = w.fontSize ?? height * 0.8;
+    // Capital letters are about 0.7 of the size tall: centre them.
+    final baseline = w.bottom + (height - size * 0.7) / 2;
+    lib.FPDFPageObj_Transform(
+      obj,
+      size,
+      0,
+      0,
+      size,
+      w.left + dx,
+      baseline + dy,
+    );
+    lib.FPDFPage_InsertObject(page, obj);
     return;
   }
   lib.FPDFTextObj_SetTextRenderMode(

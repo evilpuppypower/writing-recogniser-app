@@ -4,6 +4,7 @@
 /// Pure Dart: the screen and the PDF export both draw from this.
 library;
 
+import 'ink_export_plan.dart' show ExportWord;
 import 'page_ink.dart';
 import 'stroke_grouping.dart';
 
@@ -110,4 +111,59 @@ Set<String> strokesInLoop(
               share * s.points.length)
         s.id,
   };
+}
+
+/// How handwriting goes into an exported PDF (task 2.3d, owner's choice
+/// 5b: chosen at export time).
+enum ExportHandwriting {
+  ink('My handwriting'),
+  typed('Typed text'),
+  both('Both: handwriting with the typed text under it');
+
+  const ExportHandwriting(this.label);
+  final String label;
+}
+
+/// [ink] as it goes into an export with [mode]: for typed text only, the
+/// ink of converted words is left out (everything else stays).
+DocumentInk inkForExport(DocumentInk ink, ExportHandwriting mode) {
+  if (mode != ExportHandwriting.typed) return ink;
+  final out = DocumentInk();
+  for (final page in ink.pagesWithInk) {
+    final strokes = ink.strokesOn(page);
+    final groups = {for (final w in typedWords(strokes)) w.group};
+    out.setPage(page, [
+      for (final s in strokes)
+        if (!groups.contains(s.typedGroup)) s,
+    ]);
+  }
+  return out;
+}
+
+/// The typed words of a page as visible export text: over the handwriting
+/// for [ExportHandwriting.typed], just under it for [ExportHandwriting.both].
+List<ExportWord> typedForExport(
+  List<PageStroke> strokes,
+  ExportHandwriting mode,
+) {
+  if (mode == ExportHandwriting.ink) return const [];
+  return [
+    for (final w in typedWords(strokes))
+      () {
+        final size = w.fontSize;
+        final under = mode == ExportHandwriting.both;
+        // Under the ink: a box one text line high, just below it.
+        final bottom = under ? w.box.bottom - size * 1.1 : w.box.bottom;
+        final top = under ? w.box.bottom - size * 0.1 : w.box.top;
+        return ExportWord(
+          w.text,
+          w.box.left,
+          bottom,
+          w.box.right,
+          top,
+          colorArgb: w.colorArgb,
+          fontSize: size,
+        );
+      }(),
+  ];
 }

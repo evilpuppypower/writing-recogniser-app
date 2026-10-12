@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
 
 import '../core/page_ranges.dart';
+import '../core/typed_text.dart' show ExportHandwriting;
 
 /// What the user chose before exporting (task 1.4b).
 class ExportChoice {
-  const ExportChoice({required this.searchable, this.pages});
+  const ExportChoice({
+    required this.searchable,
+    this.pages,
+    this.handwriting = ExportHandwriting.ink,
+  });
+
+  /// Handwriting, typed text or both (task 2.3d; only asked when some
+  /// handwriting has been converted).
+  final ExportHandwriting handwriting;
 
   /// Add the recognised handwriting as invisible, searchable text.
   final bool searchable;
@@ -21,16 +30,26 @@ Future<ExportChoice?> showExportOptions(
   BuildContext context, {
   required int pageCount,
   required bool share,
+  ExportHandwriting? typed,
 }) => showDialog<ExportChoice>(
   context: context,
-  builder: (_) => _ExportOptionsDialog(pageCount: pageCount, share: share),
+  builder: (_) =>
+      _ExportOptionsDialog(pageCount: pageCount, share: share, typed: typed),
 );
 
 class _ExportOptionsDialog extends StatefulWidget {
-  const _ExportOptionsDialog({required this.pageCount, required this.share});
+  const _ExportOptionsDialog({
+    required this.pageCount,
+    required this.share,
+    this.typed,
+  });
 
   final int pageCount;
   final bool share;
+
+  /// Null when nothing has been converted to typed text; otherwise the
+  /// choice to start with (what's on screen).
+  final ExportHandwriting? typed;
 
   @override
   State<_ExportOptionsDialog> createState() => _ExportOptionsDialogState();
@@ -38,6 +57,7 @@ class _ExportOptionsDialog extends StatefulWidget {
 
 class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
   bool _searchable = true;
+  late ExportHandwriting _handwriting = widget.typed ?? ExportHandwriting.ink;
   bool _allPages = true;
   final _pages = TextEditingController();
   String? _error;
@@ -58,8 +78,13 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
         return;
       }
     }
-    Navigator.of(context)
-        .pop(ExportChoice(searchable: _searchable, pages: pages));
+    Navigator.of(context).pop(
+      ExportChoice(
+        searchable: _searchable,
+        pages: pages,
+        handwriting: _handwriting,
+      ),
+    );
   }
 
   @override
@@ -81,6 +106,28 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
               value: _searchable,
               onChanged: (v) => setState(() => _searchable = v),
             ),
+            if (widget.typed != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Converted handwriting',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              RadioGroup<ExportHandwriting>(
+                groupValue: _handwriting,
+                onChanged: (v) =>
+                    setState(() => _handwriting = v ?? _handwriting),
+                child: Column(
+                  children: [
+                    for (final h in ExportHandwriting.values)
+                      RadioListTile<ExportHandwriting>(
+                        value: h,
+                        title: Text(h.label),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
             Text('Pages', style: Theme.of(context).textTheme.titleSmall),
             RadioGroup<bool>(

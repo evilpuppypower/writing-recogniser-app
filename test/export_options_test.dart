@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:writing_recogniser/core/typed_text.dart';
 import 'package:writing_recogniser/viewer/export_options_dialog.dart';
 
 void main() {
   /// Opens the dialog; returns what it will give back when closed.
-  Future<Future<ExportChoice?>> open(WidgetTester tester) async {
+  Future<Future<ExportChoice?>> open(
+    WidgetTester tester, {
+    ExportHandwriting? typed,
+  }) async {
     late Future<ExportChoice?> result;
     await tester.pumpWidget(
       MaterialApp(
@@ -14,6 +18,7 @@ void main() {
               context,
               pageCount: 12,
               share: false,
+              typed: typed,
             ),
             child: const Text('go'),
           ),
@@ -72,5 +77,23 @@ void main() {
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(await choice, isNull);
+  });
+
+  testWidgets('converted handwriting: ink, typed text or both (2.3d)', (
+    tester,
+  ) async {
+    var choice = await open(tester);
+    expect(find.text('Converted handwriting'), findsNothing);
+    await tester.tap(find.text('Export'));
+    await tester.pumpAndSettle();
+    expect((await choice)!.handwriting, ExportHandwriting.ink);
+
+    choice = await open(tester, typed: ExportHandwriting.typed);
+    expect(find.text('Converted handwriting'), findsOneWidget);
+    await tester.tap(find.text(ExportHandwriting.both.label));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Export'));
+    await tester.pumpAndSettle();
+    expect((await choice)!.handwriting, ExportHandwriting.both);
   });
 }

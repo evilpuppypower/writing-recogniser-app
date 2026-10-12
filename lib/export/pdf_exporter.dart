@@ -28,7 +28,7 @@ Future<Uint8List> exportPdfWithInk({
           l.toMessage(),
       ],
   };
-  final words = <int, List<List<Object>>>{
+  final words = <int, List<List<Object?>>>{
     for (final e in text.entries)
       e.key: [for (final w in e.value) w.toMessage()],
   };

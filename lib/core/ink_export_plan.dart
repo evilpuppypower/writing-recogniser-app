@@ -117,13 +117,36 @@ double _round(double w) =>
 /// box is in PDF page coordinates (points, y up from the visible page's
 /// bottom-left corner).
 class ExportWord {
-  const ExportWord(this.text, this.left, this.bottom, this.right, this.top);
+  const ExportWord(
+    this.text,
+    this.left,
+    this.bottom,
+    this.right,
+    this.top, {
+    this.colorArgb,
+    this.fontSize,
+  });
 
   final String text;
   final double left, bottom, right, top;
 
+  /// Visible typed text (task 2.3d) in this colour and size (points);
+  /// null: invisible, searchable text stretched over the box (task 1.4b).
+  final int? colorArgb;
+  final double? fontSize;
+
+  bool get visible => colorArgb != null;
+
   /// For sending to the PDFium worker isolate.
-  List<Object> toMessage() => [text, left, bottom, right, top];
+  List<Object?> toMessage() => [
+    text,
+    left,
+    bottom,
+    right,
+    top,
+    colorArgb,
+    fontSize,
+  ];
 
   factory ExportWord.fromMessage(List<Object?> m) => ExportWord(
     m[0]! as String,
@@ -131,5 +154,7 @@ class ExportWord {
     (m[2]! as num).toDouble(),
     (m[3]! as num).toDouble(),
     (m[4]! as num).toDouble(),
+    colorArgb: m.length > 5 ? (m[5] as num?)?.toInt() : null,
+    fontSize: m.length > 6 ? (m[6] as num?)?.toDouble() : null,
   );
 }
