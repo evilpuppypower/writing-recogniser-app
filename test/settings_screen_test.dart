@@ -59,6 +59,11 @@ void main() {
 
   testWidgets('shows current settings and storage use', (tester) async {
     await pumpScreen(tester);
+    await tester.scrollUntilVisible(
+      find.text('Now using 550 MB for 2 PDFs.'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(
       find.text('Keep copies of the last 3 PDFs (plus any you pin)'),
       findsOneWidget,
