@@ -479,6 +479,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const Divider(),
+          const _Header('Recognised text'),
+          ListTile(
+            title: const Text('Text over your handwriting'),
+            subtitle: const Text(
+              'Small labels showing what each word was read as. '
+              'Double-tap a label with a finger to correct it.',
+            ),
+            trailing: DropdownButton<TextLabelPlace>(
+              value: s.textLabels,
+              onChanged: (v) {
+                if (v != null) settings.update(s.copyWith(textLabels: v));
+              },
+              items: [
+                for (final p in TextLabelPlace.values)
+                  DropdownMenuItem(value: p, child: Text(p.label)),
+              ],
+            ),
+          ),
+          ListTile(
+            title: const Text('Text panel'),
+            subtitle: const Text(
+              "The page's recognised text in a panel beside the PDF, or in "
+              'a window you can move and resize.',
+            ),
+            trailing: DropdownButton<TextPanelPlace>(
+              value: s.textPanel,
+              onChanged: (v) {
+                if (v != null) settings.update(s.copyWith(textPanel: v));
+              },
+              items: [
+                for (final p in TextPanelPlace.values)
+                  DropdownMenuItem(value: p, child: Text(p.label)),
+              ],
+            ),
+          ),
+          const Divider(),
           const _Header('MyScript Cloud'),
           FutureBuilder(
             future: _keys,

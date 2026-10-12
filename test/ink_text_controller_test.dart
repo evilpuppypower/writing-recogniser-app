@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/page_coordinates.dart';
 import 'package:writing_recogniser/core/event_log.dart';
+import 'package:writing_recogniser/core/feedback/correction.dart';
+import 'package:writing_recogniser/core/feedback/correction_store.dart';
 import 'package:writing_recogniser/core/ink.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/core/recognition/recognizer.dart';
@@ -200,4 +202,93 @@ void main() {
     expect(engine.calls.single.$1, hasLength(3)); // the underline wasn't sent
     c.dispose();
   });
+
+  group('corrections', () {
+    testWidgets('a correction shows at once, is saved with its ink, and the '
+        'same misreading is swapped next time', (tester) async {
+      final store = _MemoryCorrections();
+      final log = MemoryLog();
+      final c = InkTextController(
+        engine: FakeEngine(),
+        corrections: store,
+        eventLog: log,
+        documentId: 'doc',
+      );
+      c.inkChanged(1, word(100, 700, 3, 0), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      final w = c.wordsOn(1).single;
+      expect(w.text, 'w3');
+
+      await c.correct(1, w, 'fox');
+      expect(c.textOf(1), 'fox');
+      expect(c.wordsOn(1).single.corrected, isTrue);
+      expect(c.wordsOn(1).single.alternatives.first, 'w3');
+      expect(store.saved.single.recognized, 'w3');
+      expect(store.saved.single.corrected, 'fox');
+      expect(store.saved.single.strokes, hasLength(3)); // the word's ink
+      expect(log.events.last.type, 'correction');
+
+      // The same word written again on another page: swapped and marked.
+      c.inkChanged(2, word(100, 700, 3, 50000), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      final again = c.wordsOn(2).single;
+      expect(again.text, 'fox');
+      expect(again.autoReplaced, isTrue);
+      expect(again.engineReading, 'w3');
+
+      // Undoing the swap restores the engine's word and learns nothing.
+      await c.correct(2, again, 'w3');
+      expect(c.textOf(2), 'w3');
+      expect(store.saved, hasLength(1));
+      c.dispose();
+    });
+
+    testWidgets('saved corrections apply from when the PDF opens', (
+      tester,
+    ) async {
+      final store = _MemoryCorrections()
+        ..saved.add(
+          CorrectionRecord(
+            recognized: 'w2',
+            corrected: 'dog',
+            at: DateTime(2026),
+          ),
+        );
+      final c = InkTextController(engine: FakeEngine(), corrections: store);
+      await c.loadCorrections();
+      c.inkChanged(1, word(100, 700, 2, 0), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      expect(c.textOf(1), 'dog');
+      c.dispose();
+    });
+
+    testWidgets('"not writing" stops a group being read', (tester) async {
+      final engine = FakeEngine();
+      final c = InkTextController(engine: engine);
+      final page = [...word(100, 700, 3, 0), ...word(135, 700, 2, 1000)];
+      c.inkChanged(1, page, pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      c.markNotWriting(1, c.wordsOn(1).last);
+      expect(c.textOf(1), 'w3');
+      final calls = engine.calls.length;
+      c.inkChanged(1, page, pause); // same ink again: still ignored
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      expect(c.textOf(1), 'w3');
+      expect(engine.calls.length, calls);
+      c.dispose();
+    });
+  });
+}
+
+class _MemoryCorrections implements CorrectionStore {
+  final saved = <CorrectionRecord>[];
+  @override
+  Future<void> add(CorrectionRecord c) async => saved.add(c);
+  @override
+  Future<List<CorrectionRecord>> all() async => saved;
 }

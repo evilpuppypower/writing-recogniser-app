@@ -7,7 +7,7 @@ class AppDatabase {
   AppDatabase._();
 
   static const fileName = 'writing_recogniser.db';
-  static const version = 5;
+  static const version = 6;
 
   /// Opens (and creates or upgrades) the database. [factory] and [path] can
   /// be overridden for tests.
@@ -77,6 +77,26 @@ class AppDatabase {
           PRIMARY KEY (document_id, page)
         )
       ''');
+    }
+    if (from < 6) {
+      // Corrections (task 2.5, CLAUDE.md rule 4): one row each time the
+      // user corrects a word, with the raw strokes, for the feedback layer
+      // now and training later. Stays on the tablet.
+      await db.execute('''
+        CREATE TABLE corrections (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          recognized TEXT NOT NULL,     -- what the engine read
+          corrected TEXT NOT NULL,      -- what the user meant
+          previous_word TEXT NOT NULL,  -- context
+          strokes TEXT NOT NULL,        -- JSON: [[[x, y, t, pressure], ...], ...]
+          scope TEXT NOT NULL,          -- global | document
+          document_id TEXT,
+          created_at INTEGER NOT NULL   -- ms since epoch
+        )
+      ''');
+      await db.execute(
+        'CREATE INDEX corrections_recognized ON corrections (recognized)',
+      );
     }
   }
 }

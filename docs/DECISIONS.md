@@ -270,6 +270,11 @@ Report on the owner's samples: character errors ML Kit 25.4%, MyScript offline 2
 - **Time zone kept private:** CI reads it from the `BUILD_TZ` secret (UTC if missing). Commits are made in UTC.
 
 - **Licence: MIT** (owner: open source, commercial use fine, as long as the owner is credited). Copyright line uses the owner's GitHub name, evilpuppypower, not their real name. Settings → About shows the licence, the credit and every library's licence (Flutter's licences page). MyScript's SDK stays under MyScript's own terms.
+## 2026-10-11 — 2.4 and 2.5: correcting words, and keeping corrections
+
+- **Correcting (2.4):** double-tapping a word's label with a finger opens a pop-up: the engine's other readings to tap, a box to type the right word (the keyboard's microphone works for speaking it), "This isn't writing", and, for an automatic swap, "Undo". Labels take double-taps but let the pen and single finger touches through to the page, so writing and scrolling over a label still work. Pen double-tap isn't wired yet: the pen always writes, and telling a double-tap from two dots needs its own care (next).
+- **Keeping corrections (2.5):** database v6 table `corrections`, one row per correction with the recognised and corrected text, the word before, the word's raw strokes, scope and time (CLAUDE.md rule 4); repeats are counted when read back. All saved corrections teach the feedback layer when a PDF opens, so they apply from then on, never to earlier text (owner).
+- **Feedback layer in use (2.6):** the engine's words go through it before showing; automatic swaps are underlined (owner) and swap from the second time (owner, to review once testable). "This isn't writing" lasts while the PDF is open; saving it is next.
 
 ## 2026-10-11 — Security and privacy hardening for the public repo
 

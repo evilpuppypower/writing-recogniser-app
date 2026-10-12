@@ -16,6 +16,8 @@ void main() {
     expect(s.writingBoxPercent, 67);
     expect(s.pressurePercent, 100);
     expect(s.keepInkOnDelete, isTrue);
+    expect(s.textLabels, TextLabelPlace.above);
+    expect(s.textPanel, TextPanelPlace.off);
   });
 
   test('writing box and pressure stay in range', () {
@@ -72,6 +74,8 @@ void main() {
       pressureRangePercent: 120,
       arrowHookMs: 0,
       keepInkOnDelete: false,
+      textLabels: TextLabelPlace.below,
+      textPanel: TextPanelPlace.floating,
     );
     expect(AppSettings.fromMap(s.toMap()), s);
   });
