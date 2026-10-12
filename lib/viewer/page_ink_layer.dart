@@ -10,7 +10,7 @@ import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/pen_tap.dart';
 import '../core/pen_tools.dart';
-import '../core/typed_text.dart' show typedWords;
+import '../core/typed_text.dart' show convertedGroups;
 import '../settings/settings_controller.dart';
 
 /// One undoable change: a page's strokes before and after.
@@ -109,12 +109,14 @@ class DocumentInkController extends ChangeNotifier {
 
   /// Converts words on [page] to typed text (task 2.3b); one undo step.
   /// [words]: each word's stroke ids and its text.
-  void convert(int page, Map<Set<String>, String> words) {
+  /// Returns whether anything was converted.
+  bool convert(int page, Map<Set<String>, String> words) {
     final before = ink.strokesOn(page);
-    if (!ink.convert(page, words)) return;
+    if (!ink.convert(page, words)) return false;
     if (_gesture == null) _record(page, before);
     notifyListeners();
     onChanged?.call(page);
+    return true;
   }
 
   /// The user edited converted word [group]'s typed text; one undo step.
@@ -183,9 +185,15 @@ class DocumentInkController extends ChangeNotifier {
     onChanged?.call(edit.page);
   }
 
-  bool eraseAt(int page, double x, double y, double radius) {
+  bool eraseAt(
+    int page,
+    double x,
+    double y,
+    double radius, {
+    bool Function(PageStroke s)? protect,
+  }) {
     final before = ink.strokesOn(page);
-    final removed = ink.eraseAt(page, x, y, radius);
+    final removed = ink.eraseAt(page, x, y, radius, protect: protect);
     if (removed.isEmpty) return false;
     if (_gesture == null) _record(page, before);
     notifyListeners();
@@ -194,9 +202,15 @@ class DocumentInkController extends ChangeNotifier {
   }
 
   /// Partial erase (only where the eraser touches).
-  bool eraseArea(int page, double x, double y, double radius) {
+  bool eraseArea(
+    int page,
+    double x,
+    double y,
+    double radius, {
+    bool Function(PageStroke s)? protect,
+  }) {
     final before = ink.strokesOn(page);
-    if (!ink.eraseArea(page, x, y, radius)) return false;
+    if (!ink.eraseArea(page, x, y, radius, protect: protect)) return false;
     if (_gesture == null) _record(page, before);
     notifyListeners();
     onChanged?.call(page);
@@ -220,7 +234,12 @@ class PageInkLayer extends StatefulWidget {
     this.doubleTapActionAt,
     this.onLasso,
     this.showTyped,
+    this.tapActionAt,
   });
+
+  /// What a single pen tap at a point does (e.g. edit the typed text
+  /// there, task 2.3c), or null if a tap there is just a dot.
+  final VoidCallback? Function(Offset at)? tapActionAt;
 
   /// With the lasso tool (task 2.3c): the loop drawn, in PDF page
   /// coordinates, once the pen lifts. Nothing is drawn on the page.
@@ -379,15 +398,32 @@ class _PageInkLayerState extends State<PageInkLayer> {
     final radius = tools.eraserSize / _pixelsPerPoint;
     final from = _lastErase ?? p;
     _lastErase = p;
+    // Ink hidden behind typed text can't be seen, so it isn't erased.
+    final hidden = (widget.showTyped?.value ?? false)
+        ? convertedGroups(widget.controller.ink.strokesOn(widget.pageNumber))
+        : const <String>{};
+    bool protect(PageStroke s) => hidden.contains(s.typedGroup);
     final dx = p.x - from.x, dy = p.y - from.y;
     final steps = (math.sqrt(dx * dx + dy * dy) / (radius / 2)).ceil();
     for (var i = 0; i <= steps; i++) {
       final f = steps == 0 ? 1.0 : i / steps;
       final x = from.x + dx * f, y = from.y + dy * f;
       if (tools.eraser == EraserKind.area) {
-        widget.controller.eraseArea(widget.pageNumber, x, y, radius);
+        widget.controller.eraseArea(
+          widget.pageNumber,
+          x,
+          y,
+          radius,
+          protect: protect,
+        );
       } else {
-        widget.controller.eraseAt(widget.pageNumber, x, y, radius);
+        widget.controller.eraseAt(
+          widget.pageNumber,
+          x,
+          y,
+          radius,
+          protect: protect,
+        );
       }
     }
   }
@@ -485,6 +521,14 @@ class _PageInkLayerState extends State<PageInkLayer> {
     );
     // A pen tap on a label: maybe the first half of a double-tap.
     final now = DateTime.now().millisecondsSinceEpoch;
+    final isTap =
+        !wasSnapped && PageInkLayer.tapRules.isTap(_moved, now - _downMs);
+    final single = isTap ? widget.tapActionAt?.call(_downAt) : null;
+    if (single != null) {
+      _drawHeld();
+      single();
+      return;
+    }
     final hit =
         !wasSnapped && PageInkLayer.tapRules.isTap(_moved, now - _downMs)
         ? widget.doubleTapActionAt?.call(_downAt)
@@ -712,7 +756,7 @@ class _PageInkPainter extends CustomPainter {
     final strokes = controller.ink.strokesOn(pageNumber);
     // Typed text shown instead of the ink of converted words.
     final typed = showTyped?.value ?? false
-        ? {for (final w in typedWords(strokes)) w.group}
+        ? convertedGroups(strokes)
         : const <String>{};
     for (final s in strokes) {
       if (typed.contains(s.typedGroup)) continue;

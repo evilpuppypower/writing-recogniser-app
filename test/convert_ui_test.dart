@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/page_coordinates.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/core/pen_tools.dart';
+import 'package:writing_recogniser/core/stroke_grouping.dart' show InkBox;
 import 'package:writing_recogniser/core/typed_text.dart';
 import 'package:writing_recogniser/viewer/page_ink_layer.dart';
 import 'package:writing_recogniser/viewer/page_typed_text.dart';
@@ -72,6 +73,44 @@ void main() {
       expect(ink.ink.strokesOn(1), isEmpty, reason: 'no ink drawn');
     });
 
+    testWidgets('a pen tap on typed text runs its action, no dot', (
+      tester,
+    ) async {
+      final ink = DocumentInkController();
+      var taps = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 306,
+              height: 396,
+              child: PageInkLayer(
+                pageNumber: 1,
+                geometry: PageGeometry(width: 612, height: 792),
+                viewWidth: 306,
+                controller: ink,
+                tapActionAt: (at) => at.dx < 100 ? () => taps++ : null,
+              ),
+            ),
+          ),
+        ),
+      );
+      Future<void> tap(Offset at) async {
+        final pen = await tester.createGesture(kind: PointerDeviceKind.stylus);
+        await pen.down(at);
+        await tester.pump(const Duration(milliseconds: 30));
+        await pen.up();
+        await tester.pump();
+      }
+
+      await tap(const Offset(50, 50));
+      expect(taps, 1);
+      expect(ink.ink.strokesOn(1), isEmpty);
+      await tap(const Offset(200, 50)); // elsewhere: a dot
+      expect(ink.ink.strokesOn(1), hasLength(1));
+    });
+
     test('the lasso is not remembered as the tool for next time', () {
       final saved = const PenToolsState(mode: PenMode.lasso).toJson();
       expect(PenToolsState.fromJson(saved).mode, PenMode.pen);
@@ -81,7 +120,6 @@ void main() {
   group('typed text on the page (task 2.3c)', () {
     late DocumentInkController ink;
     late ValueNotifier<bool> showTyped;
-    TypedWord? edited;
 
     Future<void> pump(WidgetTester tester) async {
       ink = DocumentInkController();
@@ -93,7 +131,6 @@ void main() {
         {for (final s in cat) s.id}: 'cat',
       });
       showTyped = ValueNotifier(true);
-      edited = null;
       await tester.pumpWidget(
         MaterialApp(
           home: Align(
@@ -110,7 +147,6 @@ void main() {
                       viewWidth: 612,
                       controller: ink,
                       showTyped: showTyped,
-                      onEdit: (w) => edited = w,
                     ),
                   ),
                 ],
@@ -121,14 +157,37 @@ void main() {
       );
     }
 
-    testWidgets('shows over the handwriting; a tap edits it', (tester) async {
+    testWidgets('shows over the handwriting; taps find it', (tester) async {
       await pump(tester);
       expect(find.text('cat'), findsOneWidget);
-      // PDF y 700..710 is screen y 82..92 at 1 px per point.
       final at = tester.getTopLeft(find.text('cat'));
       expect(at.dx, closeTo(100, 1));
-      await tester.tap(find.text('cat'));
-      expect(edited?.text, 'cat');
+      // PDF y 700..710 is screen y 82..92 at 1 px per point.
+      final geometry = PageGeometry(width: 612, height: 792);
+      final strokes = ink.ink.strokesOn(1);
+      expect(
+        typedWordAt(strokes, const Offset(105, 87), geometry, 612)?.text,
+        'cat',
+      );
+      expect(
+        typedWordAt(strokes, const Offset(300, 87), geometry, 612),
+        isNull,
+      );
+    });
+
+    test('text size on a page turned sideways follows the screen', () {
+      // Written across the screen of a page turned 90°: tall on the page.
+      final w = TypedWord(
+        group: 'g',
+        text: 'hello',
+        box: const InkBox(100, 500, 120, 600),
+        colorArgb: 0,
+        strokeIds: const {},
+      );
+      final upright = PageGeometry(width: 612, height: 792);
+      final sideways = PageGeometry(width: 612, height: 792, quarterTurns: 1);
+      expect(shownFontSize(w, upright), lessThan(shownFontSize(w, sideways)));
+      expect(shownFontSize(w, sideways), 16, reason: '80% of 20 pt');
     });
 
     testWidgets('hidden while the handwriting is shown', (tester) async {

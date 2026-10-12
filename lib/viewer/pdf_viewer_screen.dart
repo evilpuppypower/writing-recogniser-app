@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -163,17 +164,29 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// Whether [w]'s ink is converted and the typed text is showing, so its
   /// label is left out.
-  bool _shownTyped(int page, RecognizedWord w) {
-    if (!_showTyped.value) return false;
-    final converted = {
-      for (final t in typedWords(_ink.ink.strokesOn(page))) ...t.strokeIds,
-    };
-    return w.key.isNotEmpty && w.key.split(',').every(converted.contains);
-  }
+  bool _shownTyped(int page, RecognizedWord w) =>
+      _showTyped.value && _isConverted(page, w);
+
+  /// Whether (most of) [w]'s strokes were converted to typed text.
+  bool _isConverted(int page, RecognizedWord w) =>
+      mostlyConverted(w.key, convertedStrokeIds(_ink.ink.strokesOn(page)));
 
   bool get _hasTyped => _ink.ink.pagesWithInk.any(
-    (p) => typedWords(_ink.ink.strokesOn(p)).isNotEmpty,
+    (p) => _ink.ink.strokesOn(p).any((s) => s.typedText != null),
   );
+
+  /// While typed text shows: what a tap at [at] on [page] does (edit the
+  /// typed word there), or null.
+  VoidCallback? _typedTapAt(
+    int page,
+    Offset at,
+    PageGeometry geometry,
+    double viewWidth,
+  ) {
+    if (!_showTyped.value) return null;
+    final w = typedWordAt(_ink.ink.strokesOn(page), at, geometry, viewWidth);
+    return w == null ? null : () => _editTyped(page, w);
+  }
 
   /// Reads [page] (if needed) with a progress dialog and Cancel; null if
   /// cancelled or reading failed (the user is told why).
@@ -252,7 +265,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       );
       return;
     }
-    _ink.convert(page, map);
+    if (!_ink.convert(page, map)) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('That handwriting is already converted.')),
+      );
+      _showTyped.value = true;
+      return;
+    }
     _showTyped.value = true;
     messenger.showSnackBar(
       SnackBar(
@@ -352,14 +371,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         ],
       ),
     );
-    field.dispose();
+    // After the dialog has finished closing (it still uses the field).
+    WidgetsBinding.instance.addPostFrameCallback((_) => field.dispose());
     final t = text?.trim() ?? '';
     if (t.isEmpty || t == typed.text || !mounted) return;
     _ink.setTypedText(page, typed.group, t);
-    // The same word as read: teach the learning layer.
+    // The same word as read (mostly the same strokes): teach the learning
+    // layer, like a correction.
     for (final w in _text.wordsOn(page)) {
-      if (w.key.split(',').toSet().containsAll(typed.strokeIds) &&
-          typed.strokeIds.containsAll(w.key.split(','))) {
+      if (mostlyConverted(w.key, typed.strokeIds)) {
         await _text.correct(page, w, t);
         break;
       }
@@ -666,51 +686,70 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     PdfPage page,
   ) => [
     Positioned.fill(
-      child: PageInkLayer(
-        pageNumber: page.pageNumber,
-        geometry: _geometryOf(page),
-        viewWidth: pageRect.width,
-        controller: _ink,
-        tools: _tools,
-        showTyped: _showTyped,
-        onLasso: (loop) => _lassoDrawn(page.pageNumber, loop),
-        // Pen double-tap on a word's label: correct it (task 2.4b).
-        // On ink marked "This isn't writing": offer to undo that (2.4d).
-        doubleTapActionAt: (at) {
-          final place = SettingsScope.valueOf(context).textLabels;
-          final word = place == TextLabelPlace.off
-              ? null
-              : PageTextLabels.wordAtLabel(
-                  [
-                    for (final w in _text.wordsOn(page.pageNumber))
-                      if (!_shownTyped(page.pageNumber, w)) w,
-                  ],
-                  at,
-                  geometry: _geometryOf(page),
-                  viewWidth: pageRect.width,
-                  above: place == TextLabelPlace.above,
-                  textScaler: MediaQuery.textScalerOf(context),
-                );
-          if (word != null) {
-            return (
-              target: word.key,
-              action: () => _fixWord(page.pageNumber, word),
+      // Finger tap on typed text: edit it (task 2.3c). Fingers otherwise
+      // pass through to scroll and zoom.
+      child: GestureDetector(
+        supportedDevices: const {PointerDeviceKind.touch},
+        behavior: HitTestBehavior.translucent,
+        onTapUp: (d) => _typedTapAt(
+          page.pageNumber,
+          d.localPosition,
+          _geometryOf(page),
+          pageRect.width,
+        )?.call(),
+        child: PageInkLayer(
+          pageNumber: page.pageNumber,
+          geometry: _geometryOf(page),
+          viewWidth: pageRect.width,
+          controller: _ink,
+          tools: _tools,
+          showTyped: _showTyped,
+          onLasso: (loop) => _lassoDrawn(page.pageNumber, loop),
+          // Pen tap on typed text: edit it (task 2.3c).
+          tapActionAt: (at) => _typedTapAt(
+            page.pageNumber,
+            at,
+            _geometryOf(page),
+            pageRect.width,
+          ),
+          // Pen double-tap on a word's label: correct it (task 2.4b).
+          // On ink marked "This isn't writing": offer to undo that (2.4d).
+          doubleTapActionAt: (at) {
+            final place = SettingsScope.valueOf(context).textLabels;
+            final word = place == TextLabelPlace.off
+                ? null
+                : PageTextLabels.wordAtLabel(
+                    [
+                      for (final w in _text.wordsOn(page.pageNumber))
+                        if (!_shownTyped(page.pageNumber, w)) w,
+                    ],
+                    at,
+                    geometry: _geometryOf(page),
+                    viewWidth: pageRect.width,
+                    above: place == TextLabelPlace.above,
+                    textScaler: MediaQuery.textScalerOf(context),
+                  );
+            if (word != null) {
+              return (
+                target: word.key,
+                action: () => _fixWord(page.pageNumber, word),
+              );
+            }
+            final p = _geometryOf(page)
+                .toPdf(ViewPoint(at.dx, at.dy), pageRect.width);
+            final hidden = hiddenInkAt(
+              _ink.ink.strokesOn(page.pageNumber),
+              p.x,
+              p.y,
             );
-          }
-          final p = _geometryOf(page)
-              .toPdf(ViewPoint(at.dx, at.dy), pageRect.width);
-          final hidden = hiddenInkAt(
-            _ink.ink.strokesOn(page.pageNumber),
-            p.x,
-            p.y,
-          );
-          return hidden == null
-              ? null
-              : (
-                  target: 'hidden:${(hidden.ids.toList()..sort()).join(',')}',
-                  action: () => _askUnhide(page.pageNumber, hidden),
-                );
-        },
+            return hidden == null
+                ? null
+                : (
+                    target: 'hidden:${(hidden.ids.toList()..sort()).join(',')}',
+                    action: () => _askUnhide(page.pageNumber, hidden),
+                  );
+          },
+        ),
       ),
     ),
     Positioned.fill(
@@ -740,7 +779,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         viewWidth: pageRect.width,
         controller: _ink,
         showTyped: _showTyped,
-        onEdit: (w) => _editTyped(page.pageNumber, w),
       ),
     ),
   ];

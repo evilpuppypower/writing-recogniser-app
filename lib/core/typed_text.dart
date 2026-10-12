@@ -56,6 +56,39 @@ List<TypedWord> typedWords(List<PageStroke> strokes) {
   ];
 }
 
+/// The converted words' groups on a page (cheap: no boxes are worked out).
+Set<String> convertedGroups(List<PageStroke> strokes) => {
+  for (final s in strokes)
+    if (s.typedGroup != null && (s.typedText?.isNotEmpty ?? false))
+      s.typedGroup!,
+};
+
+/// The stroke ids of converted words on a page, cached per stroke list (a
+/// page's list is replaced whenever it changes), for checks run for every
+/// word on every rebuild.
+Set<String> convertedStrokeIds(List<PageStroke> strokes) {
+  final cached = _idsCache[strokes];
+  if (cached != null) return cached;
+  final groups = convertedGroups(strokes);
+  final ids = {
+    for (final s in strokes)
+      if (groups.contains(s.typedGroup)) s.id,
+  };
+  _idsCache[strokes] = ids;
+  return ids;
+}
+
+final _idsCache = Expando<Set<String>>();
+
+/// Whether most of a recognised word's strokes ([key]: comma-separated
+/// ids) are among [converted] — after a stroke is added or rubbed out
+/// nearby, the word read may not match the converted one exactly.
+bool mostlyConverted(String key, Set<String> converted) {
+  if (key.isEmpty || converted.isEmpty) return false;
+  final ids = key.split(',');
+  return ids.where(converted.contains).length * 2 > ids.length;
+}
+
 /// Average width of a character, as a share of the font size (Helvetica is
 /// about half as wide as it is tall).
 const averageCharWidth = 0.52;

@@ -72,6 +72,22 @@ void main() {
       expect(ink.strokesOn(1).where((s) => s.typedText != null), hasLength(1));
     });
 
+    test('converting again keeps an edited word as it is', () {
+      ink.convert(1, {ids(cat): 'cat'});
+      final group = typedWords(ink.strokesOn(1)).single.group;
+      ink.setTypedText(1, group, 'cart');
+      expect(ink.convert(1, {ids(cat): 'cat'}), isFalse);
+      expect(typedWords(ink.strokesOn(1)).single.text, 'cart');
+    });
+
+    test('the eraser can be told to leave hidden ink alone', () {
+      ink.convert(1, {ids(cat): 'cat'});
+      bool hidden(PageStroke s) => s.typedGroup != null;
+      expect(ink.eraseAt(1, 103, 705, 5, protect: hidden), isEmpty);
+      expect(ink.eraseArea(1, 103, 705, 5, protect: hidden), isFalse);
+      expect(ink.eraseAt(1, 103, 705, 5), isNotEmpty);
+    });
+
     test('undo takes the conversion back in one step', () {
       final c = DocumentInkController(ink);
       c.convert(1, {ids(cat): 'cat', ids(dog): 'dog'});
