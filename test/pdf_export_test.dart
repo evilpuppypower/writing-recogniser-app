@@ -328,7 +328,7 @@ void main() {
       );
       final rgba = calloc<UnsignedInt>(4);
       lib.FPDFPageObj_GetFillColor(obj, rgba, rgba + 1, rgba + 2, rgba + 3);
-      expect([rgba[0], rgba[1], rgba[2]], [0xD3, 0x2F, 0x2F]);
+      expect([rgba[0], rgba[1], rgba[2], rgba[3]], [0xD3, 0x2F, 0x2F, 0xFF]);
       calloc.free(rgba);
       // Searchable too, and inside the handwriting's height.
       final tp = lib.FPDFText_LoadPage(page);
@@ -345,6 +345,43 @@ void main() {
       expect(box[0], closeTo(100, 2), reason: 'starts at the left edge');
       expect(box[2], greaterThanOrEqualTo(599));
       expect(box[3], lessThanOrEqualTo(621));
+      calloc.free(box);
+      lib.FPDFText_ClosePage(tp);
+      lib.FPDF_ClosePage(page);
+      lib.FPDF_CloseDocument(doc);
+    });
+
+    test('"both": typed text sits just under the handwriting', () {
+      final src = blankPdf(lib, dir, 1);
+      final bytes = writeInkIntoPdf(
+        lib,
+        src,
+        const {},
+        text: const {
+          1: [
+            ExportWord(
+              'cat',
+              100,
+              600,
+              140,
+              620,
+              colorArgb: 0xFF000000,
+              under: true,
+            ),
+          ],
+        },
+      );
+      final out = File('${dir.path}/both.pdf')..writeAsBytesSync(bytes);
+      final path = out.path.toNativeUtf8();
+      final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+      malloc.free(path);
+      final page = lib.FPDF_LoadPage(doc, 0);
+      final tp = lib.FPDFText_LoadPage(page);
+      final box = calloc<Double>(4);
+      lib.FPDFText_GetCharBox(tp, 0, box, box + 1, box + 2, box + 3);
+      expect(box[3], lessThanOrEqualTo(600.5), reason: 'top below the ink');
+      expect(box[2], greaterThan(570), reason: 'but close under it');
+      expect(box[0], closeTo(100, 2));
       calloc.free(box);
       lib.FPDFText_ClosePage(tp);
       lib.FPDF_ClosePage(page);
