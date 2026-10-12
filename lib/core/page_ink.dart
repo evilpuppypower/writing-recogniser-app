@@ -277,7 +277,8 @@ class DocumentInk {
   /// Converts words on [page] to typed text (task 2.3b): each entry is a
   /// word's [PageStroke.id]s and its text. Each word's strokes get a group
   /// (named after its stroke ids), and the first carries the text. The ink
-  /// stays. Returns whether anything changed.
+  /// stays. Strokes already converted keep their (perhaps edited) text.
+  /// Returns whether anything changed.
   bool convert(int page, Map<Set<String>, String> words) {
     final byId = <String, ({String group, String text})>{};
     for (final e in words.entries) {
@@ -293,7 +294,8 @@ class DocumentInk {
     var changed = false;
     final next = <PageStroke>[];
     for (final s in strokesOn(page)) {
-      final w = s.points.isEmpty ? null : byId[s.id];
+      // Already converted (perhaps edited since): kept as it is.
+      final w = s.points.isEmpty || s.typedGroup != null ? null : byId[s.id];
       if (w == null) {
         next.add(s);
         continue;
@@ -338,11 +340,21 @@ class DocumentInk {
 
   /// Removes whole strokes within [radius] points of (x, y) on [page];
   /// returns the removed strokes (empty if none were close enough).
-  List<PageStroke> eraseAt(int page, double x, double y, double radius) {
+  /// Strokes [protect] says yes to are left alone (e.g. ink hidden behind
+  /// typed text, task 2.3c).
+  List<PageStroke> eraseAt(
+    int page,
+    double x,
+    double y,
+    double radius, {
+    bool Function(PageStroke s)? protect,
+  }) {
     final strokes = strokesOn(page);
     final removed = [
       for (final s in strokes)
-        if (s.distanceTo(x, y) <= radius + s.width / 2) s,
+        if (s.distanceTo(x, y) <= radius + s.width / 2 &&
+            !(protect?.call(s) ?? false))
+          s,
     ];
     if (removed.isNotEmpty) {
       _pages[page] = [
@@ -356,13 +368,19 @@ class DocumentInk {
   /// Partial erase: removes only the parts of strokes within [radius]
   /// points of (x, y) on [page], splitting strokes where they are cut.
   /// Returns true if anything changed.
-  bool eraseArea(int page, double x, double y, double radius) {
+  bool eraseArea(
+    int page,
+    double x,
+    double y,
+    double radius, {
+    bool Function(PageStroke s)? protect,
+  }) {
     final strokes = strokesOn(page);
     var changed = false;
     final next = <PageStroke>[];
     for (final s in strokes) {
       final reach = radius + s.width / 2;
-      if (s.distanceTo(x, y) > reach) {
+      if (s.distanceTo(x, y) > reach || (protect?.call(s) ?? false)) {
         next.add(s);
         continue;
       }

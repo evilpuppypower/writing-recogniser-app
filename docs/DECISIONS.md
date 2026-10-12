@@ -368,3 +368,6 @@ Owner's answers: (1b) the handwriting is kept and the user can switch between in
 
 - **Stored on the strokes themselves:** each converted word's strokes share a group, and the first carries the text. So saving, reopening, undo/redo and erasing all work as they already do, with no new table. Partly rubbing out a word keeps it converted; rubbing out the stroke with the text turns the rest back into plain ink.
 - **One typed box per word,** placed over that word's handwriting. The size is as tall as the handwriting allows (80% of its height), narrowed if the text would be wider, never below 5 pt.
+- **Typed text never blocks the pen:** it only draws. A pen tap on it (or a finger tap) edits it; writing, erasing and the lasso work over it as anywhere else.
+- **The eraser leaves hidden ink alone:** while typed text shows, the handwriting behind it can't be seen, so it can't be erased; switch to the handwriting to erase it.
+- **Converting again keeps edits:** words already converted (and perhaps edited) are left as they are.
