@@ -432,6 +432,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             geometry: _geometryOf(page),
             viewWidth: pageRect.width,
             above: place == TextLabelPlace.above,
+            textScaler: MediaQuery.textScalerOf(context),
           );
           return word == null
               ? null
