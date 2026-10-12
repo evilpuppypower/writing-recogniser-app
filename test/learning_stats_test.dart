@@ -99,13 +99,43 @@ void main() {
     expect(s.medianLatencyMs, isNull);
   });
 
-  test('a word read again counts once, with its newest reading', () {
+  test('a word read again (PDF reopened) keeps its first reading and fix', () {
     final s = LearningStats.fromEvents([
-      read('a', week1, engine: 'cat'),
-      read('a', week1.add(const Duration(seconds: 9)), engine: 'cart'),
+      read('a', week1, engine: 'cot'),
+      fix('a', week1.add(const Duration(seconds: 5)), 'cat'),
+      // Reopened later: the feedback layer now swaps it.
+      read('a', week2, engine: 'cot', shown: 'cat', swapped: true),
     ]);
-    expect(s.words.single.engine, 'cart');
-    expect(s.weeks.single.words, 1, reason: 'counted once');
+    final w = s.words.single;
+    expect((w.engine, w.shown, w.finalText), ('cot', 'cot', 'cat'));
+    expect(s.swaps, 0, reason: 'the re-read is not a new swap');
+    expect([for (final x in s.weeks) x.words], [1]);
+  });
+
+  test(
+    'a word that grows (i-dot added later) replaces its partial reading',
+    () {
+      final s = LearningStats.fromEvents([
+        read('1/5,2/7', week1, engine: 'hel'),
+        read(
+          '1/5,2/7,3/2',
+          week1.add(const Duration(seconds: 4)),
+          engine: 'hello',
+        ),
+      ]);
+      expect(s.words.single.engine, 'hello');
+      expect(s.weeks.single.words, 1);
+    },
+  );
+
+  test('CSV cells that a spreadsheet would run as formulas stay text', () {
+    final s = LearningStats.fromEvents([
+      read('a', week1, engine: '-'),
+      read('b', week1.add(const Duration(seconds: 1)), engine: '=1+1'),
+    ]);
+    final rows = s.toCsv().trim().split('\n').skip(1).toList();
+    expect(rows[0], contains(",'-,'-,'-,"));
+    expect(rows[1], contains(",'=1+1,"));
   });
 
   test('CSV: one row per word, quoted where needed', () {

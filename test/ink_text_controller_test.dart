@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/page_coordinates.dart';
@@ -298,6 +300,19 @@ void main() {
       c.dispose();
     });
 
+    testWidgets('readNow stops waiting when asked (Cancel)', (tester) async {
+      final c = InkTextController(engine: _NeverEngine());
+      var stop = false;
+      final done = tester.runAsync(() async {
+        final f = c.readNow(1, word(100, 700, 2, 0), stop: () => stop);
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        stop = true;
+        return f.timeout(const Duration(seconds: 2));
+      });
+      expect(await done, isEmpty);
+      c.dispose();
+    });
+
     testWidgets('readNow gives no words when the engine is not set up', (
       tester,
     ) async {
@@ -346,4 +361,13 @@ class _MemoryCorrections implements CorrectionStore {
   Future<void> add(CorrectionRecord c) async => saved.add(c);
   @override
   Future<List<CorrectionRecord>> all() async => saved;
+}
+
+/// An engine that never answers (a hung engine call).
+class _NeverEngine extends FakeEngine {
+  @override
+  Future<List<Candidate>> recognize(
+    List<InkStroke> strokes,
+    RecognitionContext context,
+  ) => Completer<List<Candidate>>().future;
 }

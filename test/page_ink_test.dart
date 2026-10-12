@@ -58,6 +58,21 @@ void main() {
       expect(pieces.every((s) => s.notWriting), isTrue);
     });
 
+    test('undoing other edits keeps the "not writing" mark', () {
+      final c = DocumentInkController();
+      final a = line(0, 0, 100, 0);
+      const b = PageStroke(
+        points: [PageInkPoint(0, 50, 2000), PageInkPoint(100, 50, 2010)],
+      );
+      c.add(1, a);
+      c.add(1, b);
+      c.markNotWriting(1, {a.id});
+      c.undo(); // takes b away; a must stay marked
+      expect(c.ink.strokesOn(1).single.notWriting, isTrue);
+      c.redo();
+      expect(c.ink.strokesOn(1).map((s) => s.notWriting), [true, false]);
+    });
+
     test('JSON round trip keeps points, time, pressure, colour and width', () {
       final ink = DocumentInk()
         ..add(

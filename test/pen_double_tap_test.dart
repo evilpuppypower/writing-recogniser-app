@@ -56,8 +56,9 @@ void main() {
                 geometry: PageGeometry(width: 612, height: 792),
                 viewWidth: 306,
                 controller: ink,
-                doubleTapActionAt: (at) =>
-                    hotSpot.contains(at) ? () => actions++ : null,
+                doubleTapActionAt: (at) => hotSpot.contains(at)
+                    ? (target: 'word', action: () => actions++)
+                    : null,
               ),
             ),
           ),
@@ -137,6 +138,90 @@ void main() {
       expect(strokes(), 2);
       final ys = ink.ink.strokesOn(1).map((s) => s.points.first.y).toList();
       expect(ys.first, greaterThan(ys.last), reason: 'label dot first');
+    });
+  });
+
+  group('pen double-tap: edge cases', () {
+    late DocumentInkController ink;
+    late int actions;
+    final hotSpot = Rect.fromLTWH(80, 80, 60, 30);
+    final otherSpot = Rect.fromLTWH(141, 80, 60, 30);
+
+    Future<void> pump(WidgetTester tester, {bool show = true}) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 306,
+              height: 396,
+              child: show
+                  ? PageInkLayer(
+                      pageNumber: 1,
+                      geometry: PageGeometry(width: 612, height: 792),
+                      viewWidth: 306,
+                      controller: ink,
+                      doubleTapActionAt: (at) => hotSpot.contains(at)
+                          ? (target: 'word', action: () => actions++)
+                          : otherSpot.contains(at)
+                          ? (target: 'other', action: () => actions++)
+                          : null,
+                    )
+                  : const SizedBox(),
+            ),
+          ),
+        ),
+      );
+    }
+
+    setUp(() {
+      ink = DocumentInkController();
+      actions = 0;
+    });
+
+    Future<void> tap(WidgetTester tester, Offset at) async {
+      final pen = await tester.createGesture(kind: PointerDeviceKind.stylus);
+      await pen.down(at);
+      await tester.pump(const Duration(milliseconds: 30));
+      await pen.up();
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+
+    testWidgets('taps on two different labels are not a double-tap', (
+      tester,
+    ) async {
+      await pump(tester);
+      await tap(tester, const Offset(135, 90)); // first label
+      await tap(tester, const Offset(146, 90)); // the next label
+      expect(actions, 0);
+      await tester.pump(const Duration(seconds: 1));
+      expect(ink.ink.strokesOn(1), hasLength(2), reason: 'both dots drawn');
+    });
+
+    testWidgets('undo straight after a held tap undoes that tap', (
+      tester,
+    ) async {
+      await pump(tester);
+      await tap(tester, const Offset(250, 300)); // a dot elsewhere
+      await tap(tester, const Offset(100, 90)); // held on the label
+      ink.undo();
+      expect(ink.ink.strokesOn(1), hasLength(1));
+      // PDF y grows upward: the dot low on the page has the smaller y.
+      expect(
+        ink.ink.strokesOn(1).single.points.first.y,
+        lessThan(300),
+        reason: 'the earlier dot stays; the held one was undone',
+      );
+      await tester.pump(const Duration(seconds: 1));
+      expect(ink.ink.strokesOn(1), hasLength(1), reason: 'not drawn again');
+    });
+
+    testWidgets('a held tap is kept when the page goes away', (tester) async {
+      await pump(tester);
+      await tap(tester, const Offset(100, 90));
+      await pump(tester, show: false);
+      await tester.pump();
+      expect(ink.ink.strokesOn(1), hasLength(1));
     });
   });
 

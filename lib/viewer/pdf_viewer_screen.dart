@@ -437,7 +437,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             viewWidth: pageRect.width,
             above: place == TextLabelPlace.above,
           );
-          return word == null ? null : () => _fixWord(page.pageNumber, word);
+          return word == null
+              ? null
+              : (
+                  target: word.key,
+                  action: () => _fixWord(page.pageNumber, word),
+                );
         },
       ),
     ),
@@ -604,9 +609,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     }
   }
 
-  /// Makes a new PDF with the ink drawn in (task 1.4) and saves it where
-  /// the user picks, or opens the share menu with it when [share]. The
-  /// original PDF is never changed.
   /// Reads the handwriting on [only] (or every page with ink) so the export
   /// can carry it as searchable text (task 1.4b), with a progress bar and
   /// the time left. Null if the user cancels.
@@ -655,33 +657,50 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
     final words = <int, List<ExportWord>>{};
     final watch = Stopwatch()..start();
-    for (var i = 0; i < pages.length && !cancelled; i++) {
-      final page = pages[i];
-      final left = i == 0
-          ? ''
-          : ', ${formatRemaining(Duration(milliseconds: watch.elapsedMilliseconds * (pages.length - i) ~/ i))}';
-      progress.value = (
-        i,
-        'Reading page $page (${i + 1} of ${pages.length})$left…',
+    Object? error;
+    try {
+      for (var i = 0; i < pages.length && !cancelled; i++) {
+        final page = pages[i];
+        final left = i == 0
+            ? ''
+            : ', ${formatRemaining(Duration(milliseconds: watch.elapsedMilliseconds * (pages.length - i) ~/ i))}';
+        progress.value = (
+          i,
+          'Reading page $page (${i + 1} of ${pages.length})$left…',
+        );
+        final read = await _text.readNow(
+          page,
+          _ink.ink.strokesOn(page),
+          stop: () => cancelled || !mounted,
+        );
+        words[page] = [
+          for (final w in read)
+            if (w.text.trim().isNotEmpty)
+              ExportWord(
+                w.text,
+                w.box.left,
+                w.box.bottom,
+                w.box.right,
+                w.box.top,
+              ),
+        ];
+      }
+    } catch (e) {
+      error = e;
+    } finally {
+      // The progress dialog closes however reading ended (Cancel closes it
+      // itself).
+      if (!cancelled && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    }
+    if (cancelled || !mounted) return null;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Couldn't read the handwriting: $error")),
       );
-      final read = await _text.readNow(page, _ink.ink.strokesOn(page));
-      words[page] = [
-        for (final w in read)
-          if (w.text.trim().isNotEmpty)
-            ExportWord(
-              w.text,
-              w.box.left,
-              w.box.bottom,
-              w.box.right,
-              w.box.top,
-            ),
-      ];
+      return null;
     }
-    if (!cancelled && mounted) {
-      Navigator.of(context, rootNavigator: true).pop(); // the progress dialog
-    }
-    progress.dispose();
-    if (cancelled) return null;
     final problem = _text.problem;
     if (problem != null && words.values.every((w) => w.isEmpty) && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -696,6 +715,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     return words;
   }
 
+  /// Makes a new PDF with the ink drawn in (task 1.4) and saves it where
+  /// the user picks, or opens the share menu with it when [share]. The
+  /// original PDF is never changed.
   Future<void> _export({bool share = false}) async {
     if (widget.sourcePath == null) return;
     final messenger = ScaffoldMessenger.of(context);

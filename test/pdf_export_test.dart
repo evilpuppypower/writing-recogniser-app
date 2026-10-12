@@ -212,6 +212,30 @@ void main() {
       expect(textOn(1), contains('hello'));
       expect(textOn(1), contains('world'));
 
+      // Each word lies over its handwriting: the letters of "hello" are
+      // inside its box (100-160 across, 600-620 up), give or take a point.
+      {
+        final page = lib.FPDF_LoadPage(doc, 1);
+        final tp = lib.FPDFText_LoadPage(page);
+        final box = calloc<Double>(4);
+        final text = textOn(1);
+        final start = text.indexOf('hello');
+        for (var k = start; k < start + 5; k++) {
+          expect(
+            lib.FPDFText_GetCharBox(tp, k, box, box + 1, box + 2, box + 3),
+            isNot(0),
+          );
+          final (l, r, b, t) = (box[0], box[1], box[2], box[3]);
+          expect(l, greaterThanOrEqualTo(99), reason: 'char $k left');
+          expect(r, lessThanOrEqualTo(161), reason: 'char $k right');
+          expect(b, greaterThanOrEqualTo(599), reason: 'char $k bottom');
+          expect(t, lessThanOrEqualTo(621), reason: 'char $k top');
+        }
+        calloc.free(box);
+        lib.FPDFText_ClosePage(tp);
+        lib.FPDF_ClosePage(page);
+      }
+
       // Invisible: the words are text objects drawn in render mode 3.
       final page = lib.FPDF_LoadPage(doc, 1);
       expect(lib.FPDFPage_CountObjects(page), 2);
