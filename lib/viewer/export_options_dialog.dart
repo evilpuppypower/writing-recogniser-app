@@ -9,13 +9,14 @@ class ExportChoice {
   /// Add the recognised handwriting as invisible, searchable text.
   final bool searchable;
 
-  /// Only these pages get searchable text; null means every page with
-  /// writing.
+  /// Only these pages are exported (and made searchable, if chosen); null
+  /// means every page (task 1.4c, owner).
   final Set<int>? pages;
 }
 
 /// Asks how to export: searchable handwriting text on (owner: the default)
-/// or off, for all pages or only some. Null if cancelled.
+/// or off, and all pages or only some (only those go in the new PDF).
+/// Null if cancelled.
 Future<ExportChoice?> showExportOptions(
   BuildContext context, {
   required int pageCount,
@@ -49,7 +50,7 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
 
   void _done() {
     Set<int>? pages;
-    if (_searchable && !_allPages) {
+    if (!_allPages) {
       try {
         pages = parsePageRanges(_pages.text, widget.pageCount);
       } on FormatException catch (e) {
@@ -80,41 +81,43 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
               value: _searchable,
               onChanged: (v) => setState(() => _searchable = v),
             ),
-            if (_searchable)
-              RadioGroup<bool>(
-                groupValue: _allPages,
-                onChanged: (v) => setState(() {
-                  _allPages = v ?? true;
-                  _error = null;
-                }),
-                child: Column(
-                  children: [
-                    const RadioListTile<bool>(
-                      value: true,
-                      title: Text('All pages'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    const RadioListTile<bool>(
-                      value: false,
-                      title: Text('Only some pages'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    if (!_allPages)
-                      TextField(
-                        controller: _pages,
-                        autofocus: true,
-                        keyboardType: TextInputType.text,
-                        decoration: InputDecoration(
-                          labelText: 'Pages',
-                          hintText: 'e.g. 1-3, 7',
-                          helperText: 'This PDF has ${widget.pageCount} pages.',
-                          errorText: _error,
-                        ),
-                        onSubmitted: (_) => _done(),
+            const SizedBox(height: 8),
+            Text('Pages', style: Theme.of(context).textTheme.titleSmall),
+            RadioGroup<bool>(
+              groupValue: _allPages,
+              onChanged: (v) => setState(() {
+                _allPages = v ?? true;
+                _error = null;
+              }),
+              child: Column(
+                children: [
+                  const RadioListTile<bool>(
+                    value: true,
+                    title: Text('All pages'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  const RadioListTile<bool>(
+                    value: false,
+                    title: Text('Only some pages'),
+                    subtitle: Text('The new PDF has just these pages.'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  if (!_allPages)
+                    TextField(
+                      controller: _pages,
+                      autofocus: true,
+                      keyboardType: TextInputType.text,
+                      decoration: InputDecoration(
+                        labelText: 'Pages',
+                        hintText: 'e.g. 1-3, 7',
+                        helperText: 'This PDF has ${widget.pageCount} pages.',
+                        errorText: _error,
                       ),
-                  ],
-                ),
+                      onSubmitted: (_) => _done(),
+                    ),
+                ],
               ),
+            ),
           ],
         ),
       ),

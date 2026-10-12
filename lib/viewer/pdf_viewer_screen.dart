@@ -130,6 +130,7 @@ class PdfViewerScreen extends StatefulWidget {
     required DocumentInk ink,
     PressureResponse pressure,
     Map<int, List<ExportWord>> text,
+    Set<int>? onlyPages,
   })
   exportPdf;
   final Future<bool> Function(String name, String mime, List<int> bytes)
@@ -837,6 +838,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         ink: _ink.ink,
         pressure: pressure,
         text: text,
+        onlyPages: choice.pages,
       );
     } catch (e) {
       error = e;

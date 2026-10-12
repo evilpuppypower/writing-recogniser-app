@@ -52,16 +52,21 @@ void main() {
     expect(c!.pages, {2, 3, 4, 9});
   });
 
-  testWidgets('turning it off exports ink only; Cancel gives null', (
+  testWidgets('searchable off still lets you pick pages; Cancel gives null', (
     tester,
   ) async {
     var choice = await open(tester);
     await tester.tap(find.text('Make handwriting searchable'));
     await tester.pumpAndSettle();
-    expect(find.text('All pages'), findsNothing);
+    expect(find.text('All pages'), findsOneWidget, reason: 'pages stay');
+    await tester.tap(find.text('Only some pages'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '3');
     await tester.tap(find.text('Export'));
     await tester.pumpAndSettle();
-    expect((await choice)!.searchable, isFalse);
+    final c = await choice;
+    expect(c!.searchable, isFalse);
+    expect(c.pages, {3});
 
     choice = await open(tester);
     await tester.tap(find.text('Cancel'));

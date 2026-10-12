@@ -174,6 +174,43 @@ void main() {
       lib.FPDF_CloseDocument(doc);
     });
 
+    test('only some pages: the new PDF has just those, ink on them', () {
+      final src = blankPdf(lib, dir, 4);
+      final bytes = writeInkIntoPdf(
+        lib,
+        src,
+        {
+          1: exportLines([
+            pen([(10, 10, 0.5), (20, 20, 0.5)]),
+          ]),
+          3: exportLines([
+            pen([(10, 10, 0.5), (20, 20, 0.5)]),
+            pen([(30, 30, 0.5), (40, 40, 0.5)]),
+          ], pressure: PressureResponse.none),
+        },
+        onlyPages: {3, 4, 99},
+      );
+      final out = File('${dir.path}/some.pdf')..writeAsBytesSync(bytes);
+      final path = out.path.toNativeUtf8();
+      final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+      malloc.free(path);
+      expect(lib.FPDF_GetPageCount(doc), 2, reason: 'pages 3 and 4');
+      int objects(int i) {
+        final page = lib.FPDF_LoadPage(doc, i);
+        final n = lib.FPDFPage_CountObjects(page);
+        lib.FPDF_ClosePage(page);
+        return n;
+      }
+
+      expect([objects(0), objects(1)], [2, 0], reason: "page 3's ink first");
+      lib.FPDF_CloseDocument(doc);
+      expect(
+        () => writeInkIntoPdf(lib, src, const {}, onlyPages: {7}),
+        throwsA(isA<PdfExportException>()),
+        reason: 'none of the chosen pages exist',
+      );
+    });
+
     test('recognised words become invisible, searchable text', () {
       final src = blankPdf(lib, dir, 2);
       final bytes = writeInkIntoPdf(

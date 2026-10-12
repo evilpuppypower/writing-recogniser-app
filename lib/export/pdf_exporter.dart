@@ -10,7 +10,8 @@ import 'pdf_ink_writer.dart';
 
 /// Makes a new PDF with [ink] drawn onto the pages of the PDF at
 /// [sourcePath] (task 1.4a), with [text] (page number -> recognised words)
-/// as invisible, searchable text over the handwriting (task 1.4b). Runs on
+/// as invisible, searchable text over the handwriting (task 1.4b). With
+/// [onlyPages], the new PDF has just those pages (task 1.4c). Runs on
 /// pdfrx's PDFium worker, so it never uses PDFium at the same time as the
 /// viewer (PDFium isn't thread-safe).
 Future<Uint8List> exportPdfWithInk({
@@ -18,6 +19,7 @@ Future<Uint8List> exportPdfWithInk({
   required DocumentInk ink,
   PressureResponse pressure = const PressureResponse(),
   Map<int, List<ExportWord>> text = const {},
+  Set<int>? onlyPages,
 }) {
   final pages = <int, List<List<Object>>>{
     for (final page in ink.pagesWithInk)
@@ -35,6 +37,7 @@ Future<Uint8List> exportPdfWithInk({
     pages,
     Pdfrx.pdfiumModulePath,
     words,
+    onlyPages?.toList(),
   ]);
 }
 
@@ -55,7 +58,14 @@ Uint8List _exportOnWorker(List<Object?> m) {
           ExportWord.fromMessage((w as List).cast<Object?>()),
       ],
   };
-  return writeInkIntoPdf(lib, m[0]! as String, pages, text: text);
+  final only = m[4] as List?;
+  return writeInkIntoPdf(
+    lib,
+    m[0]! as String,
+    pages,
+    text: text,
+    onlyPages: only == null ? null : {for (final n in only) n as int},
+  );
 }
 
 /// "Lecture 3.pdf" -> "Lecture 3 (with ink).pdf".

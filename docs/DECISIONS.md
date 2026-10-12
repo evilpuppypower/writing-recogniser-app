@@ -357,3 +357,7 @@ Phase 4 is preparatory until GATE B. "Save training data" on the learning screen
 - **Two ways back (owner's choice):** a pen double-tap on marked ink opens a "Hidden ink" pop-up with "This is writing"; and the text panel lists the current page's hidden ink, each with a small picture and a "This is writing" button.
 - **Grouping:** marked ink is grouped the same way as words, so one tap brings back a whole tick or word, not a single stroke.
 - **Saved and logged:** the mark comes off the strokes themselves (saved with the ink), the undo history follows, and an `is_writing` event is logged on the tablet. The ink is then read again; if the ink classifier itself says it's a drawing, it still won't be read (only the user's mark is undone).
+
+## 2026-10-12 — "Only some pages" exports only those pages (1.4c, owner)
+
+The owner chose that "Only some pages" in the export dialog means the new PDF has just those pages (in their original order), not every page with searchable text on some. The page choice is now separate from "Make handwriting searchable", so it also works for an ink-only export; if searchable is on, only the chosen pages are read. PDFium deletes the other pages from the in-memory copy before saving; the source PDF is never changed. Page numbers past the end are ignored, and an export with none of the chosen pages left fails with a plain message.

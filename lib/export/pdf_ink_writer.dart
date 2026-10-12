@@ -17,7 +17,10 @@ class PdfExportException implements Exception {
 /// Draws [pages] (1-based page number -> lines in PDF page coordinates) onto
 /// the PDF at [sourcePath], adds [text] (recognised words, page number ->
 /// words) as invisible text over the handwriting so the PDF can be searched
-/// (task 1.4b), and returns the new PDF's bytes. The source file is
+/// (task 1.4b), and returns the new PDF's bytes. With [onlyPages] (1-based
+/// page numbers), the new PDF has just those pages, in their original
+/// order (task 1.4c); page numbers that aren't in the PDF are ignored.
+/// The source file is
 /// never changed (CLAUDE.md rule 6): PDFium works on a copy in memory and
 /// writes a new file.
 ///
@@ -29,6 +32,7 @@ Uint8List writeInkIntoPdf(
   String sourcePath,
   Map<int, List<ExportLine>> pages, {
   Map<int, List<ExportWord>> text = const {},
+  Set<int>? onlyPages,
 }) {
   final path = sourcePath.toNativeUtf8();
   final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
@@ -50,7 +54,10 @@ Uint8List writeInkIntoPdf(
       for (final n in numbers) {
         final lines = pages[n] ?? const <ExportLine>[];
         final words = text[n] ?? const <ExportWord>[];
-        if (n < 1 || n > pageCount || (lines.isEmpty && words.isEmpty)) {
+        if (n < 1 ||
+            n > pageCount ||
+            (onlyPages != null && !onlyPages.contains(n)) ||
+            (lines.isEmpty && words.isEmpty)) {
           continue;
         }
         final page = lib.FPDF_LoadPage(doc, n - 1);
@@ -96,6 +103,17 @@ Uint8List writeInkIntoPdf(
       calloc.free(bounds);
       malloc.free(blend);
       malloc.free(font);
+    }
+    if (onlyPages != null) {
+      if (!onlyPages.any((n) => n >= 1 && n <= pageCount)) {
+        throw const PdfExportException(
+          'None of the chosen pages are in this PDF.',
+        );
+      }
+      // From the end, so the earlier pages keep their positions.
+      for (var n = pageCount; n >= 1; n--) {
+        if (!onlyPages.contains(n)) lib.FPDFPage_Delete(doc, n - 1);
+      }
     }
     return _save(lib, doc);
   } finally {
