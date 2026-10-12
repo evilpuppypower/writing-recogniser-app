@@ -399,7 +399,11 @@ class InkTextController extends ChangeNotifier {
                       type: 'recognition',
                       at: DateTime.fromMillisecondsSinceEpoch(now),
                       engine: engine.name,
-                      latencyMs: now - job.word.end,
+                      // Pen lift to text, only for writing done just now
+                      // (not ink read again when a PDF is reopened).
+                      latencyMs: now - job.word.end < 60000
+                          ? now - job.word.end
+                          : null,
                       data: {
                         'source': 'pdf',
                         'page': page,

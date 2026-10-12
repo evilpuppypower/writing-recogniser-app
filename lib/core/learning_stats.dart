@@ -120,11 +120,13 @@ class LearningStats {
   factory LearningStats.fromEvents(Iterable<LoggedEvent> events) {
     final sorted = events.toList()..sort((a, b) => a.at.compareTo(b.at));
     final byWord = <String, WordOutcome>{};
+    // Which word each stroke belongs to ("doc|page|stroke id" -> word key).
+    final strokeOwner = <String, String>{};
     final order = <WordOutcome>[];
     final weeks = <DateTime, WeekRow>{};
     WeekRow week(DateTime t) {
-      final day = DateTime(t.year, t.month, t.day);
-      final monday = day.subtract(Duration(days: day.weekday - 1));
+      // Calendar maths, not hours, so clock changes can't shift the day.
+      final monday = DateTime(t.year, t.month, t.day - (t.weekday - 1));
       return weeks.putIfAbsent(monday, () => WeekRow(monday));
     }
 
@@ -148,11 +150,21 @@ class LearningStats {
             autoReplaced: e.data['autoReplaced'] == true,
             latencyMs: e.latencyMs,
           );
-          final old = byWord[key];
-          if (old != null) {
-            // Read again: only the new reading counts.
-            order.remove(old);
-            week(old.at).words--;
+          // The same word read again (e.g. the PDF was reopened): the first
+          // reading, and any correction of it, is what counts.
+          if (byWord.containsKey(key)) continue;
+          // A word that grew or shrank (an i-dot added later, a word
+          // written in two goes, part rubbed out) replaces the earlier
+          // reading of any of its strokes.
+          final place = key.substring(0, key.lastIndexOf('|') + 1);
+          for (final stroke in key.substring(place.length).split(',')) {
+            final earlier = strokeOwner.remove('$place$stroke');
+            if (earlier == null) continue;
+            final old = byWord.remove(earlier);
+            if (old != null && order.remove(old)) week(old.at).words--;
+          }
+          for (final stroke in key.substring(place.length).split(',')) {
+            strokeOwner['$place$stroke'] = key;
           }
           byWord[key] = w;
           order.add(w);
@@ -167,10 +179,7 @@ class LearningStats {
           week(e.at).corrections++;
         case 'not_writing':
           final w = byWord.remove(key);
-          if (w != null) {
-            order.remove(w);
-            week(w.at).words--;
-          }
+          if (w != null && order.remove(w)) week(w.at).words--;
       }
     }
 
@@ -188,8 +197,15 @@ class LearningStats {
 
   /// One row per word, oldest first, for a spreadsheet.
   String toCsv() {
-    String q(String s) =>
-        RegExp(r'[",\n]').hasMatch(s) ? '"${s.replaceAll('"', '""')}"' : s;
+    String q(String s) {
+      // A cell starting with = + - @ would run as a formula in a
+      // spreadsheet; a leading ' keeps it as text.
+      if (RegExp(r'^[=+\-@\t\r]').hasMatch(s)) s = "'$s";
+      return RegExp(r'[",\r\n]').hasMatch(s)
+          ? '"${s.replaceAll('"', '""')}"'
+          : s;
+    }
+
     String two(int n) => n.toString().padLeft(2, '0');
     final b = StringBuffer(
       'time,engine read,shown,final,corrected,swapped,swap undone,'
