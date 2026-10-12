@@ -221,7 +221,6 @@ class DocumentInk {
     _pages[page] = [...strokesOn(page), stroke];
   }
 
-  /// Replaces all of [page]'s strokes (used by undo and redo).
   /// Marks the strokes with these [PageStroke.id]s on [page] as not
   /// writing. Returns whether anything changed.
   bool markNotWriting(int page, Set<String> ids) {
@@ -239,6 +238,7 @@ class DocumentInk {
     return changed;
   }
 
+  /// Replaces all of [page]'s strokes (used by undo and redo).
   void setPage(int page, List<PageStroke> strokes) {
     _pages[page] = strokes;
   }
