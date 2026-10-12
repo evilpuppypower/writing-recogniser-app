@@ -110,7 +110,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('keep the file private'), findsOneWidget);
     await tester.tap(find.text('Save'));
+    await tester.pump(); // the question closes
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.textContaining('Gathering'), findsOneWidget);
+    // The file is packed on a background isolate: let real time pass.
+    for (var i = 0; i < 50 && saved.isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
     await tester.pumpAndSettle();
+    expect(find.textContaining('Gathering'), findsNothing);
     expect(saved.single.$1, startsWith('training-data-'));
     expect(find.textContaining('1 corrections, 0 samples'), findsOneWidget);
   });

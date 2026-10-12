@@ -83,7 +83,9 @@ List<int> encodeTrainingData({
         },
     ],
   };
-  final json = utf8.encode(const JsonEncoder.withIndent(' ').convert(doc));
+  // Not indented: with every ink point on its own line the file would be
+  // several times bigger.
+  final json = utf8.encode(jsonEncode(doc));
   return ZipEncoder().encodeBytes(
     Archive()..add(ArchiveFile.bytes(trainingDataEntry, json)),
   );

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 
@@ -118,10 +119,36 @@ class _LearningScreenState extends State<LearningScreen> {
         ],
       ),
     );
-    if (go != true) return;
+    if (go != true || !mounted) return;
+    // Gathering and packing can take a while with lots of ink.
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 20),
+              Expanded(child: Text('Gathering your corrections and samples…')),
+            ],
+          ),
+        ),
+      ),
+    );
+    var dialogOpen = true;
+    void closeDialog() {
+      if (dialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      dialogOpen = false;
+    }
+
     try {
       final (corrections, samples) = await widget.loadTrainingData();
       if (corrections.isEmpty && samples.isEmpty) {
+        closeDialog();
         messenger.showSnackBar(
           const SnackBar(
             content: Text('There are no corrections or samples to save yet.'),
@@ -131,15 +158,9 @@ class _LearningScreenState extends State<LearningScreen> {
       }
       final now = DateTime.now();
       final name = trainingDataFileName(now);
-      final saved = await widget.saveFile(
-        name,
-        'application/zip',
-        encodeTrainingData(
-          corrections: corrections,
-          samples: samples,
-          exportedAt: now,
-        ),
-      );
+      final bytes = await _pack(corrections, samples, now);
+      closeDialog();
+      final saved = await widget.saveFile(name, 'application/zip', bytes);
       if (saved) {
         messenger.showSnackBar(
           SnackBar(
@@ -151,9 +172,24 @@ class _LearningScreenState extends State<LearningScreen> {
         );
       }
     } catch (e) {
+      closeDialog();
       messenger.showSnackBar(SnackBar(content: Text("Couldn't save: $e")));
     }
   }
+
+  /// Packs the file on a background isolate, so the screen never freezes.
+  /// (Static, so the work sent to the isolate carries only the data.)
+  static Future<List<int>> _pack(
+    List<CorrectionRecord> corrections,
+    List<LabeledSample> samples,
+    DateTime now,
+  ) => Isolate.run(
+    () => encodeTrainingData(
+      corrections: corrections,
+      samples: samples,
+      exportedAt: now,
+    ),
+  );
 
   static String _pct(double? v) =>
       v == null ? '–' : '${(v * 100).toStringAsFixed(v < 0.1 ? 1 : 0)}%';
