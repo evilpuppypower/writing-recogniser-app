@@ -106,8 +106,8 @@ jobs:
           # yet: the build prints the fingerprint to pin.
           declare -A pin=(
             [text-en_GB]=''
-            [text-en_US]=''
-            [raw-content]=''
+            [text-en_US]='fd71d2683fd631a2dcb528236cefe6652954c04afcf3cab94006a2ef76008013'
+            [raw-content]='d9ca48a8343cf7dce4b5d7aadfddb7d792c7570531a415019a12b446908bae04'
             [raw-content2]=''
           )
           check() { # $1 = file, $2 = name
@@ -245,10 +245,10 @@ jobs:
           apk="writing-recogniser-${{ steps.stamp.outputs.file }}.apk"
           pdfium=$(unzip -p "$apk" lib/arm64-v8a/libpdfium.so 2>/dev/null | sha256sum | cut -c1-64)
           [ "$pdfium" = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 ] && pdfium=''
-          check "PDFium (libpdfium.so)" "$pdfium" ''
+          check "PDFium (libpdfium.so)" "$pdfium" 'ef8c440d29e2a0820a65554487d23020bd88756ee2d6aad8f8fb59bab3b2eb14'
           gradle=$(find ~/.gradle/wrapper/dists -name 'gradle-*-all.zip' -exec sha256sum {} + 2>/dev/null | head -n 1 | cut -c1-64)
           if [ -n "$gradle" ]; then
-            check "Gradle distribution" "$gradle" ''
+            check "Gradle distribution" "$gradle" '17f277867f6914d61b1aa02efab1ba7bb439ad652ca485cd8ca6842fccec6e43'
           else
             echo "::warning::Gradle download not found in the cache; not checked."
           fi
