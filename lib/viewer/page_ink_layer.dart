@@ -10,6 +10,7 @@ import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/pen_tap.dart';
 import '../core/pen_tools.dart';
+import '../core/typed_text.dart' show typedWords;
 import '../settings/settings_controller.dart';
 
 /// One undoable change: a page's strokes before and after.
@@ -217,7 +218,17 @@ class PageInkLayer extends StatefulWidget {
     required this.controller,
     this.tools,
     this.doubleTapActionAt,
+    this.onLasso,
+    this.showTyped,
   });
+
+  /// With the lasso tool (task 2.3c): the loop drawn, in PDF page
+  /// coordinates, once the pen lifts. Nothing is drawn on the page.
+  final void Function(List<PageInkPoint> loop)? onLasso;
+
+  /// While true, the ink of words converted to typed text isn't drawn (the
+  /// typed text shows instead, owner's choice 1b).
+  final ValueListenable<bool>? showTyped;
 
   /// What a pen double-tap at a point (in this layer's pixels) does, e.g.
   /// open the correction pop-up for the word label there (task 2.4b), or
@@ -248,6 +259,14 @@ class PageInkLayer extends StatefulWidget {
 class _PageInkLayerState extends State<PageInkLayer> {
   final _active = ValueNotifier<List<PageInkPoint>>(const []);
   bool _erasing = false;
+
+  /// Drawing a lasso loop (task 2.3c) rather than ink.
+  bool _lassoing = false;
+  static const _lassoStyle = PenStyle(
+    tool: InkTool.pen,
+    colorArgb: 0xFF1E88E5,
+    width: 0.8,
+  );
 
   /// Where to draw the eraser outline (the area it will clear), while the
   /// pen hovers or erases in eraser mode or with the side button held.
@@ -378,6 +397,13 @@ class _PageInkLayerState extends State<PageInkLayer> {
     _downAt = e.localPosition;
     _downMs = DateTime.now().millisecondsSinceEpoch;
     _moved = 0;
+    if (_tools.mode == PenMode.lasso && !_isEraser(e)) {
+      _lassoing = true;
+      _erasing = false;
+      _style = _lassoStyle;
+      _active.value = [_pointOf(e)];
+      return;
+    }
     final current = _tools.current;
     _erasing = current == null || _isEraser(e);
     if (current != null) _style = current;
@@ -394,6 +420,10 @@ class _PageInkLayerState extends State<PageInkLayer> {
 
   void _move(PointerEvent e) {
     _moved = math.max(_moved, (e.localPosition - _downAt).distance);
+    if (_lassoing) {
+      _active.value = [..._active.value, _pointOf(e)];
+      return;
+    }
     if (!_erasing && _isEraser(e)) {
       _drawHeld();
       _lastErase = null;
@@ -419,6 +449,13 @@ class _PageInkLayerState extends State<PageInkLayer> {
 
   void _up(PointerEvent e) {
     _snapTimer?.cancel();
+    if (_lassoing) {
+      final loop = [..._active.value, _pointOf(e)];
+      _lassoing = false;
+      _active.value = const [];
+      widget.onLasso?.call(loop);
+      return;
+    }
     if (_erasing) {
       _erasing = false;
       widget.controller.endGesture();
@@ -480,6 +517,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   void _cancel() {
     _snapTimer?.cancel();
     _snapped = false;
+    _lassoing = false;
     if (_erasing) widget.controller.endGesture();
     _erasing = false;
     _active.value = const [];
@@ -554,6 +592,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
             pressure: SettingsScope.valueOf(context).pressureResponse,
             eraserAt: _eraserAt,
             eraserRadius: () => _tools.eraserSize,
+            showTyped: widget.showTyped,
           ),
           child: const SizedBox.expand(),
         ),
@@ -650,7 +689,12 @@ class _PageInkPainter extends CustomPainter {
     required this.pressure,
     required this.eraserAt,
     required this.eraserRadius,
-  }) : super(repaint: Listenable.merge([controller, active, eraserAt]));
+    this.showTyped,
+  }) : super(
+         repaint: Listenable.merge([controller, active, eraserAt, ?showTyped]),
+       );
+
+  final ValueListenable<bool>? showTyped;
 
   final DocumentInkController controller;
   final ValueNotifier<List<PageInkPoint>> active;
@@ -665,7 +709,13 @@ class _PageInkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final scale = viewWidth / geometry.displayWidth;
-    for (final s in controller.ink.strokesOn(pageNumber)) {
+    final strokes = controller.ink.strokesOn(pageNumber);
+    // Typed text shown instead of the ink of converted words.
+    final typed = showTyped?.value ?? false
+        ? {for (final w in typedWords(strokes)) w.group}
+        : const <String>{};
+    for (final s in strokes) {
+      if (typed.contains(s.typedGroup)) continue;
       _draw(
         canvas,
         s.points,

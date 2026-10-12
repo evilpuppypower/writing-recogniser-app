@@ -21,6 +21,7 @@ class PenToolbar extends StatelessWidget {
         void select(PenMode mode) {
           if (tools.mode == mode) {
             // Tapping the selected tool again opens its settings.
+            if (mode == PenMode.lasso) return;
             if (mode == PenMode.eraser) {
               showEraserSettings(context, controller);
             } else {
@@ -36,6 +37,8 @@ class PenToolbar extends StatelessWidget {
             IconButton(
               tooltip: tools.mode != mode
                   ? (s == null ? tip : '${describePen(s)}. Tap to use')
+                  : mode == PenMode.lasso
+                  ? tip
                   : mode == PenMode.eraser
                   ? '$tip (tap again for eraser options)'
                   : '${s == null ? tip : describePen(s)} '
@@ -60,6 +63,12 @@ class PenToolbar extends StatelessWidget {
             tools.highlighter,
           ),
           tool(PenMode.eraser, Icons.auto_fix_normal, 'Eraser'),
+          tool(
+            PenMode.lasso,
+            Icons.highlight_alt,
+            'Select handwriting to convert to typed text: draw a loop '
+            'around it',
+          ),
           const SizedBox(width: 8, height: 8),
           IconButton(
             tooltip: tools.mode != PenMode.pen

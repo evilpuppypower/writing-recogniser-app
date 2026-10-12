@@ -18,7 +18,14 @@ class PageTextLabels extends StatefulWidget {
     required this.strokes,
     this.above = true,
     this.onDoubleTap,
+    this.skip,
+    this.refresh,
   });
+
+  /// Words whose label isn't shown (e.g. converted to typed text, which
+  /// shows instead, task 2.3c), and what to listen to for changes to that.
+  final bool Function(RecognizedWord word)? skip;
+  final Listenable? refresh;
 
   /// Called when a label is double-tapped with a finger (to correct it,
   /// task 2.4). Pen double-taps reach the ink layer instead; see
@@ -111,9 +118,13 @@ class _PageTextLabelsState extends State<PageTextLabels> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return ListenableBuilder(
-      listenable: widget.text,
+      listenable: Listenable.merge([widget.text, ?widget.refresh]),
       builder: (context, _) {
-        final words = widget.text.wordsOn(widget.pageNumber);
+        final skip = widget.skip;
+        final words = [
+          for (final w in widget.text.wordsOn(widget.pageNumber))
+            if (skip == null || !skip(w)) w,
+        ];
         return Stack(
           clipBehavior: Clip.none,
           children: [

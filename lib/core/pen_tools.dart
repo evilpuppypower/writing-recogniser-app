@@ -9,7 +9,14 @@ import 'pressure_response.dart';
 export 'pressure_response.dart';
 
 /// What the pen tip does.
-enum PenMode { pen, highlighter, eraser }
+enum PenMode {
+  pen,
+  highlighter,
+  eraser,
+
+  /// Draw a loop around handwriting to select it (task 2.3c).
+  lasso,
+}
 
 /// How the eraser works (owner: both, switchable).
 enum EraserKind {
@@ -169,7 +176,7 @@ class PenToolsState {
   PenStyle? get current => switch (mode) {
     PenMode.pen => pen,
     PenMode.highlighter => highlighter,
-    PenMode.eraser => null,
+    PenMode.eraser || PenMode.lasso => null,
   };
 
   PenToolsState copyWith({
@@ -220,7 +227,8 @@ class PenToolsState {
       copyWith(favourites: [...favourites]..remove(style));
 
   Map<String, Object?> toJson() => {
-    'mode': mode.name,
+    // The lasso is for one job at a time: reopen with the pen.
+    'mode': (mode == PenMode.lasso ? PenMode.pen : mode).name,
     'pen': pen.toJson(),
     'highlighter': highlighter.toJson(),
     'dock': dock.name,

@@ -18,6 +18,7 @@ import '../core/open_timing.dart';
 import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/page_recognition.dart' show HiddenInk, hiddenInkAt;
+import '../core/typed_text.dart';
 import '../core/pen_tools.dart';
 import '../core/recognition/recognizer.dart';
 import '../core/transfer_estimate.dart' show formatBytes, formatRemaining;
@@ -37,6 +38,7 @@ import 'page_ink_layer.dart';
 import 'correct_word_sheet.dart';
 import 'export_options_dialog.dart';
 import 'page_text_labels.dart';
+import 'page_typed_text.dart';
 import 'pen_toolbar.dart';
 import 'pen_tools_controller.dart';
 import 'text_panel.dart';
@@ -154,6 +156,215 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     classifier: widget.makeClassifier(),
     documentId: widget.documentId,
   );
+
+  /// Typed text shown instead of the handwriting it was converted from
+  /// (task 2.3c; owner: switchable, typed text by default).
+  final _showTyped = ValueNotifier<bool>(true);
+
+  /// Whether [w]'s ink is converted and the typed text is showing, so its
+  /// label is left out.
+  bool _shownTyped(int page, RecognizedWord w) {
+    if (!_showTyped.value) return false;
+    final converted = {
+      for (final t in typedWords(_ink.ink.strokesOn(page))) ...t.strokeIds,
+    };
+    return w.key.isNotEmpty && w.key.split(',').every(converted.contains);
+  }
+
+  bool get _hasTyped => _ink.ink.pagesWithInk.any(
+    (p) => typedWords(_ink.ink.strokesOn(p)).isNotEmpty,
+  );
+
+  /// Reads [page] (if needed) with a progress dialog and Cancel; null if
+  /// cancelled or reading failed (the user is told why).
+  Future<List<RecognizedWord>?> _readPage(int page) async {
+    var cancelled = false;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: const Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 20),
+              Expanded(child: Text('Reading the handwriting…')),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                cancelled = true;
+                Navigator.of(context).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      ),
+    );
+    Object? error;
+    List<RecognizedWord> words = const [];
+    try {
+      words = await _text.readNow(
+        page,
+        _ink.ink.strokesOn(page),
+        stop: () => cancelled || !mounted,
+      );
+    } catch (e) {
+      error = e;
+    } finally {
+      if (!cancelled && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    }
+    if (cancelled || !mounted) return null;
+    final messenger = ScaffoldMessenger.of(context);
+    if (error != null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text("Couldn't read the handwriting: $error")),
+      );
+      return null;
+    }
+    if (words.isEmpty && _text.problem != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text("Handwriting can't be read now: ${_text.problem}"),
+        ),
+      );
+      return null;
+    }
+    return words;
+  }
+
+  /// Converts [words] on [page] to typed text and shows it (task 2.3c).
+  void _convertWords(int page, List<RecognizedWord> words) {
+    final messenger = ScaffoldMessenger.of(context);
+    final map = <Set<String>, String>{
+      for (final w in words)
+        if (w.key.isNotEmpty && w.text.trim().isNotEmpty)
+          w.key.split(',').toSet(): w.text,
+    };
+    if (map.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('No handwriting was read there.')),
+      );
+      return;
+    }
+    _ink.convert(page, map);
+    _showTyped.value = true;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          'Converted ${map.length} word${map.length == 1 ? '' : 's'} to '
+          'typed text. Undo takes it back; tap a word to edit it.',
+        ),
+      ),
+    );
+  }
+
+  /// "Convert this page" (task 2.3c, owner's choice 2c).
+  Future<void> _convertPage() async {
+    final page = _pageNumber.value ?? 1;
+    if (!_ink.ink.strokesOn(page).any((s) => s.tool == InkTool.pen)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('There is no handwriting on this page.')),
+      );
+      return;
+    }
+    final words = await _readPage(page);
+    if (words == null || !mounted) return;
+    _convertWords(page, words);
+  }
+
+  /// A lasso loop was drawn on [page]: offer to convert the words inside.
+  Future<void> _lassoDrawn(int page, List<PageInkPoint> loop) async {
+    final picked = strokesInLoop(_ink.ink.strokesOn(page), loop);
+    final messenger = ScaffoldMessenger.of(context);
+    if (picked.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Nothing inside the loop. Draw it all the way around the '
+            'handwriting.',
+          ),
+        ),
+      );
+      return;
+    }
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Convert to typed text?'),
+        content: const Text(
+          'The handwriting inside the loop is shown as typed text. Your ink '
+          'is kept: switch back any time with the handwriting button.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Convert'),
+          ),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    final words = await _readPage(page);
+    if (words == null || !mounted) return;
+    // Words mostly inside the loop.
+    _convertWords(page, [
+      for (final w in words)
+        if (w.key.isNotEmpty &&
+            w.key.split(',').where(picked.contains).length * 2 >=
+                w.key.split(',').length)
+          w,
+    ]);
+  }
+
+  /// Tap on typed text: edit it (owner's choice 4a). The edit also teaches
+  /// the learning layer, like a correction.
+  Future<void> _editTyped(int page, TypedWord typed) async {
+    final field = TextEditingController(text: typed.text);
+    final text = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit typed text'),
+        content: TextField(
+          controller: field,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Text'),
+          onSubmitted: (v) => Navigator.of(context).pop(v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(field.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    field.dispose();
+    final t = text?.trim() ?? '';
+    if (t.isEmpty || t == typed.text || !mounted) return;
+    _ink.setTypedText(page, typed.group, t);
+    // The same word as read: teach the learning layer.
+    for (final w in _text.wordsOn(page)) {
+      if (w.key.split(',').toSet().containsAll(typed.strokeIds) &&
+          typed.strokeIds.containsAll(w.key.split(','))) {
+        await _text.correct(page, w, t);
+        break;
+      }
+    }
+  }
 
   /// Double-tap on a label: correct the word (task 2.4).
   Future<void> _fixWord(int page, RecognizedWord word) async {
@@ -461,6 +672,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         viewWidth: pageRect.width,
         controller: _ink,
         tools: _tools,
+        showTyped: _showTyped,
+        onLasso: (loop) => _lassoDrawn(page.pageNumber, loop),
         // Pen double-tap on a word's label: correct it (task 2.4b).
         // On ink marked "This isn't writing": offer to undo that (2.4d).
         doubleTapActionAt: (at) {
@@ -468,7 +681,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           final word = place == TextLabelPlace.off
               ? null
               : PageTextLabels.wordAtLabel(
-                  _text.wordsOn(page.pageNumber),
+                  [
+                    for (final w in _text.wordsOn(page.pageNumber))
+                      if (!_shownTyped(page.pageNumber, w)) w,
+                  ],
                   at,
                   geometry: _geometryOf(page),
                   viewWidth: pageRect.width,
@@ -511,8 +727,20 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   text: _text,
                   strokes: () => _ink.ink.strokesOn(page.pageNumber),
                   onDoubleTap: (w) => _fixWord(page.pageNumber, w),
+                  skip: (w) => _shownTyped(page.pageNumber, w),
+                  refresh: Listenable.merge([_ink, _showTyped]),
                 );
         },
+      ),
+    ),
+    Positioned.fill(
+      child: PageTypedText(
+        pageNumber: page.pageNumber,
+        geometry: _geometryOf(page),
+        viewWidth: pageRect.width,
+        controller: _ink,
+        showTyped: _showTyped,
+        onEdit: (w) => _editTyped(page.pageNumber, w),
       ),
     ),
   ];
@@ -932,6 +1160,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _pageNumber.dispose();
     _ink.dispose();
     _tools.dispose();
+    _showTyped.dispose();
     super.dispose();
   }
 
@@ -965,6 +1194,24 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     icon: const Icon(Icons.redo),
                     onPressed: _ink.canRedo ? _ink.redo : null,
                   ),
+                  IconButton(
+                    tooltip: "Convert this page's handwriting to typed text",
+                    icon: const Icon(Icons.keyboard),
+                    onPressed: _convertPage,
+                  ),
+                  if (_hasTyped)
+                    ValueListenableBuilder(
+                      valueListenable: _showTyped,
+                      builder: (context, typed, _) => IconButton(
+                        tooltip: typed
+                            ? 'Showing typed text. Tap to show your handwriting'
+                            : 'Showing your handwriting. Tap to show typed '
+                                  'text',
+                        isSelected: typed,
+                        icon: Icon(typed ? Icons.text_snippet : Icons.gesture),
+                        onPressed: () => _showTyped.value = !typed,
+                      ),
+                    ),
                   Builder(
                     builder: (context) {
                       final s = SettingsScope.valueOf(context);

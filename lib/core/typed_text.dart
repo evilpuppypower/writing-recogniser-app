@@ -80,3 +80,34 @@ const minTypedFontSize = 5.0;
 /// except the strokes of converted words.
 bool showsAsInkWhenTyped(PageStroke s, Set<String> convertedGroups) =>
     s.typedGroup == null || !convertedGroups.contains(s.typedGroup);
+
+/// Whether ([x], [y]) is inside the closed loop [polygon] (even-odd rule).
+bool insideLoop(List<PageInkPoint> polygon, double x, double y) {
+  var inside = false;
+  for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    final a = polygon[i], b = polygon[j];
+    if ((a.y > y) != (b.y > y) &&
+        x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/// The ids of the strokes on a page that a lasso [loop] goes around: at
+/// least [share] of a stroke's points must be inside, so a loop that
+/// clips the edge of a neighbouring word doesn't take it.
+Set<String> strokesInLoop(
+  List<PageStroke> strokes,
+  List<PageInkPoint> loop, {
+  double share = 0.6,
+}) {
+  if (loop.length < 3) return const {};
+  return {
+    for (final s in strokes)
+      if (s.points.isNotEmpty &&
+          s.points.where((p) => insideLoop(loop, p.x, p.y)).length >=
+              share * s.points.length)
+        s.id,
+  };
+}
