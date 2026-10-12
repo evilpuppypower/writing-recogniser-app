@@ -94,9 +94,26 @@ class DocumentInkController extends ChangeNotifier {
     return mixed;
   }
 
-  void undo() => _step(_undo, _redo, (e) => e.before);
+  /// Pen taps held back by page layers (task 2.4b): drawn before an undo
+  /// or redo, so the history stays in the order things were written.
+  final _flushers = <VoidCallback>{};
+  void addFlusher(VoidCallback f) => _flushers.add(f);
+  void removeFlusher(VoidCallback f) => _flushers.remove(f);
+  void _flushHeld() {
+    for (final f in _flushers.toList()) {
+      f();
+    }
+  }
 
-  void redo() => _step(_redo, _undo, (e) => e.after);
+  void undo() {
+    _flushHeld();
+    _step(_undo, _redo, (e) => e.before);
+  }
+
+  void redo() {
+    _flushHeld();
+    _step(_redo, _undo, (e) => e.after);
+  }
 
   void _step(
     List<_InkEdit> from,
@@ -150,10 +167,13 @@ class PageInkLayer extends StatefulWidget {
 
   /// What a pen double-tap at a point (in this layer's pixels) does, e.g.
   /// open the correction pop-up for the word label there (task 2.4b), or
-  /// null if a double-tap there is just writing. A pen tap that lands on
-  /// such a spot is held back briefly; if a second tap follows, both are
-  /// dropped and the action runs, otherwise the tap is drawn as usual.
-  final VoidCallback? Function(Offset at)? doubleTapActionAt;
+  /// null if a double-tap there is just writing. [target] identifies what
+  /// was hit (e.g. the word): both taps must hit the same one. A pen tap
+  /// that lands on such a spot is held back briefly; if a second tap
+  /// follows, both are dropped and the action runs, otherwise the tap is
+  /// drawn as usual.
+  final ({Object target, VoidCallback action})? Function(Offset at)?
+  doubleTapActionAt;
 
   final int pageNumber;
   final PageGeometry geometry;
@@ -213,7 +233,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
 
   /// A pen tap on a double-tap spot, held back in case a second tap
   /// follows; drawn when [_held] times out.
-  ({PenTap tap, PageStroke stroke, VoidCallback action})? _held;
+  ({PenTap tap, PageStroke stroke, Object target, VoidCallback action})? _held;
   Timer? _holdTimer;
 
   void _drawHeld() {
@@ -307,6 +327,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
     final current = _tools.current;
     _erasing = current == null || _isEraser(e);
     if (current != null) _style = current;
+    if (_erasing) _drawHeld(); // so the eraser can reach a held dot
     if (_erasing) widget.controller.beginGesture(widget.pageNumber);
     if (_erasing) {
       _erase(e);
@@ -320,6 +341,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   void _move(PointerEvent e) {
     _moved = math.max(_moved, (e.localPosition - _downAt).distance);
     if (!_erasing && _isEraser(e)) {
+      _drawHeld();
       _lastErase = null;
       widget.controller.beginGesture(widget.pageNumber);
       _active.value = const []; // button pressed mid-stroke: erase instead
@@ -372,21 +394,28 @@ class _PageInkLayerState extends State<PageInkLayer> {
     );
     // A pen tap on a label: maybe the first half of a double-tap.
     final now = DateTime.now().millisecondsSinceEpoch;
-    final action =
+    final hit =
         !wasSnapped && PageInkLayer.tapRules.isTap(_moved, now - _downMs)
         ? widget.doubleTapActionAt?.call(_downAt)
         : null;
-    if (action != null) {
+    if (hit != null) {
       final tap = PenTap(_downAt.dx, _downAt.dy, _downMs, now);
       final held = _held;
-      if (held != null && PageInkLayer.tapRules.isDouble(held.tap, tap)) {
+      if (held != null &&
+          held.target == hit.target &&
+          PageInkLayer.tapRules.isDouble(held.tap, tap)) {
         _holdTimer?.cancel();
         _held = null;
         held.action();
         return;
       }
       _drawHeld();
-      _held = (tap: tap, stroke: stroke, action: action);
+      _held = (
+        tap: tap,
+        stroke: stroke,
+        target: hit.target,
+        action: hit.action,
+      );
       _holdTimer = Timer(PageInkLayer.tapRules.holdFor, _drawHeld);
       return;
     }
@@ -404,10 +433,39 @@ class _PageInkLayerState extends State<PageInkLayer> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    widget.controller.addFlusher(_drawHeld);
+  }
+
+  @override
+  void didUpdateWidget(PageInkLayer old) {
+    super.didUpdateWidget(old);
+    if (old.controller != widget.controller) {
+      old.controller.removeFlusher(_drawHeld);
+      widget.controller.addFlusher(_drawHeld);
+    }
+  }
+
+  @override
   void dispose() {
-    // A held tap is still drawn when its timer ends (the ink belongs to
-    // the document, not this page widget), so it isn't lost when the page
-    // scrolls away.
+    widget.controller.removeFlusher(_drawHeld);
+    // A held tap is drawn now rather than lost (the page scrolled away or
+    // the PDF is closing). Done just after this frame, as other widgets
+    // can't be told about it while the page is being taken down.
+    _holdTimer?.cancel();
+    final held = _held;
+    _held = null;
+    if (held != null) {
+      final controller = widget.controller, page = widget.pageNumber;
+      scheduleMicrotask(() {
+        try {
+          controller.add(page, held.stroke);
+        } catch (_) {
+          // The PDF has closed already: the dot goes with it.
+        }
+      });
+    }
     _snapTimer?.cancel();
     _eraserHide?.cancel();
     _active.dispose();

@@ -431,7 +431,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             viewWidth: pageRect.width,
             above: place == TextLabelPlace.above,
           );
-          return word == null ? null : () => _fixWord(page.pageNumber, word);
+          return word == null
+              ? null
+              : (
+                  target: word.key,
+                  action: () => _fixWord(page.pageNumber, word),
+                );
         },
       ),
     ),
