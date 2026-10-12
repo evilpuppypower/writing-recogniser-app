@@ -97,21 +97,39 @@ class ReplayReport {
       }(),
   ];
 
+  /// GATE B measure: how many fewer of the words seen before needed fixing
+  /// with the feedback layer than with the engine alone (0.33 = a third
+  /// fewer). Null until the engine got a repeated word wrong.
+  double? get repeatedImprovement {
+    final repeated = _pick(true).toList();
+    bool wrong(String shown, String truth) =>
+        normalise(shown, Matching.lenient) !=
+        normalise(truth, Matching.lenient);
+    final engine = repeated.where((s) => wrong(s.engine, s.truth)).length;
+    if (engine == 0) return null;
+    final shown = repeated.where((s) => s.needsCorrection).length;
+    return 1 - shown / engine;
+  }
+
   Iterable<ReplayStep> _pick(bool? repeated) =>
       repeated == null ? steps : steps.where((s) => s.seenBefore == repeated);
 }
 
 /// Replays [cases] in order through [engine] and [layer]. After each word
 /// the layer shows wrongly, the correction is taught to the layer, so later
-/// words benefit, as in real use.
+/// words benefit, as in real use. Reports progress after each word, and
+/// stops early (with the words done so far) once [cancelled] says so.
 Future<ReplayReport> replay(
   List<ReplayCase> cases,
   Recognizer engine,
-  FeedbackLayer layer,
-) async {
+  FeedbackLayer layer, {
+  void Function(int done, int total)? onProgress,
+  bool Function()? cancelled,
+}) async {
   final steps = <ReplayStep>[];
   final seen = <String>{};
   for (final c in cases) {
+    if (cancelled?.call() ?? false) break;
     List<Candidate> candidates;
     try {
       candidates = await engine.recognize(
@@ -148,6 +166,7 @@ Future<ReplayReport> replay(
         ),
       );
     }
+    onProgress?.call(steps.length, cases.length);
   }
   return ReplayReport(steps);
 }

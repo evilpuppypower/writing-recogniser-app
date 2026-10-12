@@ -10,6 +10,7 @@ import 'settings_controller.dart';
 import '../storage/sqlite_ink_store.dart';
 import 'learning_screen.dart';
 import 'open_times_screen.dart';
+import 'replay_screen.dart';
 import 'stored_copies_screen.dart';
 
 /// App settings: scroll tab appearance and how many imported PDFs to keep.
@@ -552,6 +553,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const LearningScreen()),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.replay),
+            title: const Text('Replay test'),
+            subtitle: const Text(
+              'Re-reads your saved practice sentences with and without '
+              'learning from corrections, and compares the two.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const ReplayScreen()),
             ),
           ),
           const Divider(),

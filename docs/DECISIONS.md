@@ -340,3 +340,14 @@ Two rounds of independent privacy and security reviews; fixes:
 ## 2026-10-12 — Training data export (4.1, groundwork only)
 
 Phase 4 is preparatory until GATE B. "Save training data" on the learning screen saves the corrections (with their ink, CLAUDE.md rule 4) and handwriting samples as one zip the user saves anywhere, like sample backups. Nothing is sent. Because handwriting identifies a person, the file carries nothing else: times are UTC, PDFs are numbered (1, 2, ...) instead of named, and the file explains its own units and fields (`lib/core/training_data.dart`).
+
+## 2026-10-12 — Replay test (3.1, second part)
+
+- **What it replays:** the practice sentences saved in the handwriting test (they come with the true text). Each sentence's ink is split into words the same way as on a PDF page and paired with the sentence's words; a sentence whose ink splits into a different number of words is left out and counted, rather than guessed at. Corrections made on PDFs aren't used: they only exist for words that were wrong, so they would make the engine look worse than it is.
+- **How:** each word goes through the main engine once; the engine's answer is scored as is ("engine on its own") and after a fresh correction memory that learns from every mistake in order, as the user would correct it ("learning from corrections"). The real correction memory is never read or changed.
+- **Shown in Settings → "Replay test":** words and letters wrong both ways, words written before vs new words, the GATE B measure, automatic swaps, and corrections per 100 words every 25 words.
+
+## 2026-10-12 — GATE B target and weekly check (owner)
+
+- **GATE B target stays** at a third fewer fixes on words written before, for now. Ask the owner again once an APK with the learning screen and the replay test has been tested.
+- **Weekly check:** the owner sends a screenshot of "How well is it learning?" (check it for document names and notifications before relying on it; never publish it).
