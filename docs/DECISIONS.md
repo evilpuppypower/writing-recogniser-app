@@ -327,3 +327,5 @@ Two rounds of independent privacy and security reviews; fixes:
 - **Each word is invisible text** (PDF text render mode 3, Helvetica) stretched over its handwriting, with a space after it, so other PDF apps can search, select and copy it. Only the export gets it; the source PDF is never changed.
 - **If the engine isn't set up,** the export goes ahead without text and says why.
 - **Interpretation (flagged in the PR):** "some pages" chooses which pages get searchable text; the exported PDF always has every page.
+- **Limit:** the searchable text uses the PDF standard font Helvetica, which covers English letters, digits and common punctuation; other characters (emoji, Greek) are left out of the searchable text. Fine for the English-only MVP.
+- **Reading never hangs the export:** if reading fails, the progress dialog closes with the reason; Cancel stops waiting even if the engine doesn't answer.

@@ -246,15 +246,26 @@ class InkTextController extends ChangeNotifier {
   /// to make an export searchable (task 1.4b). Words already read and
   /// unchanged aren't sent to the engine again. Returns the page's words;
   /// none if the engine isn't set up (see [problem]).
+  ///
+  /// [stop] ends the wait early (e.g. the user cancelled).
   Future<List<RecognizedWord>> readNow(
     int page,
-    List<PageStroke> strokes,
-  ) async {
+    List<PageStroke> strokes, {
+    bool Function()? stop,
+  }) async {
     _timers.remove(page)?.cancel();
     if (strokes.any(isWriting) && !_disposed) {
       _pending[page] = strokes;
-      await _run(page);
+      // Waits for this run without blocking on it, so a hung engine call
+      // can't stop [stop] being checked.
+      var finished = false;
+      unawaited(_run(page).whenComplete(() => finished = true));
+      while (!finished && !_disposed && !(stop?.call() ?? false)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      // A newer run may have been queued meanwhile; wait for that too.
       while (!_disposed &&
+          !(stop?.call() ?? false) &&
           (_running.contains(page) ||
               _again.contains(page) ||
               _pending.containsKey(page))) {
