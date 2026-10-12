@@ -371,3 +371,4 @@ Owner's answers: (1b) the handwriting is kept and the user can switch between in
 - **Typed text never blocks the pen:** it only draws. A pen tap on it (or a finger tap) edits it; writing, erasing and the lasso work over it as anywhere else.
 - **The eraser leaves hidden ink alone:** while typed text shows, the handwriting behind it can't be seen, so it can't be erased; switch to the handwriting to erase it.
 - **Converting again keeps edits:** words already converted (and perhaps edited) are left as they are.
+- **Export (5b):** when anything has been converted, the export dialog asks "My handwriting / Typed text / Both" (starting with what's on screen). Typed text is real text in the ink's colour, sized to the handwriting as seen on screen and upright even on pages turned sideways. "Typed text" leaves out the converted ink; "Both" keeps the ink and puts the typed text just under it. Typed text is searchable, so no invisible copy is added for converted words.

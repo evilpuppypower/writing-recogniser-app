@@ -5,6 +5,7 @@ import 'package:ffi/ffi.dart';
 import 'package:pdfium_dart/pdfium_dart.dart' as pdfium;
 
 import '../core/ink_export_plan.dart';
+import '../core/typed_text.dart' show typedPlacement, typedSizeOnPage;
 
 class PdfExportException implements Exception {
   const PdfExportException(this.message);
@@ -166,18 +167,11 @@ void _addWord(
       color & 0xFF,
       (color >> 24) & 0xFF,
     );
-    final size = w.fontSize ?? height * 0.8;
-    // Capital letters are about 0.7 of the size tall: centre them.
-    final baseline = w.bottom + (height - size * 0.7) / 2;
-    lib.FPDFPageObj_Transform(
-      obj,
-      size,
-      0,
-      0,
-      size,
-      w.left + dx,
-      baseline + dy,
-    );
+    // Upright as the page is shown, even on pages turned sideways.
+    final turns = lib.FPDFPage_GetRotation(page);
+    final size = typedSizeOnPage(w, turns);
+    final m = typedPlacement(w, turns, size);
+    lib.FPDFPageObj_Transform(obj, m.a, m.b, m.c, m.d, m.e + dx, m.f + dy);
     lib.FPDFPage_InsertObject(page, obj);
     return;
   }

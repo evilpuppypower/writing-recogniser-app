@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:writing_recogniser/core/ink_export_plan.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/core/stroke_grouping.dart';
 import 'package:writing_recogniser/core/typed_text.dart';
@@ -153,9 +154,24 @@ void main() {
       expect(over.text, 'cat');
       expect(over.visible, isTrue);
       expect((over.bottom, over.top), (700, 710));
+      expect(over.under, isFalse);
       final under = typedForExport(strokes, ExportHandwriting.both).single;
-      expect(under.top, lessThan(700), reason: 'below the handwriting');
-      expect(under.fontSize, over.fontSize);
+      expect(under.under, isTrue);
+      // Placed by the writer: baseline below the handwriting.
+      final m = typedPlacement(under, 0, 8);
+      expect(m.f, lessThan(700));
+      expect(typedPlacement(over, 0, 8).f, greaterThan(700));
+    });
+
+    test('upright on pages turned sideways', () {
+      const w = ExportWord('cat', 100, 500, 120, 600, colorArgb: 0);
+      // Turned a quarter clockwise: the text runs up the page.
+      final m = typedPlacement(w, 1, 10);
+      expect((m.a, m.b, m.c, m.d), (0.0, 10.0, -10.0, 0.0));
+      expect(m.f, 500, reason: 'starts at the on-screen left');
+      expect(m.e, inInclusiveRange(100, 120), reason: 'within the width');
+      expect(typedSizeOnPage(w, 1), 16, reason: 'fits 20 pt across');
+      expect(typedSizeOnPage(w, 0), lessThan(16));
     });
   });
 }

@@ -125,6 +125,7 @@ class ExportWord {
     this.top, {
     this.colorArgb,
     this.fontSize,
+    this.under = false,
   });
 
   final String text;
@@ -134,6 +135,11 @@ class ExportWord {
   /// null: invisible, searchable text stretched over the box (task 1.4b).
   final int? colorArgb;
   final double? fontSize;
+
+  /// Typed text goes just under the box (the handwriting) rather than over
+  /// it ("both" export, task 2.3d). "Under" is as seen on screen, so it
+  /// follows the page's rotation.
+  final bool under;
 
   bool get visible => colorArgb != null;
 
@@ -146,6 +152,7 @@ class ExportWord {
     top,
     colorArgb,
     fontSize,
+    under,
   ];
 
   factory ExportWord.fromMessage(List<Object?> m) => ExportWord(
@@ -156,5 +163,6 @@ class ExportWord {
     (m[4]! as num).toDouble(),
     colorArgb: m.length > 5 ? (m[5] as num?)?.toInt() : null,
     fontSize: m.length > 6 ? (m[6] as num?)?.toDouble() : null,
+    under: m.length > 7 && m[7] == true,
   );
 }

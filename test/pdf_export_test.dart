@@ -19,10 +19,18 @@ PageStroke pen(List<(double, double, double)> pts, {bool arrow = false}) =>
     );
 
 /// A blank PDF with [pages] US Letter pages, made with PDFium itself.
-String blankPdf(pdfium.PDFium lib, Directory dir, int pages) {
+/// [quarterTurns]: how far each page is shown turned clockwise.
+String blankPdf(
+  pdfium.PDFium lib,
+  Directory dir,
+  int pages, {
+  int quarterTurns = 0,
+}) {
   final doc = lib.FPDF_CreateNewDocument();
   for (var i = 0; i < pages; i++) {
-    lib.FPDF_ClosePage(lib.FPDFPage_New(doc, i, 612, 792));
+    final page = lib.FPDFPage_New(doc, i, 612, 792);
+    if (quarterTurns != 0) lib.FPDFPage_SetRotation(page, quarterTurns);
+    lib.FPDF_ClosePage(page);
   }
   final file = File('${dir.path}/blank.pdf');
   // Save through the same writer path by exporting no ink.
@@ -337,6 +345,41 @@ void main() {
       expect(box[0], closeTo(100, 2), reason: 'starts at the left edge');
       expect(box[2], greaterThanOrEqualTo(599));
       expect(box[3], lessThanOrEqualTo(621));
+      calloc.free(box);
+      lib.FPDFText_ClosePage(tp);
+      lib.FPDF_ClosePage(page);
+      lib.FPDF_CloseDocument(doc);
+    });
+
+    test('typed text on a page turned sideways reads upright', () {
+      final src = blankPdf(lib, dir, 1, quarterTurns: 1);
+      final bytes = writeInkIntoPdf(
+        lib,
+        src,
+        const {},
+        text: const {
+          1: [ExportWord('cat', 100, 500, 120, 600, colorArgb: 0xFF000000)],
+        },
+      );
+      final out = File('${dir.path}/turned.pdf')..writeAsBytesSync(bytes);
+      final path = out.path.toNativeUtf8();
+      final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+      malloc.free(path);
+      final page = lib.FPDF_LoadPage(doc, 0);
+      expect(lib.FPDFPage_GetRotation(page), 1);
+      final tp = lib.FPDFText_LoadPage(page);
+      final box = calloc<Double>(4);
+      // "c", "a", "t" run up the page (screen right), inside the box.
+      final ys = <double>[];
+      for (var k = 0; k < 3; k++) {
+        lib.FPDFText_GetCharBox(tp, k, box, box + 1, box + 2, box + 3);
+        expect(box[0], greaterThanOrEqualTo(99), reason: 'char $k left');
+        expect(box[1], lessThanOrEqualTo(121), reason: 'char $k right');
+        ys.add(box[2]);
+      }
+      expect(ys[1], greaterThan(ys[0]));
+      expect(ys[2], greaterThan(ys[1]));
+      expect(ys.first, greaterThanOrEqualTo(499));
       calloc.free(box);
       lib.FPDFText_ClosePage(tp);
       lib.FPDF_ClosePage(page);

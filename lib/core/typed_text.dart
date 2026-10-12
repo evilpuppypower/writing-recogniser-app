@@ -174,7 +174,8 @@ DocumentInk inkForExport(DocumentInk ink, ExportHandwriting mode) {
 }
 
 /// The typed words of a page as visible export text: over the handwriting
-/// for [ExportHandwriting.typed], just under it for [ExportHandwriting.both].
+/// for [ExportHandwriting.typed], just under it for [ExportHandwriting.both]
+/// (the writer places it, following the page's rotation).
 List<ExportWord> typedForExport(
   List<PageStroke> strokes,
   ExportHandwriting mode,
@@ -182,21 +183,62 @@ List<ExportWord> typedForExport(
   if (mode == ExportHandwriting.ink) return const [];
   return [
     for (final w in typedWords(strokes))
-      () {
-        final size = w.fontSize;
-        final under = mode == ExportHandwriting.both;
-        // Under the ink: a box one text line high, just below it.
-        final bottom = under ? w.box.bottom - size * 1.1 : w.box.bottom;
-        final top = under ? w.box.bottom - size * 0.1 : w.box.top;
-        return ExportWord(
-          w.text,
-          w.box.left,
-          bottom,
-          w.box.right,
-          top,
-          colorArgb: w.colorArgb,
-          fontSize: size,
-        );
-      }(),
+      ExportWord(
+        w.text,
+        w.box.left,
+        w.box.bottom,
+        w.box.right,
+        w.box.top,
+        colorArgb: w.colorArgb,
+        fontSize: w.fontSize,
+        under: mode == ExportHandwriting.both,
+      ),
   ];
+}
+
+/// Where typed text goes on a PDF page shown turned [quarterTurns]
+/// clockwise: the text matrix (a, b, c, d, e, f) that draws it upright on
+/// screen at [size] points, starting at the box's on-screen left and
+/// centred in it (or just under it when [under]). Box in page coordinates.
+({double a, double b, double c, double d, double e, double f}) typedPlacement(
+  ExportWord w,
+  int quarterTurns,
+  double size,
+) {
+  // Screen-right (u) and screen-up (v) as page directions.
+  final (ux, uy, vx, vy) = switch (quarterTurns & 3) {
+    0 => (1.0, 0.0, 0.0, 1.0),
+    1 => (0.0, 1.0, -1.0, 0.0),
+    2 => (-1.0, 0.0, 0.0, -1.0),
+    _ => (0.0, -1.0, 1.0, 0.0),
+  };
+  double u(double x, double y) => x * ux + y * uy;
+  double v(double x, double y) => x * vx + y * vy;
+  final us = [u(w.left, w.bottom), u(w.right, w.top)];
+  final vs = [v(w.left, w.bottom), v(w.right, w.top)];
+  final uMin = us.reduce((a, b) => a < b ? a : b);
+  final vMin = vs.reduce((a, b) => a < b ? a : b);
+  final vMax = vs.reduce((a, b) => a > b ? a : b);
+  // Capital letters are about 0.7 of the size tall.
+  final baseline = w.under
+      ? vMin - size * 0.85
+      : vMin + (vMax - vMin - size * 0.7) / 2;
+  // Back to page coordinates: (u, v) -> u * U + v * V.
+  return (
+    a: size * ux,
+    b: size * uy,
+    c: size * vx,
+    d: size * vy,
+    e: uMin * ux + baseline * vx,
+    f: uMin * uy + baseline * vy,
+  );
+}
+
+/// The size typed text gets on a page turned [quarterTurns]: fitted to the
+/// handwriting as seen on screen.
+double typedSizeOnPage(ExportWord w, int quarterTurns) {
+  final box = quarterTurns.isOdd
+      ? InkBox(w.bottom, w.left, w.top, w.right)
+      : InkBox(w.left, w.bottom, w.right, w.top);
+  return fitFontSize(w.text, box);
 }
