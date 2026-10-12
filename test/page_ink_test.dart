@@ -73,6 +73,25 @@ void main() {
       expect(c.ink.strokesOn(1).map((s) => s.notWriting), [true, false]);
     });
 
+    test('"This is writing" takes the mark off again (task 2.4d)', () {
+      final c = DocumentInkController();
+      final a = line(0, 0, 100, 0);
+      const b = PageStroke(
+        points: [PageInkPoint(0, 50, 2000), PageInkPoint(100, 50, 2010)],
+      );
+      final changed = <int>[];
+      c.onChanged = changed.add;
+      c.add(1, a);
+      c.add(1, b);
+      c.markNotWriting(1, {a.id, b.id});
+      expect(c.ink.markWriting(1, {'nothing'}), isFalse, reason: 'no change');
+      c.markWriting(1, {a.id});
+      expect(c.ink.strokesOn(1).map((s) => s.notWriting), [false, true]);
+      expect(changed.last, 1, reason: 'saved and read again');
+      c.undo(); // takes b away; a must stay unmarked
+      expect(c.ink.strokesOn(1).single.notWriting, isFalse);
+    });
+
     test('JSON round trip keeps points, time, pressure, colour and width', () {
       final ink = DocumentInk()
         ..add(

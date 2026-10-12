@@ -351,3 +351,9 @@ Phase 4 is preparatory until GATE B. "Save training data" on the learning screen
 
 - **GATE B target stays** at a third fewer fixes on words written before, for now. Ask the owner again once an APK with the learning screen and the replay test has been tested.
 - **Weekly check:** the owner sends a screenshot of "How well is it learning?" (check it for document names and notifications before relying on it; never publish it).
+
+## 2026-10-12 — Undoing "This isn't writing" (2.4d, owner)
+
+- **Two ways back (owner's choice):** a pen double-tap on marked ink opens a "Hidden ink" pop-up with "This is writing"; and the text panel lists the current page's hidden ink, each with a small picture and a "This is writing" button.
+- **Grouping:** marked ink is grouped the same way as words, so one tap brings back a whole tick or word, not a single stroke.
+- **Saved and logged:** the mark comes off the strokes themselves (saved with the ink), the undo history follows, and an `is_writing` event is logged on the tablet. The ink is then read again; if the ink classifier itself says it's a drawing, it still won't be read (only the user's mark is undone).

@@ -61,4 +61,29 @@ void main() {
     expect(plan.jobs.single.preContext.length, preContextChars);
     expect(plan.jobs.single.preContext.endsWith('b' * 30), isTrue);
   });
+
+  group('hidden ink (task 2.4d)', () {
+    List<PageStroke> marked(List<PageStroke> strokes) => [
+      for (final s in strokes) s.copyWith(notWriting: true),
+    ];
+
+    test('marked ink is grouped like words; the rest is ignored', () {
+      final tick = marked(word(100, 700, 2, 0));
+      final box = marked(word(300, 700, 3, 1000));
+      final strokes = [...tick, ...word(160, 700, 3, 5000), ...box];
+      final hidden = hiddenInk(strokes);
+      expect(hidden, hasLength(2));
+      expect(hidden.first.ids, {for (final s in tick) s.id});
+      expect(hidden.last.ids, {for (final s in box) s.id});
+    });
+
+    test('finds the marked ink under a tap, allowing a little room', () {
+      final tick = marked(word(100, 700, 2, 0));
+      final strokes = [...tick, ...word(160, 700, 3, 5000)];
+      expect(hiddenInkAt(strokes, 105, 705)?.ids, {for (final s in tick) s.id});
+      expect(hiddenInkAt(strokes, 98, 715), isNotNull, reason: 'just outside');
+      expect(hiddenInkAt(strokes, 165, 705), isNull, reason: 'normal writing');
+      expect(hiddenInkAt(strokes, 100, 600), isNull, reason: 'empty space');
+    });
+  });
 }

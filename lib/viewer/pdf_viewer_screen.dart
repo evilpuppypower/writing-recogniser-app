@@ -17,6 +17,7 @@ import '../core/ink_store.dart';
 import '../core/open_timing.dart';
 import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
+import '../core/page_recognition.dart' show HiddenInk, hiddenInkAt;
 import '../core/pen_tools.dart';
 import '../core/recognition/recognizer.dart';
 import '../core/transfer_estimate.dart' show formatBytes, formatRemaining;
@@ -166,6 +167,39 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       case null:
         break;
     }
+  }
+
+  /// Double-tap on ink marked "This isn't writing": offer to read it as
+  /// writing again (task 2.4d).
+  Future<void> _askUnhide(int page, HiddenInk hidden) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hidden ink'),
+        content: const Text(
+          "You marked this ink as not writing, so it isn't read. Read it "
+          'as writing again?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('This is writing'),
+          ),
+        ],
+      ),
+    );
+    if (yes == true) _unhide(page, hidden);
+  }
+
+  /// Reads [hidden] as writing again. The text controller forgets the mark
+  /// first, so the reading the ink change triggers includes it.
+  void _unhide(int page, HiddenInk hidden) {
+    _text.markWriting(page, hidden.ids);
+    _ink.markWriting(page, hidden.ids);
   }
 
   /// Whether recognised text shows under the ink.
@@ -427,22 +461,37 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         controller: _ink,
         tools: _tools,
         // Pen double-tap on a word's label: correct it (task 2.4b).
+        // On ink marked "This isn't writing": offer to undo that (2.4d).
         doubleTapActionAt: (at) {
           final place = SettingsScope.valueOf(context).textLabels;
-          if (place == TextLabelPlace.off) return null;
-          final word = PageTextLabels.wordAtLabel(
-            _text.wordsOn(page.pageNumber),
-            at,
-            geometry: _geometryOf(page),
-            viewWidth: pageRect.width,
-            above: place == TextLabelPlace.above,
-            textScaler: MediaQuery.textScalerOf(context),
+          final word = place == TextLabelPlace.off
+              ? null
+              : PageTextLabels.wordAtLabel(
+                  _text.wordsOn(page.pageNumber),
+                  at,
+                  geometry: _geometryOf(page),
+                  viewWidth: pageRect.width,
+                  above: place == TextLabelPlace.above,
+                  textScaler: MediaQuery.textScalerOf(context),
+                );
+          if (word != null) {
+            return (
+              target: word.key,
+              action: () => _fixWord(page.pageNumber, word),
+            );
+          }
+          final p = _geometryOf(page)
+              .toPdf(ViewPoint(at.dx, at.dy), pageRect.width);
+          final hidden = hiddenInkAt(
+            _ink.ink.strokesOn(page.pageNumber),
+            p.x,
+            p.y,
           );
-          return word == null
+          return hidden == null
               ? null
               : (
-                  target: word.key,
-                  action: () => _fixWord(page.pageNumber, word),
+                  target: 'hidden:${(hidden.ids.toList()..sort()).join(',')}',
+                  action: () => _askUnhide(page.pageNumber, hidden),
                 );
         },
       ),
@@ -1042,6 +1091,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               page: pdf!,
               panel: RecognisedTextPanel(
                 text: _text,
+                ink: _ink,
+                onUnhide: _unhide,
                 page: _pageNumber,
                 place: place,
                 onPlace: _placePanel,

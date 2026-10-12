@@ -223,14 +223,22 @@ class DocumentInk {
 
   /// Marks the strokes with these [PageStroke.id]s on [page] as not
   /// writing. Returns whether anything changed.
-  bool markNotWriting(int page, Set<String> ids) {
+  bool markNotWriting(int page, Set<String> ids) =>
+      _setNotWriting(page, ids, true);
+
+  /// Undoes [markNotWriting] for these strokes (task 2.4d): they're read
+  /// as writing again. Returns whether anything changed.
+  bool markWriting(int page, Set<String> ids) =>
+      _setNotWriting(page, ids, false);
+
+  bool _setNotWriting(int page, Set<String> ids, bool value) {
     var changed = false;
     _pages[page] = [
       for (final s in strokesOn(page))
-        if (!s.notWriting && s.points.isNotEmpty && ids.contains(s.id))
+        if (s.notWriting != value && s.points.isNotEmpty && ids.contains(s.id))
           () {
             changed = true;
-            return s.copyWith(notWriting: true);
+            return s.copyWith(notWriting: value);
           }()
         else
           s,

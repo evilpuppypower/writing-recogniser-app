@@ -197,6 +197,27 @@ class InkTextController extends ChangeNotifier {
 
   final _notWriting = <int, Set<String>>{};
 
+  /// Reverses [markNotWriting] for the strokes [strokeIds] on [page]
+  /// (task 2.4d): they're read again once the ink is next looked at. (The
+  /// strokes themselves are unmarked by [DocumentInkController.markWriting],
+  /// which also triggers that reading.)
+  void markWriting(int page, Set<String> strokeIds) {
+    _notWriting[page]?.removeAll(strokeIds);
+    _log(
+      LoggedEvent(
+        type: 'is_writing',
+        at: DateTime.now(),
+        engine: engine.name,
+        data: {
+          'page': page,
+          'word': (strokeIds.toList()..sort()).join(','),
+          'doc': ?documentId,
+        },
+      ),
+    );
+    _notify();
+  }
+
   static String _lastWord(String text) {
     final parts = text.trim().split(RegExp(r'\s+'));
     return parts.isEmpty ? '' : parts.last;

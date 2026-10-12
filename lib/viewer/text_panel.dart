@@ -3,7 +3,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../core/app_settings.dart';
+import '../core/page_ink.dart';
+import '../core/page_recognition.dart' show HiddenInk, hiddenInk;
 import 'ink_text_controller.dart';
+import 'page_ink_layer.dart' show DocumentInkController;
 
 /// The recognised text of the current page (task 2.3), in a panel docked
 /// beside the PDF or in a floating window. Updates as words are read and
@@ -15,9 +18,16 @@ class RecognisedTextPanel extends StatelessWidget {
     required this.page,
     required this.place,
     required this.onPlace,
+    this.ink,
+    this.onUnhide,
   });
 
   final InkTextController text;
+
+  /// The page's ink, to list what was marked "This isn't writing" (task
+  /// 2.4d), and what to do when one is marked as writing again.
+  final DocumentInkController? ink;
+  final void Function(int page, HiddenInk hidden)? onUnhide;
   final ValueListenable<int?> page;
   final TextPanelPlace place;
 
@@ -30,10 +40,14 @@ class RecognisedTextPanel extends StatelessWidget {
     return Material(
       color: theme.colorScheme.surfaceContainerLow,
       child: ListenableBuilder(
-        listenable: Listenable.merge([text, page]),
+        listenable: Listenable.merge([text, page, ?ink]),
         builder: (context, _) {
           final n = page.value ?? 1;
           final t = text.textOf(n);
+          final strokes = ink?.ink.strokesOn(n) ?? const <PageStroke>[];
+          final hidden = onUnhide == null
+              ? const <HiddenInk>[]
+              : hiddenInk(strokes);
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -88,6 +102,12 @@ class RecognisedTextPanel extends StatelessWidget {
                   ),
                 ),
               ),
+              if (hidden.isNotEmpty)
+                _HiddenInkList(
+                  hidden: hidden,
+                  strokes: strokes,
+                  onUnhide: (h) => onUnhide!(n, h),
+                ),
               if (text.problem != null)
                 Padding(
                   padding: const EdgeInsets.all(8),
@@ -102,6 +122,123 @@ class RecognisedTextPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Ink on the page marked "This isn't writing" (task 2.4d), each with a
+/// small picture and a button to read it as writing again.
+class _HiddenInkList extends StatelessWidget {
+  const _HiddenInkList({
+    required this.hidden,
+    required this.strokes,
+    required this.onUnhide,
+  });
+
+  final List<HiddenInk> hidden;
+  final List<PageStroke> strokes;
+  final ValueChanged<HiddenInk> onUnhide;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 180),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Text(
+              'Hidden ink (${hidden.length}): marked as not writing, so not '
+              'read',
+              style: theme.textTheme.titleSmall,
+            ),
+          ),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              children: [
+                for (final h in hidden)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 40,
+                          child: CustomPaint(
+                            painter: _InkPreview(
+                              [
+                                for (final s in strokes)
+                                  if (h.ids.contains(s.id)) s,
+                              ],
+                              h,
+                              theme.colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => onUnhide(h),
+                        child: const Text('This is writing'),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Draws [strokes] fitted into the space, keeping their shape.
+class _InkPreview extends CustomPainter {
+  _InkPreview(this.strokes, this.hidden, this.color);
+
+  final List<PageStroke> strokes;
+  final HiddenInk hidden;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final b = hidden.box;
+    final w = b.width <= 0 ? 1.0 : b.width, h = b.height <= 0 ? 1.0 : b.height;
+    final scale = [
+      size.width / w,
+      size.height / h,
+      4.0,
+    ].reduce((a, c) => a < c ? a : c);
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+    for (final s in strokes) {
+      final path = Path();
+      for (var i = 0; i < s.points.length; i++) {
+        final p = s.points[i];
+        // PDF y grows upward; the screen's grows downward.
+        final x = (p.x - b.left) * scale, y = (b.top - p.y) * scale;
+        i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
+      }
+      if (s.points.length == 1) {
+        final p = s.points.first;
+        path.addOval(
+          Rect.fromCircle(
+            center: Offset((p.x - b.left) * scale, (b.top - p.y) * scale),
+            radius: 1,
+          ),
+        );
+      }
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_InkPreview old) =>
+      old.strokes != strokes || old.color != color;
 }
 
 /// Puts [panel] beside [page] (docked) or over it (floating, movable and

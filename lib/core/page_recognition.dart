@@ -88,3 +88,43 @@ RecognitionPlan planRecognition(
   ]);
   return RecognitionPlan(lines, jobs, keys, letter);
 }
+
+/// One piece of ink the user marked "This isn't writing" (task 2.4c),
+/// grouped as a word would be, so it can be shown and unmarked (task 2.4d).
+class HiddenInk {
+  const HiddenInk(this.ids, this.box);
+
+  /// The [PageStroke.id]s of its strokes.
+  final Set<String> ids;
+  final InkBox box;
+}
+
+/// The marked ink on a page, top to bottom, left to right.
+List<HiddenInk> hiddenInk(List<PageStroke> strokes) => [
+  for (final line in groupStrokes(
+    strokes,
+    include: (i) => strokes[i].notWriting,
+  ))
+    for (final w in line.words)
+      HiddenInk({for (final i in w.strokes) strokes[i].id}, w.box),
+];
+
+/// The marked ink at ([x], [y]) in PDF page coordinates, allowing [reach]
+/// points around it (a pen tap rarely lands exactly on a thin line).
+HiddenInk? hiddenInkAt(
+  List<PageStroke> strokes,
+  double x,
+  double y, {
+  double reach = 6,
+}) {
+  for (final h in hiddenInk(strokes)) {
+    final b = h.box;
+    if (x >= b.left - reach &&
+        x <= b.right + reach &&
+        y >= b.bottom - reach &&
+        y <= b.top + reach) {
+      return h;
+    }
+  }
+  return null;
+}

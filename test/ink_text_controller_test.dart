@@ -285,6 +285,33 @@ void main() {
       c.dispose();
     });
 
+    testWidgets('"This is writing" reads the group again (task 2.4d)', (
+      tester,
+    ) async {
+      final ink = DocumentInk();
+      for (final s in [...word(100, 700, 3, 0), ...word(135, 700, 2, 1000)]) {
+        ink.add(1, s);
+      }
+      final c = InkTextController(engine: FakeEngine());
+      c.inkChanged(1, ink.strokesOn(1), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      final drawing = c.wordsOn(1).last;
+      final ids = drawing.key.split(',').toSet();
+      ink.markNotWriting(1, ids);
+      c.markNotWriting(1, drawing);
+      expect(c.textOf(1), 'w3');
+      // Unmarked: the text controller first, then the ink (as the viewer
+      // does); the ink change reads the page again.
+      c.markWriting(1, ids);
+      expect(ink.markWriting(1, ids), isTrue);
+      c.inkChanged(1, ink.strokesOn(1), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      expect(c.textOf(1), 'w3 w2');
+      c.dispose();
+    });
+
     testWidgets('readNow reads a page straight away and waits for it', (
       tester,
     ) async {
