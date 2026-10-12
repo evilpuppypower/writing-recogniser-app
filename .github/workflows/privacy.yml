@@ -12,6 +12,8 @@ on:
 
 permissions:
   contents: read
+  # To read the PR's current title and description (see below).
+  pull-requests: read
 
 jobs:
   privacy:
@@ -30,8 +32,12 @@ jobs:
           # The owner's own details, one regular expression per line. A
           # secret, so they never appear in the repo or the logs.
           PRIVACY_PATTERNS: ${{ secrets.PRIVACY_PATTERNS }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+          # The title and description are fetched inside the script, not
+          # passed in here: GitHub prints every env value in the public
+          # log, and a description being checked mustn't end up there.
+          # Fetching also means a re-run checks the current text.
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           FROM_FORK: ${{ github.event.pull_request.head.repo.fork }}
@@ -44,8 +50,13 @@ jobs:
             status=1
           fi
           tool/privacy_check.sh || status=1
-          if [ -n "$PR_TITLE$PR_BODY" ]; then
-            printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" | tool/privacy_check.sh - || status=1
+          if [ -n "$PR_NUMBER" ]; then
+            if ! pr_text=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+                --jq '.title, (.body // "")'); then
+              echo "PRIVACY: couldn't read the PR title and description"
+              status=1
+            fi
+            printf '%s\n' "$pr_text" | tool/privacy_check.sh - || status=1
           fi
           # The new commits: messages, and author/committer names and
           # emails (only no-reply addresses are allowed).
