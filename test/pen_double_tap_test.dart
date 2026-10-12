@@ -250,6 +250,23 @@ void main() {
       expect(at(const Offset(110, 198), above: false), same(word));
     });
 
+    test('larger system text makes a larger hit area, as on screen', () {
+      // Just past the right end of the label at normal size.
+      const p = Offset(170, 165);
+      expect(at(p), isNull);
+      expect(
+        PageTextLabels.wordAtLabel(
+          [word],
+          p,
+          geometry: geometry,
+          viewWidth: 612,
+          above: true,
+          textScaler: const TextScaler.linear(2),
+        ),
+        same(word),
+      );
+    });
+
     test('misses points away from the label', () {
       expect(at(const Offset(110, 120)), isNull);
       expect(at(const Offset(400, 165)), isNull);
