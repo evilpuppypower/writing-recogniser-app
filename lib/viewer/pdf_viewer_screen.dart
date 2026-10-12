@@ -172,7 +172,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       mostlyConverted(w.key, convertedStrokeIds(_ink.ink.strokesOn(page)));
 
   bool get _hasTyped => _ink.ink.pagesWithInk.any(
-    (p) => _ink.ink.strokesOn(p).any((s) => s.typedText != null),
+    (p) => _ink.ink.strokesOn(p).any((s) => s.typedText?.isNotEmpty ?? false),
   );
 
   /// While typed text shows: what a tap at [at] on [page] does (edit the
