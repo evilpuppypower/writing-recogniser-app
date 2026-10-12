@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/event_log.dart';
+import 'package:writing_recogniser/core/feedback/correction.dart';
+import 'package:writing_recogniser/core/labeled_sample.dart';
 import 'package:writing_recogniser/settings/learning_screen.dart';
 
 class _Log implements EventLog {
@@ -35,6 +37,7 @@ void main() {
     WidgetTester tester,
     List<LoggedEvent> events, {
     List<(String, List<int>)>? saved,
+    List<CorrectionRecord> corrections = const [],
   }) async {
     tester.view.physicalSize = const Size(1600, 3000);
     tester.view.devicePixelRatio = 2;
@@ -47,6 +50,7 @@ void main() {
             saved?.add((name, bytes));
             return true;
           },
+          loadTrainingData: () async => (corrections, const <LabeledSample>[]),
         ),
       ),
     );
@@ -82,5 +86,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(saved.single.$1, startsWith('Handwriting learning'));
     expect(utf8.decode(saved.single.$2), contains('mad,moved,moved'));
+  });
+
+  testWidgets('Save training data explains first, then saves a zip', (
+    tester,
+  ) async {
+    final saved = <(String, List<int>)>[];
+    await pump(
+      tester,
+      [],
+      saved: saved,
+      corrections: [
+        CorrectionRecord(
+          recognized: 'mad',
+          corrected: 'moved',
+          at: DateTime.utc(2026, 1, 5),
+        ),
+      ],
+    );
+    await tester.tap(
+      find.byTooltip('Save training data (corrections and samples, with ink)'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('keep the file private'), findsOneWidget);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(saved.single.$1, startsWith('training-data-'));
+    expect(find.textContaining('1 corrections, 0 samples'), findsOneWidget);
   });
 }

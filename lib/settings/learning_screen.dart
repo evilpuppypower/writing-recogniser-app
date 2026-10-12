@@ -3,11 +3,16 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../core/event_log.dart';
+import '../core/feedback/correction.dart';
+import '../core/labeled_sample.dart';
 import '../core/latency.dart' show formatMs;
 import '../core/learning_stats.dart';
+import '../core/training_data.dart';
 import '../platform/file_transfer.dart';
 import '../storage/app_database.dart';
+import '../storage/sqlite_correction_store.dart';
 import '../storage/sqlite_event_log.dart';
+import '../storage/sqlite_sample_store.dart';
 
 /// "How well is it learning?" (task 3.1): whether corrections make
 /// recognition better, from real use on PDFs. Everything is worked out on
@@ -17,9 +22,23 @@ class LearningScreen extends StatefulWidget {
     super.key,
     this.openEventLog = _open,
     this.saveFile = saveFileAs,
+    this.loadTrainingData = _loadTrainingData,
   });
 
   final Future<EventLog> Function() openEventLog;
+
+  /// The corrections and samples for "Save training data" (task 4.1).
+  final Future<(List<CorrectionRecord>, List<LabeledSample>)> Function()
+  loadTrainingData;
+
+  static Future<(List<CorrectionRecord>, List<LabeledSample>)>
+  _loadTrainingData() async {
+    final db = await AppDatabase.open();
+    return (
+      await SqliteCorrectionStore(db).all(),
+      await SqliteSampleStore(db).all(),
+    );
+  }
 
   /// Asks where to save the spreadsheet (injectable for tests).
   final Future<bool> Function(String name, String mime, List<int> bytes)
@@ -71,6 +90,71 @@ class _LearningScreenState extends State<LearningScreen> {
     }
   }
 
+  /// Saves corrections and samples, with their ink, as one file on the
+  /// tablet (task 4.1: groundwork for a personal model, if GATE B says so).
+  Future<void> _saveTrainingData() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Save training data'),
+        content: const Text(
+          'Saves your corrections and handwriting samples, with their ink, '
+          'as one file wherever you choose. It could later teach a model '
+          'your handwriting.\n\n'
+          'Handwriting identifies a person, so keep the file private. Nothing '
+          'else about you is in it: times are UTC and PDFs are numbered, '
+          'not named. The app never sends it anywhere.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (go != true) return;
+    try {
+      final (corrections, samples) = await widget.loadTrainingData();
+      if (corrections.isEmpty && samples.isEmpty) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('There are no corrections or samples to save yet.'),
+          ),
+        );
+        return;
+      }
+      final now = DateTime.now();
+      final name = trainingDataFileName(now);
+      final saved = await widget.saveFile(
+        name,
+        'application/zip',
+        encodeTrainingData(
+          corrections: corrections,
+          samples: samples,
+          exportedAt: now,
+        ),
+      );
+      if (saved) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Saved $name (${corrections.length} corrections, '
+              '${samples.length} samples).',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text("Couldn't save: $e")));
+    }
+  }
+
   static String _pct(double? v) =>
       v == null ? '–' : '${(v * 100).toStringAsFixed(v < 0.1 ? 1 : 0)}%';
 
@@ -79,6 +163,11 @@ class _LearningScreenState extends State<LearningScreen> {
     appBar: AppBar(
       title: const Text('How well is it learning?'),
       actions: [
+        IconButton(
+          tooltip: 'Save training data (corrections and samples, with ink)',
+          icon: const Icon(Icons.inventory_2_outlined),
+          onPressed: _saveTrainingData,
+        ),
         IconButton(
           tooltip: 'Save every word as a spreadsheet (CSV)',
           icon: const Icon(Icons.download_outlined),

@@ -334,3 +334,7 @@ Two rounds of independent privacy and security reviews; fixes:
 - **"Engine on its own" vs "with your corrections"** compares the engine's reading and the shown text against the final text. It's fair without re-running the engine: the feedback layer only learns from corrections made before each word was read.
 - **Shown in Settings → "How well is it learning?":** words and letters wrong (engine alone vs with corrections), words written before vs new, the GATE B measure (fewer fixes on words written before; target a third), automatic swaps and how many were undone, pen-lift-to-text time, and corrections per 100 words by week. "Save as CSV" exports one row per word.
 - **Not built yet:** replaying the GATE A samples through both pipelines (planned in 3.1; needs the engine on the tablet, so it's a separate step).
+
+## 2026-10-12 — Training data export (4.1, groundwork only)
+
+Phase 4 is preparatory until GATE B. "Save training data" on the learning screen saves the corrections (with their ink, CLAUDE.md rule 4) and handwriting samples as one zip the user saves anywhere, like sample backups. Nothing is sent. Because handwriting identifies a person, the file carries nothing else: times are UTC, PDFs are numbered (1, 2, ...) instead of named, and the file explains its own units and fields (`lib/core/training_data.dart`).
