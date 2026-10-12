@@ -72,9 +72,25 @@ class DocumentInkController extends ChangeNotifier {
   }
 
   /// Marks strokes on [page] as not writing (task 2.4c) and saves them.
-  /// Not undoable: the correction pop-up is how it's changed.
+  /// Not undoable: the correction pop-up is how it's changed. The undo
+  /// history is marked too, so undoing other edits can't bring back an
+  /// unmarked copy.
   void markNotWriting(int page, Set<String> strokeIds) {
     if (!ink.markNotWriting(page, strokeIds)) return;
+    List<PageStroke> mark(List<PageStroke> strokes) => [
+      for (final s in strokes)
+        !s.notWriting && s.points.isNotEmpty && strokeIds.contains(s.id)
+            ? s.copyWith(notWriting: true)
+            : s,
+    ];
+    for (final history in [_undo, _redo]) {
+      for (var i = 0; i < history.length; i++) {
+        final e = history[i];
+        if (e.page == page) {
+          history[i] = _InkEdit(page, mark(e.before), mark(e.after));
+        }
+      }
+    }
     notifyListeners();
     onChanged?.call(page);
   }
