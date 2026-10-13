@@ -196,9 +196,7 @@ void main() {
 
     final d = InkTextController(engine: FakeEngine(ready: false));
     d.restore(1, saved);
-    final words = await tester.runAsync(
-      () => d.readNow(1, page.sublist(0, 3)),
-    );
+    final words = await tester.runAsync(() => d.readNow(1, page.sublist(0, 3)));
     expect(words!.map((w) => w.text), ['w3'], reason: 'w2 was rubbed out');
     d.dispose();
   });

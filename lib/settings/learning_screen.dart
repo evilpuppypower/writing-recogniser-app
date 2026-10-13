@@ -13,6 +13,7 @@ import '../platform/file_transfer.dart';
 import '../storage/app_database.dart';
 import '../storage/sqlite_correction_store.dart';
 import '../storage/sqlite_event_log.dart';
+import '../storage/sqlite_ink_store.dart';
 import '../storage/sqlite_sample_store.dart';
 
 /// "How well is it learning?" (task 3.1): whether corrections make
@@ -28,16 +29,23 @@ class LearningScreen extends StatefulWidget {
 
   final Future<EventLog> Function() openEventLog;
 
-  /// The corrections and samples for "Save training data" (task 4.1).
-  final Future<(List<CorrectionRecord>, List<LabeledSample>)> Function()
+  /// The corrections, samples and words read on PDF pages for "Save
+  /// training data" (tasks 4.1, 4.1b).
+  final Future<
+    (List<CorrectionRecord>, List<LabeledSample>, List<SavedPageText>)
+  >
+  Function()
   loadTrainingData;
 
-  static Future<(List<CorrectionRecord>, List<LabeledSample>)>
+  static Future<
+    (List<CorrectionRecord>, List<LabeledSample>, List<SavedPageText>)
+  >
   _loadTrainingData() async {
     final db = await AppDatabase.open();
     return (
       await SqliteCorrectionStore(db).all(),
       await SqliteSampleStore(db).all(),
+      await SqliteInkStore(db).allText(),
     );
   }
 
@@ -100,9 +108,9 @@ class _LearningScreenState extends State<LearningScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Save training data'),
         content: const Text(
-          'Saves your corrections and handwriting samples, with their ink, '
-          'as one file wherever you choose. It could later teach a model '
-          'your handwriting.\n\n'
+          'Saves your corrections, handwriting samples and the words read on '
+          'your PDFs, with their ink, as one file wherever you choose. It '
+          'can teach a model your handwriting on your computer.\n\n'
           'Handwriting identifies a person, so keep the file private. Nothing '
           'else about you is in it: times are UTC and PDFs are numbered, '
           'not named. The app never sends it anywhere.',
@@ -146,7 +154,7 @@ class _LearningScreenState extends State<LearningScreen> {
     }
 
     try {
-      final (corrections, samples) = await widget.loadTrainingData();
+      final (corrections, samples, pageTexts) = await widget.loadTrainingData();
       if (corrections.isEmpty && samples.isEmpty) {
         closeDialog();
         messenger.showSnackBar(
@@ -158,7 +166,7 @@ class _LearningScreenState extends State<LearningScreen> {
       }
       final now = DateTime.now();
       final name = trainingDataFileName(now);
-      final bytes = await _pack(corrections, samples, now);
+      final bytes = await _pack(corrections, samples, pageTexts, now);
       closeDialog();
       final saved = await widget.saveFile(name, 'application/zip', bytes);
       if (saved) {
@@ -182,11 +190,13 @@ class _LearningScreenState extends State<LearningScreen> {
   static Future<List<int>> _pack(
     List<CorrectionRecord> corrections,
     List<LabeledSample> samples,
+    List<SavedPageText> pageTexts,
     DateTime now,
   ) => Isolate.run(
     () => encodeTrainingData(
       corrections: corrections,
       samples: samples,
+      pageTexts: pageTexts,
       exportedAt: now,
     ),
   );

@@ -5,7 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/feedback/correction.dart';
 import 'package:writing_recogniser/core/ink.dart';
 import 'package:writing_recogniser/core/labeled_sample.dart';
+import 'package:writing_recogniser/core/recognition/recognizer.dart';
+import 'package:writing_recogniser/core/stroke_grouping.dart' show InkBox;
 import 'package:writing_recogniser/core/training_data.dart';
+import 'package:writing_recogniser/viewer/ink_text_controller.dart';
 
 const ink = [
   InkStroke([InkPoint(0, 0, 1000, 0.4), InkPoint(5, 9, 1040, 0.6)]),
@@ -94,4 +97,92 @@ void main() {
       'training-data-20260131.zip',
     );
   });
+
+  test('version 2: every word read on PDF pages, and samples as words', () {
+    RecognizedWord w(String text, {String? engine, bool corrected = false}) =>
+        RecognizedWord(
+          text: text,
+          alternatives: ['alt'],
+          box: const InkBox(0, 0, 10, 10),
+          line: 0,
+          key: 'k$text',
+          engineText: engine,
+          corrected: corrected,
+          previousWord: 'the',
+          ink: ink,
+        );
+    // Saved as the app saves a page (checked against the controller).
+    final c = InkTextController(engine: _NoEngine());
+    c.restore(
+      3,
+      jsonEncode({
+        'seen': ['a'],
+        'words': [
+          w('cat').toJson(),
+          w('dog', engine: 'dag', corrected: true).toJson(),
+        ],
+      }),
+    );
+    final page = c.pageJson(3)!;
+    c.dispose();
+    final doc = decode(
+      encodeTrainingData(
+        corrections: [
+          CorrectionRecord(
+            recognized: 'dag',
+            corrected: 'dog',
+            previousWord: 'the',
+            strokes: ink,
+            at: DateTime.utc(2026, 1, 6),
+            documentId: '5678_2_Other.pdf',
+          ),
+        ],
+        samples: [
+          LabeledSample(
+            text: 'hi',
+            strokes: ink,
+            createdAt: DateTime.utc(2026, 1, 4),
+          ),
+        ],
+        pageTexts: [
+          (document: '5678_2_Other.pdf', json: page),
+          (document: '9_Private name.pdf', json: 'not json'),
+        ],
+        exportedAt: DateTime.utc(2026, 1, 7),
+      ),
+    );
+    expect(doc['version'], 2);
+    final words = (doc['words'] as List).cast<Map<String, dynamic>>();
+    expect(words.map((x) => x['text']), ['cat', 'dog']);
+    expect(words.first['corrected'], isFalse);
+    expect(words.first['candidates'], ['cat', 'alt']);
+    expect(words.last['engine'], 'dag');
+    expect(words.last['corrected'], isTrue);
+    expect(words.last['candidates'], ['dag', 'alt']);
+    expect(words.last['previousWord'], 'the');
+    expect(words.last['strokes'], hasLength(1));
+    // The same PDF number as its corrections, and no names.
+    expect(words.first['document'], 1);
+    expect(jsonEncode(doc), isNot(contains('Private')));
+    expect(jsonEncode(doc), isNot(contains('Other')));
+    // One stroke, one word: the sample becomes one word.
+    expect((doc['sampleWords'] as List).single['text'], 'hi');
+  });
+}
+
+class _NoEngine implements Recognizer {
+  @override
+  String get name => 'None';
+  @override
+  bool get onDevice => true;
+  @override
+  Future<RecognizerStatus> status() async =>
+      const RecognizerStatus(RecognizerState.ready);
+  @override
+  Future<void> prepare({void Function(double? progress)? onProgress}) async {}
+  @override
+  Future<List<Candidate>> recognize(
+    List<InkStroke> strokes,
+    RecognitionContext context,
+  ) async => const [];
 }
