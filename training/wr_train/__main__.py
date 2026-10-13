@@ -21,6 +21,7 @@ def _ask_for_file() -> str | None:
         return None
     root = tkinter.Tk()
     root.withdraw()
+    root.attributes("-topmost", True)  # in front of the console window
     path = filedialog.askopenfilename(
         title="Choose the training data file from the app",
         filetypes=[("Training data", "*.zip"), ("All files", "*.*")],
@@ -61,11 +62,12 @@ def main(argv: list[str]) -> int:
         json.dumps(model_file(weights, report), indent=2), encoding="utf-8"
     )
     lines = [
-        f"Words checked: {report.words} ({report.corrected} you corrected)",
-        f"Right with the engine alone:  {report.engine_right}",
-        f"Right with your model:        {report.model_right}",
-        f"Engine mistakes it fixes:     {report.fixed}",
-        f"Right words it makes wrong:   {report.broke}",
+        f"Words checked: {report.words}",
+        f"  You corrected {report.corrected}. The model gets "
+        f"{report.corrected_fixed} of them right "
+        f"(the engine alone: {report.corrected_engine_right}).",
+        f"  You left {report.unchecked} as they were. The model would "
+        f"change {report.unchecked_changed} of them.",
         "",
         verdict(report),
         "",

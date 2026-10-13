@@ -8,11 +8,11 @@ For each handwritten word, the engine offers readings (best first). The model gi
 
 ## Options for a word
 
-1. The engine's readings, in order.
+1. The engine's own readings, in order (as the engine gave them: never re-ranked or changed by corrections).
 2. Words this engine reading was corrected to before (the user's corrections).
 3. The 3 words whose earlier ink looks most like this ink (shape, below).
 
-Duplicates are merged (ignoring case). A word's own example is never used to describe itself (leave-one-out), so training never "cheats".
+Duplicates are merged (ignoring case). A word's own example is never used to describe itself (leave-one-out, with copies of the same ink treated as one), so training never "cheats". Corrections count once per correction.
 
 ## Features (per option)
 
@@ -24,7 +24,7 @@ Duplicates are merged (ignoring case). A word's own example is never used to des
 | `afterPrevious` | ln(1 + times it followed the previous word) |
 | `correctedTo` | ln(1 + times the engine's first reading was corrected to it) |
 | `shapeMatch` | highest similarity (−1..1) between this ink and the user's earlier ink of that word; 0 when there is none |
-| `lengthRatio` | d = ln(ink width / ink height) − ln(letters): about the same for every word of one person's writing |
+| `lengthRatio` | d = ln(w / h) − ln(letters), where w and h are the ink's width and height, each at least a tenth of the other, and d is kept within −3..3: about the same for every word of one person's writing |
 | `lengthFit` | −d², so together with `lengthRatio` the model learns the user's usual letter proportions |
 
 Words are compared ignoring case and surrounding punctuation.
@@ -36,6 +36,6 @@ All strokes in writing order, joined into one path; resampled to 32 points evenl
 ## Training and the report
 
 - Softmax over each word's options, weights fitted by gradient descent with a small L2 penalty.
-- Examples: the file's `words` (each with the engine's readings). Corrected words are certain; words left as read count as right, with half the weight. `corrections` and `sampleWords` add to the user's word counts, corrections and ink, but aren't examples on their own.
-- **Report** (5-fold cross-validation, so every word is judged by a model that didn't see it): words right with the engine alone vs with the model; how many of the engine's mistakes it fixes; how many right words it would break. A plain sentence says whether it helps.
+- Examples: the file's `words` that have the engine's whole list of readings (`candidatesComplete`). Corrected words are certain; words left as shown count as right, with half the weight. Older words, `corrections` and `sampleWords` add to the user's word counts, corrections and ink, but aren't examples on their own.
+- **Report** (5-fold cross-validation, so every word is judged by a model that didn't see it), in two groups, because only corrected words have a checked answer: of the words the user corrected, how many the model gets right (and the engine alone); of the words left as the app showed them, how many the model would change (counted as mistakes to be safe). It looks helpful only if it gets more corrected words right than it would change.
 - Below 200 corrected-or-checked words the report says there isn't enough data yet.

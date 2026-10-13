@@ -69,9 +69,14 @@ def length_ratio(strokes, word: str) -> float:
     letters = len(norm(word))
     if len(p) == 0 or letters == 0:
         return 0.0
-    width = max(p[:, 0].max() - p[:, 0].min(), 1e-6)
-    height = max(p[:, 1].max() - p[:, 1].min(), 1e-6)
-    return math.log(width / height) - math.log(letters)
+    width = p[:, 0].max() - p[:, 0].min()
+    height = p[:, 1].max() - p[:, 1].min()
+    # A tall thin "l" or a flat dash would give huge values: each side is
+    # at least a tenth of the other, and the result stays within +-3.
+    side = max(width, height, 1e-6)
+    width, height = max(width, side / 10), max(height, side / 10)
+    d = math.log(width / height) - math.log(letters)
+    return max(-3.0, min(3.0, d))
 
 
 def length_fit(strokes, word: str) -> float:

@@ -11,7 +11,7 @@ The trained model (`output\model.json`) holds only a few numbers: no handwriting
 
 ## One-time setup (about 10 minutes)
 
-1. Install Python from https://www.python.org/downloads/ (version 3.12 or newer). In the installer, tick **"Add python.exe to PATH"**.
+1. Install Python from https://www.python.org/downloads/ (version 3.12 or newer). In the installer, tick **"Add python.exe to PATH"**. (Python from the Microsoft Store works too.)
 2. On the project's GitHub page, click **Code > Download ZIP**. Unzip it, then copy the `training` folder to `C:\wr-training` (or another folder that isn't synced).
 3. Double-click **`setup.bat`** in that folder. It installs NumPy (about 15 MB) into the folder itself, then says "Done".
 
@@ -25,18 +25,16 @@ No graphics-card software is needed: this model trains in seconds on the process
 4. Read the report. For example:
 
    ```
-   Words checked: 640 (85 you corrected)
-   Right with the engine alone:  560
-   Right with your model:        598
-   Engine mistakes it fixes:     45
-   Right words it makes wrong:   7
+   Words checked: 640
+     You corrected 85. The model gets 52 of them right (the engine alone: 9).
+     You left 555 as they were. The model would change 6 of them.
 
-   The model helps: 38 more words right out of 640 (45 fixed, 7 made wrong).
+   The model looks helpful: ...
    ```
 
-   Each word is judged by a model that was trained without it, so the numbers are fair. The report is also saved as `output\report.txt`. Send Claude the numbers (not the training file).
+   Only the words you corrected have a checked answer, so they're counted separately. Changes to words you left alone are counted as mistakes, to be safe. Each word is judged by a model that was trained without it, so the numbers are fair. The report is also saved as `output\report.txt`. Send Claude the numbers (not the training file).
 
-If it says **"Not enough data yet"**, keep using the app and correcting misread words (about 200 words read and 20 corrected are needed), then try again.
+If it says **"Not enough data yet"**, keep using the app and correcting misread words (about 200 words read and 20 corrected are needed), then try again. Only words read by app versions from this one on count (older ones didn't keep the engine's full list of readings).
 
 ## If something goes wrong
 

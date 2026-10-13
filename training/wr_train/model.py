@@ -26,7 +26,8 @@ class Example:
     options: list[str]  # as shown, best engine reading first
     features: np.ndarray  # one row per option
     truth: int  # index of the right option, -1 if none of them
-    engine: int  # index of the engine's first reading (always 0)
+    engine: int  # index of the engine's first reading, -1 if not an option
+    shown: int  # index of what the app showed (uncorrected words), or -1
     corrected: bool
     weight: float
 
@@ -40,9 +41,12 @@ class Memory:
         self.confusions = []  # (id, from, to, count)
         self.display = defaultdict(Counter)
         by_ink = {}
+        # Copies of the same ink (e.g. a PDF imported twice) share one id,
+        # so a copy can't give a word its own answer.
+        self.word_ids = []
         for i, w in enumerate(data.words):
-            wid = f"w{i}"
-            by_ink[json.dumps(w.strokes)] = wid
+            wid = by_ink.setdefault(json.dumps(w.strokes), f"w{i}")
+            self.word_ids.append(wid)
             self._add(wid, w.text, w.previous, w.strokes)
             if w.corrected and norm(w.engine) != norm(w.text):
                 self.confusions.append((wid, norm(w.engine), w.text, 1))
@@ -51,18 +55,18 @@ class Memory:
             cid = by_ink.get(json.dumps(c.strokes), f"c{j}")
             if cid.startswith("c"):
                 self._add(cid, c.corrected, c.previous, c.strokes)
-                self.confusions.append(
-                    (cid, norm(c.recognized), c.corrected, max(c.count, 1))
-                )
+                # One per row: the app's "count" is a running total.
+                self.confusions.append((cid, norm(c.recognized), c.corrected, 1))
         for k, s in enumerate(data.sample_words):
             self._add(f"s{k}", s.text, s.previous, s.strokes)
 
         self.ids = [e[0] for e in self.entries]
         vecs = [e[3] for e in self.entries]
         self.vectors = np.array(vecs) if vecs else np.zeros((0, 64))
-        self.by_text = defaultdict(list)
+        by_text = defaultdict(list)
         for n, e in enumerate(self.entries):
-            self.by_text[e[1]].append(n)
+            by_text[e[1]].append(n)
+        self.by_text = {t: np.array(i) for t, i in by_text.items()}
         self.word_counts = Counter(e[1] for e in self.entries)
         self.pair_counts = Counter((e[2], e[1]) for e in self.entries)
         self.confusion_counts = defaultdict(Counter)
@@ -86,7 +90,9 @@ class Memory:
         d = self.display.get(t)
         return d.most_common(1)[0][0] if d else t
 
-    def example(self, wid, strokes, engine_list, previous, truth, corrected):
+    def example(
+        self, wid, strokes, engine_list, previous, truth, corrected, shown=None
+    ):
         """The options and features for one word, leaving out [wid]'s own
         ink and corrections."""
         own_entries = {n for kind, n in self.own.get(wid, []) if kind == "entry"}
@@ -96,7 +102,8 @@ class Memory:
                 own_conf[(x[0], x[1])] += x[2]
         prev = norm(previous)
         v = shape_vector(strokes)
-
+        if v is None:
+            return None  # no ink to judge
         # Similarity of this ink to every stored ink, without its own.
         if v is not None and len(self.vectors):
             sims = self.vectors @ v
@@ -107,9 +114,9 @@ class Memory:
 
         def best_shape(t):
             idx = self.by_text.get(t)
-            if not idx:
+            if idx is None:
                 return None
-            s = max(sims[i] for i in idx)
+            s = sims[idx].max()
             return None if s == -np.inf else float(s)
 
         def count(t):
@@ -146,7 +153,9 @@ class Memory:
                 offer(self.shown(t))
         if len(sims) and v is not None:
             best = {}
-            for n in np.argsort(-sims)[: SHAPE_NEIGHBOURS * 10]:
+            near = min(SHAPE_NEIGHBOURS * 10, len(sims))
+            top_n = np.argpartition(-sims, near - 1)[:near]
+            for n in top_n[np.argsort(-sims[top_n])]:
                 if sims[n] == -np.inf:
                     break
                 t = self.entries[n][1]
@@ -180,23 +189,36 @@ class Memory:
         truth_index = next(
             (k for k, o in enumerate(options) if norm(o) == truth_norm), -1
         )
+        shown_norm = norm(truth if shown is None else shown)
         return Example(
             options=options,
             features=np.array(rows, dtype=float),
             truth=truth_index,
-            engine=0,
+            engine=next((k for k, o in enumerate(options) if norm(o) == top), -1),
+            shown=next(
+                (k for k, o in enumerate(options) if norm(o) == shown_norm), -1
+            ),
             corrected=corrected,
             weight=1.0 if corrected else UNCHECKED_WEIGHT,
         )
 
 
 def examples(data: TrainingData, memory: Memory | None = None) -> list[Example]:
+    """One example per word with the engine's whole list of readings (older
+    words, with a partial list, only add to the memory)."""
     memory = memory or Memory(data)
     out = []
     for i, w in enumerate(data.words):
-        engine_list = w.candidates or [w.engine]
+        if not w.complete or not w.candidates:
+            continue
         e = memory.example(
-            f"w{i}", w.strokes, engine_list, w.previous, w.text, w.corrected
+            memory.word_ids[i],
+            w.strokes,
+            w.candidates,
+            w.previous,
+            w.text,
+            w.corrected,
+            shown=w.text,
         )
         if e is not None:
             out.append(e)
@@ -250,13 +272,16 @@ def pick(e: Example, w: np.ndarray) -> int:
 
 @dataclass
 class Report:
+    """How the model does, in two groups: the words the user corrected
+    (their right answer is certain) and the words left as the app showed
+    them (probably right, but nobody checked)."""
+
     words: int = 0
     corrected: int = 0
-    engine_right: int = 0
-    model_right: int = 0
-    fixed: int = 0  # engine wrong, model right
-    broke: int = 0  # engine right, model wrong
-    corrected_fixed: int = 0  # of the words the user corrected
+    corrected_fixed: int = 0  # corrected words the model gets right
+    corrected_engine_right: int = 0  # ... the engine alone had right
+    unchecked: int = 0
+    unchecked_changed: int = 0  # left-as-shown words the model would change
 
     def as_dict(self):
         return dict(self.__dict__)
@@ -264,7 +289,9 @@ class Report:
 
 def cross_validate(exs: list[Example], folds=5, seed=7) -> Report:
     """Each word judged by weights trained without it."""
-    r = Report(words=len(exs), corrected=sum(e.corrected for e in exs))
+    r = Report(words=len(exs))
+    r.corrected = sum(e.corrected for e in exs)
+    r.unchecked = r.words - r.corrected
     if len(exs) < folds:
         return r
     order = np.random.default_rng(seed).permutation(len(exs))
@@ -273,13 +300,12 @@ def cross_validate(exs: list[Example], folds=5, seed=7) -> Report:
         w = train([e for k, e in enumerate(exs) if k not in test])
         for k in test:
             e = exs[k]
-            engine_ok = e.truth == e.engine
-            model_ok = e.truth >= 0 and pick(e, w) == e.truth
-            r.engine_right += engine_ok
-            r.model_right += model_ok
-            r.fixed += model_ok and not engine_ok
-            r.broke += engine_ok and not model_ok
-            r.corrected_fixed += e.corrected and model_ok and not engine_ok
+            choice = pick(e, w)
+            if e.corrected:
+                r.corrected_fixed += e.truth >= 0 and choice == e.truth
+                r.corrected_engine_right += e.truth >= 0 and e.engine == e.truth
+            else:
+                r.unchecked_changed += choice != e.shown
     return r
 
 
@@ -290,15 +316,18 @@ def verdict(r: Report) -> str:
             f"and {r.corrected} corrected ({MIN_CORRECTED} needed). Keep "
             "using the app and correcting misread words, then try again."
         )
-    gain = r.model_right - r.engine_right
-    if gain > 0:
+    if r.corrected_fixed > r.unchecked_changed:
         return (
-            f"The model helps: {gain} more words right out of {r.words} "
-            f"({r.fixed} fixed, {r.broke} made wrong)."
+            f"The model looks helpful: it gets {r.corrected_fixed} of the "
+            f"{r.corrected} words you corrected right, and would change "
+            f"{r.unchecked_changed} of the {r.unchecked} words you left as "
+            "they were (count those as mistakes to be safe)."
         )
     return (
-        f"The model doesn't help yet ({r.fixed} fixed, {r.broke} made wrong "
-        f"out of {r.words}). Don't use it; more corrections may change that."
+        f"The model doesn't help yet: it gets {r.corrected_fixed} of your "
+        f"{r.corrected} corrected words right but would change "
+        f"{r.unchecked_changed} words you left as they were. Don't use it; "
+        "more corrections may change that."
     )
 
 

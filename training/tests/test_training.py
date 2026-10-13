@@ -10,7 +10,7 @@ import zipfile
 import numpy as np
 
 from wr_train.data import DataError, load, parse
-from wr_train.features import length_ratio, norm, shape_vector
+from wr_train.features import length_fit, length_ratio, norm, shape_vector
 from wr_train.model import (
     Memory,
     cross_validate,
@@ -35,14 +35,19 @@ def ink(word, wobble=0.0, seed=0):
     return [pts]
 
 
-def word(text, engine, candidates, corrected=False, previous="", seed=0):
+def word(
+    text, engine, candidates, corrected=False, previous="", seed=0,
+    auto=False, complete=True, strokes=None,
+):
     return {
         "text": text,
         "engine": engine,
         "candidates": candidates,
+        "candidatesComplete": complete,
         "corrected": corrected,
+        "autoReplaced": auto,
         "previousWord": previous,
-        "strokes": ink(text, wobble=2.0, seed=seed),
+        "strokes": strokes or ink(text, wobble=2.0, seed=seed),
     }
 
 
@@ -81,6 +86,11 @@ class FeatureTests(unittest.TestCase):
             abs(length_ratio(ink("elephant"), "an") - right[0]), 1.0
         )
 
+    def test_length_numbers_stay_small_for_thin_ink(self):
+        l = [[[0, 0, 0, 0.5], [0, 100, 10, 0.5]]]  # a straight "l"
+        self.assertGreaterEqual(length_ratio(l, "l"), -3.0)
+        self.assertGreaterEqual(length_fit(l, "ll"), -9.0)
+
 
 class DataTests(unittest.TestCase):
     def test_reads_the_apps_zip(self):
@@ -100,15 +110,17 @@ class DataTests(unittest.TestCase):
 
 def misread_world(n=300):
     """The engine reads "the" as "teh" every time (and offers "the" second);
-    everything else it reads right. Some "teh"s were corrected."""
+    everything else it reads right. Half the "teh"s the user corrected; the
+    app already swapped the others (after earlier corrections)."""
     words, rng = [], np.random.default_rng(1)
     vocab = ["cat", "dog", "house", "tree", "river", "apple", "chair"]
     for i in range(n):
         if i % 4 == 0:
+            fixed_by_user = i % 8 == 0
             words.append(
                 word(
                     "the", "teh", ["teh", "the", "ten"],
-                    corrected=i % 8 == 0, seed=i,
+                    corrected=fixed_by_user, auto=not fixed_by_user, seed=i,
                 )
             )
         else:
@@ -130,11 +142,49 @@ class ModelTests(unittest.TestCase):
         exs = examples(data, Memory(data))
         report = cross_validate(exs)
         self.assertEqual(report.words, 300)
-        # The engine gets every "the" wrong (75 of 300).
-        self.assertEqual(report.engine_right, 225)
-        self.assertGreater(report.fixed, 60)
-        self.assertLess(report.broke, 5)
-        self.assertIn("helps", verdict(report))
+        # 38 "the"s corrected by the user; the engine had none of them.
+        self.assertEqual(report.corrected, 38)
+        self.assertEqual(report.corrected_engine_right, 0)
+        self.assertGreater(report.corrected_fixed, 30)
+        # Words left as shown (including the app's own swaps) stay.
+        self.assertLess(report.unchecked_changed, 5)
+        self.assertIn("helpful", verdict(report))
+
+    def test_older_words_without_the_whole_list_are_not_examples(self):
+        data = parse(
+            doc(
+                [
+                    word("cat", "cat", ["cat"], seed=1),
+                    word("cat", "cat", ["cat"], seed=2, complete=False),
+                ]
+            )
+        )
+        self.assertEqual(len(examples(data)), 1)
+
+    def test_copies_of_the_same_ink_dont_give_away_the_answer(self):
+        same = ink("zebra", wobble=1.0, seed=3)
+        data = parse(
+            doc(
+                [
+                    word("zebra", "zebra", ["zebra"], strokes=same),
+                    word("zebra", "zebra", ["zebra"], strokes=same),
+                ]
+            )
+        )
+        for e in examples(data):
+            self.assertEqual(e.features[0][5], 0.0, "no shape match to itself")
+
+    def test_corrections_count_once_each(self):
+        c = {
+            "recognized": "teh", "corrected": "the", "previousWord": "",
+            "strokes": ink("the", seed=9), "count": 3,
+        }
+        data = parse(
+            doc([word("the", "teh", ["teh", "the"], seed=1)], corrections=[c])
+        )
+        ex = examples(data)[0]
+        the = [norm(o) for o in ex.options].index("the")
+        self.assertAlmostEqual(ex.features[the][4], math.log(2))
 
     def test_too_little_data_says_so(self):
         data = misread_world(40)

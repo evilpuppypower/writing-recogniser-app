@@ -23,6 +23,10 @@ class Word:
     previous: str
     strokes: Strokes
     document: int | None = None
+    auto_replaced: bool = False
+    # Whether [candidates] is the engine's whole list (words saved before
+    # the app kept it have a partial one, so they can't be examples).
+    complete: bool = True
 
 
 @dataclass
@@ -82,6 +86,8 @@ def parse(doc: dict) -> TrainingData:
                 previous=w.get("previousWord", ""),
                 strokes=w["strokes"],
                 document=w.get("document"),
+                auto_replaced=bool(w.get("autoReplaced")),
+                complete=bool(w.get("candidatesComplete", True)),
             )
         )
     for c in doc.get("corrections", []):
