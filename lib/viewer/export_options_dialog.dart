@@ -9,11 +9,20 @@ class ExportChoice {
     required this.searchable,
     this.pages,
     this.handwriting = ExportHandwriting.ink,
+    this.convertRest = false,
+    this.askedConvertRest = false,
   });
 
-  /// Handwriting, typed text or both (task 2.3d; only asked when some
-  /// handwriting has been converted).
+  /// Handwriting, typed text or both (task 2.3d).
   final ExportHandwriting handwriting;
+
+  /// For typed text: also convert the handwriting not converted yet, in the
+  /// exported copy only (task 1.4, owner's choice 1b).
+  final bool convertRest;
+
+  /// Whether the "Also convert" tick was shown (so its choice is
+  /// remembered for next time).
+  final bool askedConvertRest;
 
   /// Add the recognised handwriting as invisible, searchable text.
   final bool searchable;
@@ -26,30 +35,49 @@ class ExportChoice {
 /// Asks how to export: searchable handwriting text on (owner: the default)
 /// or off, and all pages or only some (only those go in the new PDF).
 /// Null if cancelled.
+///
+/// How handwriting goes in (ink, typed text or both) is asked when there is
+/// any: [anyConverted] (some was converted to typed text) or
+/// [anyUnconverted] (some wasn't, and could be at export). It starts on
+/// [startWith] (what's on screen).
 Future<ExportChoice?> showExportOptions(
   BuildContext context, {
   required int pageCount,
   required bool share,
-  ExportHandwriting? typed,
+  ExportHandwriting startWith = ExportHandwriting.ink,
+  bool anyConverted = false,
+  bool anyUnconverted = false,
+  bool? convertRest,
 }) => showDialog<ExportChoice>(
   context: context,
-  builder: (_) =>
-      _ExportOptionsDialog(pageCount: pageCount, share: share, typed: typed),
+  builder: (_) => _ExportOptionsDialog(
+    pageCount: pageCount,
+    share: share,
+    startWith: startWith,
+    anyConverted: anyConverted,
+    anyUnconverted: anyUnconverted,
+    convertRest: convertRest,
+  ),
 );
 
 class _ExportOptionsDialog extends StatefulWidget {
   const _ExportOptionsDialog({
     required this.pageCount,
     required this.share,
-    this.typed,
+    required this.startWith,
+    required this.anyConverted,
+    required this.anyUnconverted,
+    this.convertRest,
   });
 
   final int pageCount;
   final bool share;
+  final ExportHandwriting startWith;
+  final bool anyConverted;
+  final bool anyUnconverted;
 
-  /// Null when nothing has been converted to typed text; otherwise the
-  /// choice to start with (what's on screen).
-  final ExportHandwriting? typed;
+  /// The "Also convert" tick as last chosen (null: not chosen yet).
+  final bool? convertRest;
 
   @override
   State<_ExportOptionsDialog> createState() => _ExportOptionsDialogState();
@@ -57,7 +85,11 @@ class _ExportOptionsDialog extends StatefulWidget {
 
 class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
   bool _searchable = true;
-  late ExportHandwriting _handwriting = widget.typed ?? ExportHandwriting.ink;
+  late ExportHandwriting _handwriting = widget.startWith;
+
+  /// As last chosen (owner); before that, ticked when nothing is converted
+  /// yet (typed text would be empty otherwise).
+  late bool _convertRest = widget.convertRest ?? !widget.anyConverted;
   bool _allPages = true;
   final _pages = TextEditingController();
   String? _error;
@@ -97,6 +129,12 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
         searchable: _searchable,
         pages: pages,
         handwriting: _handwriting,
+        convertRest:
+            _handwriting != ExportHandwriting.ink &&
+            widget.anyUnconverted &&
+            _convertRest,
+        askedConvertRest:
+            _handwriting != ExportHandwriting.ink && widget.anyUnconverted,
       ),
     );
   }
@@ -120,10 +158,10 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
               value: _searchable,
               onChanged: (v) => setState(() => _searchable = v),
             ),
-            if (widget.typed != null) ...[
+            if (widget.anyConverted || widget.anyUnconverted) ...[
               const SizedBox(height: 8),
               Text(
-                'Converted handwriting',
+                'Handwriting',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
               RadioGroup<ExportHandwriting>(
@@ -141,6 +179,21 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
                   ],
                 ),
               ),
+              if (_handwriting != ExportHandwriting.ink &&
+                  widget.anyUnconverted)
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text(
+                    "Also convert handwriting I haven't converted",
+                  ),
+                  subtitle: const Text(
+                    'Only in the exported copy: your handwriting in the app '
+                    'stays as it is.',
+                  ),
+                  value: _convertRest,
+                  onChanged: (v) => setState(() => _convertRest = v ?? false),
+                ),
             ],
             const SizedBox(height: 8),
             Text('Pages', style: Theme.of(context).textTheme.titleSmall),

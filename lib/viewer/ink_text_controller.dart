@@ -13,6 +13,7 @@ import '../core/page_ink.dart';
 import '../core/page_recognition.dart';
 import '../core/recognition/recognizer.dart';
 import '../core/stroke_grouping.dart';
+import '../core/typed_text.dart';
 
 /// A recognised handwritten word on a page.
 class RecognizedWord {
@@ -582,4 +583,30 @@ Map<Set<String>, String> typedTextByLine(List<RecognizedWord> words) {
           .map((w) => w.text.trim())
           .join(' '),
   };
+}
+
+/// A copy of [ink] with the handwriting on [pages] that isn't converted
+/// yet converted too, from the words read there ([wordsOn]), one piece per
+/// line (owner's choice 1b: "Also convert handwriting I haven't converted"
+/// at export). [ink] itself is left as it is.
+DocumentInk inkWithRestConverted(
+  DocumentInk ink,
+  Iterable<int> pages,
+  List<RecognizedWord> Function(int page) wordsOn,
+) {
+  final copy = DocumentInk();
+  for (final p in ink.pagesWithInk) {
+    copy.setPage(p, ink.strokesOn(p));
+  }
+  for (final p in pages) {
+    final done = convertedStrokeIds(ink.strokesOn(p));
+    copy.convert(
+      p,
+      typedTextByLine([
+        for (final w in wordsOn(p))
+          if (!mostlyConverted(w.key, done)) w,
+      ]),
+    );
+  }
+  return copy;
 }

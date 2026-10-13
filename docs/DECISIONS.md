@@ -418,3 +418,7 @@ Reopening a PDF used to read all its handwriting again, which is slow, uses batt
 ## 2026-10-13 — Correcting a word: typing is enough (owner's choice 2b)
 
 The correction pop-up keeps offering the other readings and typing. There is no "write it again" box: to change a handwritten word, the user erases it on the page and writes it again, and the new writing is read as usual.
+
+## 2026-10-13 — Export can convert the rest of the handwriting (task 1.4, owner's choice 1b)
+
+The export dialog now asks how handwriting goes in (my handwriting, typed text, or both) whenever the PDF has any handwriting, not only when some was converted. With typed text or both, and handwriting that isn't converted yet, a tick box offers "Also convert handwriting I haven't converted". It remembers the last choice (owner, 2026-10-13); before the first choice it starts ticked when nothing is converted yet (typed text would otherwise be empty) and unticked otherwise. The conversion is made in the exported copy only, one piece per line like converting on the page; the handwriting in the app stays as it is, and words converted earlier (and perhaps edited) are kept as they are.

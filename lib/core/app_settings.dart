@@ -93,6 +93,15 @@ enum WritingGuide {
   final int colorArgb;
 }
 
+/// "Also convert handwriting I haven't converted" at export (owner's
+/// choice 1b): remembered from the last export once it has been chosen.
+enum ExportConvertRest {
+  /// Not chosen yet: ticked when nothing is converted, unticked otherwise.
+  auto,
+  on,
+  off,
+}
+
 class AppSettings {
   const AppSettings({
     this.appColour = AppColour.system,
@@ -112,6 +121,7 @@ class AppSettings {
     this.textLabels = TextLabelPlace.above,
     this.textPanel = TextPanelPlace.off,
     this.writingGuide = WritingGuide.grey,
+    this.exportConvertRest = ExportConvertRest.auto,
   });
 
   static const minWritingBoxPercent = 40;
@@ -208,6 +218,9 @@ class AppSettings {
   /// The guide line under the line being written, or off.
   final WritingGuide writingGuide;
 
+  /// The export dialog's "Also convert" tick, as last chosen.
+  final ExportConvertRest exportConvertRest;
+
   AppSettings copyWith({
     AppColour? appColour,
     ScrollTabIdle? scrollTabIdle,
@@ -226,6 +239,7 @@ class AppSettings {
     TextLabelPlace? textLabels,
     TextPanelPlace? textPanel,
     WritingGuide? writingGuide,
+    ExportConvertRest? exportConvertRest,
   }) => AppSettings(
     appColour: appColour ?? this.appColour,
     scrollTabIdle: scrollTabIdle ?? this.scrollTabIdle,
@@ -258,6 +272,7 @@ class AppSettings {
     textLabels: textLabels ?? this.textLabels,
     textPanel: textPanel ?? this.textPanel,
     writingGuide: writingGuide ?? this.writingGuide,
+    exportConvertRest: exportConvertRest ?? this.exportConvertRest,
   );
 
   Map<String, Object> toMap() => {
@@ -278,6 +293,7 @@ class AppSettings {
     'textLabels': textLabels.name,
     'textPanel': textPanel.name,
     'writingGuide': writingGuide.name,
+    'exportConvertRest': exportConvertRest.name,
   };
 
   /// Reads settings saved by [toMap] (or by older versions, see
@@ -353,6 +369,11 @@ class AppSettings {
         m['writingGuide'],
         d.writingGuide,
       ),
+      exportConvertRest: byName(
+        ExportConvertRest.values,
+        m['exportConvertRest'],
+        d.exportConvertRest,
+      ),
     );
   }
 
@@ -375,7 +396,8 @@ class AppSettings {
       other.keepInkOnDelete == keepInkOnDelete &&
       other.textLabels == textLabels &&
       other.textPanel == textPanel &&
-      other.writingGuide == writingGuide;
+      other.writingGuide == writingGuide &&
+      other.exportConvertRest == exportConvertRest;
 
   @override
   int get hashCode => Object.hash(
@@ -396,5 +418,6 @@ class AppSettings {
     textLabels,
     textPanel,
     writingGuide,
+    exportConvertRest,
   );
 }
