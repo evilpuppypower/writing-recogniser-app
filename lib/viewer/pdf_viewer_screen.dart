@@ -1302,19 +1302,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     icon: const Icon(Icons.keyboard),
                     onPressed: _convertPage,
                   ),
-                  if (_hasTyped)
-                    ValueListenableBuilder(
-                      valueListenable: _showTyped,
-                      builder: (context, typed, _) => IconButton(
-                        tooltip: typed
-                            ? 'Showing typed text. Tap to show your handwriting'
-                            : 'Showing your handwriting. Tap to show typed '
-                                  'text',
-                        isSelected: typed,
-                        icon: Icon(typed ? Icons.text_snippet : Icons.gesture),
-                        onPressed: () => _showTyped.value = !typed,
-                      ),
-                    ),
+                  if (_hasTyped) TypedSwitchButton(showTyped: _showTyped),
                   Builder(
                     builder: (context) {
                       final s = SettingsScope.valueOf(context);
@@ -1618,6 +1606,29 @@ class _StillOpeningChip extends StatelessWidget {
           const SizedBox(width: 8),
           TextButton(onPressed: onCancel, child: const Text('Cancel')),
         ],
+      ),
+    ),
+  );
+}
+
+/// Switches between typed text and the handwriting it came from, saying
+/// in words which is showing (owner's choice G1).
+class TypedSwitchButton extends StatelessWidget {
+  const TypedSwitchButton({super.key, required this.showTyped});
+
+  final ValueNotifier<bool> showTyped;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder(
+    valueListenable: showTyped,
+    builder: (context, typed, _) => Tooltip(
+      message: typed
+          ? 'Tap to show your handwriting instead'
+          : 'Tap to show the typed text instead',
+      child: TextButton.icon(
+        icon: Icon(typed ? Icons.text_snippet : Icons.gesture),
+        label: Text(typed ? 'Showing typed text' : 'Showing handwriting'),
+        onPressed: () => showTyped.value = !typed,
       ),
     ),
   );
