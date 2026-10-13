@@ -397,3 +397,7 @@ While writing with the pen, a faint line fades in under the line being written a
 ## 2026-10-13 — Page choice in the export dialog is forgiving and says what it will do (owner's test: "1-3" gave only page 3)
 
 The PDF writer was checked again with exactly that case (pages 1–3 of 5, ink and text on each) and gives pages 1, 2 and 3, so the cause wasn't found in the code. To rule out typing problems and make any wrong result obvious: page ranges now accept any kind of dash a keyboard offers (hyphen, en/em dash, minus sign, and others), spaces around the dash, and "to" ("1 to 3"); the dialog shows, as you type, which pages will go in ("Exports pages 1–3 (3 of 5)"); and the "Saved" message says how many pages the new PDF has.
+
+## 2026-10-13 — When PDFium can't save an export (owner's test: "couldn't save" again)
+
+The error gave no reason, so the cause couldn't be told. Now, if PDFium's usual save fails, the export tries once more as a fresh, non-incremental file (some PDFs only save that way). If that fails too, the message says what is known: the tablet ran out of memory (with a hint to export fewer pages), PDFium's error number, or that writing failed, plus the page count. Nothing about the document's content goes in the message.
