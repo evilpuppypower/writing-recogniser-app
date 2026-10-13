@@ -149,6 +149,60 @@ void main() {
     d.dispose();
   });
 
+  testWidgets('saved words are checked against the ink when reopened', (
+    tester,
+  ) async {
+    // Read once and saved.
+    final engine = FakeEngine();
+    final c = InkTextController(engine: engine);
+    final page = [...word(100, 700, 3, 0), ...word(135, 700, 2, 1000)];
+    c.inkChanged(1, page, pause);
+    c.inkChanged(2, page, pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    final saved1 = c.pageJson(1)!, saved2 = c.pageJson(2)!;
+    c.dispose();
+
+    // Then a word was added on page 1 and page 2 was rubbed out, and the
+    // PDF closed before the pause ended (so the saved words are older).
+    final again = FakeEngine();
+    final d = InkTextController(engine: again);
+    final changes = <int>[];
+    d.onWordsChanged = changes.add;
+    d.restore(1, saved1);
+    d.restore(2, saved2);
+    expect(d.upToDate(1, page), isTrue);
+    d.ensure(1, [...page, ...word(100, 650, 2, 9000)]);
+    d.ensure(2, const []);
+    await tester.pumpAndSettle();
+    expect(again.calls, hasLength(1), reason: 'only the new word is read');
+    expect(d.textOf(1), 'w3 w2\nw2');
+    expect(d.wordsOn(2), isEmpty, reason: 'no labels on a blank page');
+    expect(d.pageJson(2), isNull, reason: 'its saved text is removed');
+    expect(changes, containsAll([1, 2]));
+    d.dispose();
+  });
+
+  testWidgets('erased words go even when the engine isn\'t ready', (
+    tester,
+  ) async {
+    final c = InkTextController(engine: FakeEngine());
+    final page = [...word(100, 700, 3, 0), ...word(135, 700, 2, 1000)];
+    c.inkChanged(1, page, pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    final saved = c.pageJson(1)!;
+    c.dispose();
+
+    final d = InkTextController(engine: FakeEngine(ready: false));
+    d.restore(1, saved);
+    final words = await tester.runAsync(
+      () => d.readNow(1, page.sublist(0, 3)),
+    );
+    expect(words!.map((w) => w.text), ['w3'], reason: 'w2 was rubbed out');
+    d.dispose();
+  });
+
   testWidgets('unreadable saved text is simply read again', (tester) async {
     final engine = FakeEngine();
     final c = InkTextController(engine: engine);

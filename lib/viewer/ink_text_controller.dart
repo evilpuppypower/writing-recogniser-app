@@ -290,29 +290,50 @@ class InkTextController extends ChangeNotifier {
 
   /// Puts back [page]'s words saved earlier ([pageJson]), before its ink is
   /// looked at, so only new or changed handwriting is read again (owner's
-  /// report: reopening a PDF read everything again). Unreadable saved text
-  /// is ignored: the page is simply read again.
+  /// report: reopening a PDF read everything again). [ensure] still checks
+  /// them against the ink (see [upToDate]). Unreadable saved text is
+  /// ignored: the page is simply read again.
   void restore(int page, String json) {
     try {
-      final list = jsonDecode(json) as List;
+      final saved = (jsonDecode(json) as Map).cast<String, Object?>();
       final words = {
-        for (final w in list)
+        for (final w in saved['words']! as List)
           if (RecognizedWord.fromJson((w as Map).cast<String, Object?>())
               case final word when word.key.isNotEmpty)
             word.key: word,
       };
+      final seen = {for (final id in saved['seen'] as List? ?? const []) '$id'};
       _words[page] = words;
+      _seen[page] = seen;
       _notify();
     } catch (_) {
       // Read again instead.
     }
   }
 
-  /// [page]'s words as JSON, to save; null when it has none.
+  /// [page]'s words as JSON, to save, with the strokes they were read from;
+  /// null when there is nothing to keep.
   String? pageJson(int page) {
-    final words = _words[page];
-    if (words == null || words.isEmpty) return null;
-    return jsonEncode([for (final w in words.values) w.toJson()]);
+    final words = _words[page] ?? const {};
+    final seen = _seen[page] ?? const <String>{};
+    if (words.isEmpty && seen.isEmpty) return null;
+    return jsonEncode({
+      'seen': seen.toList(),
+      'words': [for (final w in words.values) w.toJson()],
+    });
+  }
+
+  /// The stroke ids of each page when it was last read in full, to tell
+  /// whether its words still match its ink.
+  final _seen = <int, Set<String>>{};
+
+  /// Whether [page]'s words were read from exactly these [strokes] (so
+  /// there's nothing new to read or to drop).
+  bool upToDate(int page, List<PageStroke> strokes) {
+    final seen = _seen[page];
+    return seen != null &&
+        seen.length == strokes.length &&
+        strokes.every((s) => seen.contains(s.id));
   }
 
   void _wordsChanged(int page) {
@@ -350,8 +371,11 @@ class InkTextController extends ChangeNotifier {
   /// Recognises [page] straight away if it has ink that hasn't been
   /// recognised yet (e.g. ink saved earlier, when the page is first shown).
   void ensure(int page, List<PageStroke> strokes) {
-    if (_words.containsKey(page) || _pending.containsKey(page)) return;
-    if (!strokes.any(isWriting)) return;
+    if (_pending.containsKey(page)) return;
+    // Read already (this time, or saved from before): only if the ink has
+    // changed since, e.g. the PDF closed before a pause ended.
+    if (_words.containsKey(page) && upToDate(page, strokes)) return;
+    if (!strokes.any(isWriting) && (_words[page]?.isEmpty ?? true)) return;
     _pending[page] = strokes;
     _run(page);
   }
@@ -408,9 +432,25 @@ class InkTextController extends ChangeNotifier {
       return;
     }
     final strokes = _pending.remove(page);
-    if (strokes == null || !await _isReady() || _disposed) return;
+    if (strokes == null) return;
+    // Words whose strokes are gone (erased) go at once, even if the engine
+    // isn't ready to read anything new.
+    final ids = {for (final s in strokes) s.id};
+    final current = _words[page];
+    if (current != null) {
+      final before = current.length;
+      current.removeWhere(
+        (k, _) => k.split(',').any((id) => !ids.contains(id)),
+      );
+      if (current.length != before) {
+        _notify();
+        _wordsChanged(page);
+      }
+    }
+    if (!await _isReady() || _disposed) return;
     _running.add(page);
     var dirty = false;
+    var complete = true; // every word was read (none failed)
     try {
       final words = _words.putIfAbsent(page, () => {});
       final known = {for (final e in words.entries) e.key: e.value.text};
@@ -459,6 +499,7 @@ class InkTextController extends ChangeNotifier {
             ),
           );
         } on RecognitionException catch (e) {
+          complete = false;
           problem = e.message;
           _notify();
           continue;
@@ -525,6 +566,11 @@ class InkTextController extends ChangeNotifier {
       }
     } finally {
       _running.remove(page);
+      if (complete && !_disposed) {
+        final seen = {for (final s in strokes) s.id};
+        if (!setEquals(seen, _seen[page])) dirty = true;
+        _seen[page] = seen;
+      }
       if (dirty) _wordsChanged(page);
       if (_again.remove(page) && !_disposed) unawaited(_run(page));
     }
@@ -603,8 +649,10 @@ DocumentInk inkWithRestConverted(
     copy.convert(
       p,
       typedTextByLine([
+        // A word with any converted stroke is left as it is: converting
+        // the rest of it would repeat the converted part's text.
         for (final w in wordsOn(p))
-          if (!mostlyConverted(w.key, done)) w,
+          if (!w.key.split(',').any(done.contains)) w,
       ]),
     );
   }

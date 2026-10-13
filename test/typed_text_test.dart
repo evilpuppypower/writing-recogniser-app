@@ -198,6 +198,18 @@ void main() {
         'dog',
       ], reason: 'the edited word kept');
       expect(typedWords(ink.strokesOn(1)).single.text, 'cart');
+      // A word with a stroke added to a converted one isn't converted
+      // again (its text would repeat).
+      final extra = letter(154, 700, 1400);
+      ink.add(1, extra);
+      final grown = inkWithRestConverted(
+        ink,
+        [1],
+        (_) => [
+          w('carts', [...cat, extra], 0, 140),
+        ],
+      );
+      expect(typedLines(grown.strokesOn(1)).single.text, 'cart');
       // Pages not chosen are left as they are.
       expect(
         typedWords(inkWithRestConverted(ink, [], (_) => read).strokesOn(1)),
