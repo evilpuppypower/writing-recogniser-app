@@ -80,8 +80,20 @@ class PageTextLabels extends StatefulWidget {
   }
 }
 
+/// A label's text size (pixels) for a word [heightPt] points tall shown at
+/// [pxPerPt]: about half the word's height, so it grows and shrinks with
+/// the handwriting when zooming (owner's test feedback: no upper limit),
+/// but never too small to read.
+double labelFontSize(double heightPt, double pxPerPt) {
+  final size = heightPt * pxPerPt * 0.45;
+  return size < minLabelFontSize ? minLabelFontSize : size;
+}
+
+/// Labels are never smaller than this (pixels).
+const minLabelFontSize = 9.0;
+
 /// Where a word's label goes (top-left, in the page's pixels) and its text
-/// size, which follows the zoom: about half a letter high.
+/// size (see [labelFontSize]).
 ({Offset topLeft, double fontSize}) _labelLayout(
   RecognizedWord w,
   PageGeometry g,
@@ -98,7 +110,7 @@ class PageTextLabels extends StatefulWidget {
     viewWidth,
   );
   final pxPerPt = viewWidth / g.displayWidth;
-  final size = (w.box.height * pxPerPt * 0.45).clamp(9.0, 22.0);
+  final size = labelFontSize(w.box.height, pxPerPt);
   return (
     topLeft: above
         ? Offset(r.left, r.top - size * 1.15 - 3)
