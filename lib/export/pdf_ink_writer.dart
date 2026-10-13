@@ -207,15 +207,28 @@ void _addWord(
 /// Bytes written by PDFium while saving (one save at a time per isolate).
 BytesBuilder? _saving;
 
+/// What went wrong taking the bytes PDFium wrote, if anything (PDFium
+/// itself only learns that the write failed).
+Object? _writeError;
+
 int _writeBlock(
   Pointer<pdfium.FPDF_FILEWRITE> self,
   Pointer<Void> data,
   int size,
 ) {
-  _saving!.add(data.cast<Uint8>().asTypedList(size));
-  return 1;
+  try {
+    _saving!.add(data.cast<Uint8>().asTypedList(size));
+    return 1;
+  } catch (e) {
+    _writeError = e;
+    return 0;
+  }
 }
 
+/// Saves [doc]. If PDFium's usual save fails, tries again as a fresh,
+/// non-incremental file (some PDFs only save that way); if that fails too,
+/// says why as far as it can be told (owner's test: "couldn't save" came
+/// back with no reason).
 Uint8List _save(pdfium.PDFium lib, pdfium.FPDF_DOCUMENT doc) {
   final callback =
       NativeCallable<
@@ -226,17 +239,48 @@ Uint8List _save(pdfium.PDFium lib, pdfium.FPDF_DOCUMENT doc) {
         )
       >.isolateLocal(_writeBlock, exceptionalReturn: 0);
   final writer = calloc<pdfium.FPDF_FILEWRITE>();
-  _saving = BytesBuilder(copy: true);
   try {
     writer.ref.version = 1;
     writer.ref.WriteBlock = callback.nativeFunction;
-    if (lib.FPDF_SaveAsCopy(doc, writer, 0) == 0) {
-      throw const PdfExportException("PDFium couldn't save the exported PDF.");
+    Object? writeError;
+    for (final flags in const [0, pdfium.FPDF_NO_INCREMENTAL]) {
+      _saving = BytesBuilder(copy: true);
+      _writeError = null;
+      if (lib.FPDF_SaveAsCopy(doc, writer, flags) != 0 && _writeError == null) {
+        return _saving!.takeBytes();
+      }
+      writeError ??= _writeError;
+      _saving = null; // let a failed attempt's bytes go before retrying
     }
-    return _saving!.takeBytes();
+    throw PdfExportException(
+      saveFailureMessage(
+        writeError: writeError,
+        pdfiumError: lib.FPDF_GetLastError(),
+        pages: lib.FPDF_GetPageCount(doc),
+      ),
+    );
   } finally {
     _saving = null;
+    _writeError = null;
     calloc.free(writer);
     callback.close();
   }
+}
+
+/// The message for a PDF that couldn't be saved, with what is known about
+/// why (nothing about the document's content).
+String saveFailureMessage({
+  Object? writeError,
+  int pdfiumError = 0,
+  int pages = 0,
+}) {
+  final why = switch (writeError) {
+    OutOfMemoryError() =>
+      'the tablet ran out of memory for the new PDF. Try exporting fewer '
+          'pages at a time.',
+    null when pdfiumError != 0 => 'PDFium error $pdfiumError.',
+    null => 'PDFium gave no reason.',
+    _ => 'writing it failed (${writeError.runtimeType}).',
+  };
+  return "PDFium couldn't save the exported PDF ($pages pages): $why";
 }
