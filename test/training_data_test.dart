@@ -99,18 +99,23 @@ void main() {
   });
 
   test('version 2: every word read on PDF pages, and samples as words', () {
-    RecognizedWord w(String text, {String? engine, bool corrected = false}) =>
-        RecognizedWord(
-          text: text,
-          alternatives: ['alt'],
-          box: const InkBox(0, 0, 10, 10),
-          line: 0,
-          key: 'k$text',
-          engineText: engine,
-          corrected: corrected,
-          previousWord: 'the',
-          ink: ink,
-        );
+    RecognizedWord w(
+      String text, {
+      String? engine,
+      bool corrected = false,
+      List<String>? readings,
+    }) => RecognizedWord(
+      text: text,
+      alternatives: ['alt'],
+      box: const InkBox(0, 0, 10, 10),
+      line: 0,
+      key: 'k$text',
+      engineText: engine,
+      corrected: corrected,
+      previousWord: 'the',
+      ink: ink,
+      engineReadings: readings,
+    );
     // Saved as the app saves a page (checked against the controller).
     final c = InkTextController(engine: _NoEngine());
     c.restore(
@@ -118,6 +123,12 @@ void main() {
       jsonEncode({
         'seen': ['a'],
         'words': [
+          w(
+            'car',
+            engine: 'cat',
+            corrected: true,
+            readings: ['cat', 'car'],
+          ).toJson(),
           w('cat').toJson(),
           w('dog', engine: 'dag', corrected: true).toJson(),
         ],
@@ -153,12 +164,16 @@ void main() {
     );
     expect(doc['version'], 2);
     final words = (doc['words'] as List).cast<Map<String, dynamic>>();
-    expect(words.map((x) => x['text']), ['cat', 'dog']);
-    expect(words.first['corrected'], isFalse);
-    expect(words.first['candidates'], ['cat', 'alt']);
+    expect(words.map((x) => x['text']), ['car', 'cat', 'dog']);
+    // The engine's own list: the corrected word is in it.
+    expect(words.first['candidates'], ['cat', 'car']);
+    expect(words.first['candidatesComplete'], isTrue);
+    expect(words[1]['corrected'], isFalse);
+    expect(words[1]['candidates'], ['cat', 'alt']);
     expect(words.last['engine'], 'dag');
     expect(words.last['corrected'], isTrue);
     expect(words.last['candidates'], ['dag', 'alt']);
+    expect(words.last['candidatesComplete'], isFalse, reason: 'older word');
     expect(words.last['previousWord'], 'the');
     expect(words.last['strokes'], hasLength(1));
     // The same PDF number as its corrections, and no names.

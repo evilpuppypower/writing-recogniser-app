@@ -28,6 +28,7 @@ class RecognizedWord {
     this.corrected = false,
     this.previousWord = '',
     this.ink = const [],
+    this.engineReadings,
   });
 
   final String text;
@@ -61,6 +62,11 @@ class RecognizedWord {
   /// The word's ink as sent to the engine (kept with corrections, rule 4).
   final List<InkStroke> ink;
 
+  /// What the engine itself offered, best first, before the feedback layer
+  /// and never changed by corrections (for training a model to pick among
+  /// them, task 4.2). Null for words saved before this was kept.
+  final List<String>? engineReadings;
+
   String get engineReading => engineText ?? text;
 
   /// Saved with the ink (see [InkTextController.restore]).
@@ -75,6 +81,7 @@ class RecognizedWord {
     if (corrected) 'corrected': true,
     if (previousWord.isNotEmpty) 'prev': previousWord,
     'ink': [for (final s in ink) s.toJson()],
+    'readings': ?engineReadings,
   };
 
   factory RecognizedWord.fromJson(Map<String, Object?> j) {
@@ -93,6 +100,10 @@ class RecognizedWord {
         for (final s in j['ink'] as List? ?? const [])
           InkStroke.fromJson(s as List),
       ],
+      engineReadings: switch (j['readings']) {
+        final List r => [for (final x in r) '$x'],
+        _ => null,
+      },
     );
   }
 
@@ -113,6 +124,7 @@ class RecognizedWord {
     corrected: corrected ?? this.corrected,
     previousWord: previousWord,
     ink: ink,
+    engineReadings: engineReadings,
   );
 }
 
@@ -524,6 +536,7 @@ class InkTextController extends ChangeNotifier {
           line: job.line,
           key: job.key,
           engineText: engineTexts.first,
+          engineReadings: engineTexts,
           autoReplaced: fed.autoReplaced,
           previousWord: previous,
           ink: ink,
