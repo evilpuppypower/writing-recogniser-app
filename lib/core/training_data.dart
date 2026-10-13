@@ -71,9 +71,12 @@ List<int> encodeTrainingData({
       'words':
           'Every word read on PDF pages, as last saved: "text" is what it '
           'shows now, "engine" what the recognizer read, "candidates" the '
-          'recognizer\'s readings, best first. "corrected" means the user '
-          'fixed it (so "text" is certain); otherwise the user left it as '
-          'read (usually right, but not checked). Ink as for corrections.',
+          'recognizer\'s readings, best first (complete only when '
+          '"candidatesComplete"; older words have a partial list). '
+          '"corrected" means the user fixed it (so "text" is certain); '
+          'otherwise the user left it as shown (usually right, but not '
+          'checked; "autoReplaced" means the app swapped the engine\'s word '
+          'for an earlier correction). Ink as for corrections.',
       'sampleWords':
           'The samples split into words the way PDF pages are, with the '
           'word written; samples whose ink split into a different number '
@@ -132,13 +135,19 @@ List<Map<String, Object?>> _pageWords(SavedPageText page, int? document) {
           () {
             final text = w['text'] as String;
             final engine = w['engine'] as String? ?? text;
+            final readings = w['readings'];
             return <String, Object?>{
               'text': text,
               'engine': engine,
-              'candidates': {
-                engine,
-                for (final a in w['alt'] as List? ?? const []) '$a',
-              }.toList(),
+              // The engine's own list, best first; words saved before it was
+              // kept only have a partial one (corrections changed it).
+              'candidates': readings is List
+                  ? [for (final r in readings) '$r']
+                  : {
+                      engine,
+                      for (final a in w['alt'] as List? ?? const []) '$a',
+                    }.toList(),
+              'candidatesComplete': readings is List,
               'corrected': w['corrected'] == true,
               'autoReplaced': w['auto'] == true,
               'previousWord': w['prev'] as String? ?? '',

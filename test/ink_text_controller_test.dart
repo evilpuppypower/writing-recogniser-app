@@ -133,6 +133,8 @@ void main() {
     expect(d.wordsOn(1).map((w) => w.text), ['cat', 'w2']);
     final cat = d.wordsOn(1).first;
     expect(cat.corrected, isTrue);
+    // The engine's own readings are kept, untouched by the correction.
+    expect(cat.engineReadings, ['w3', 'alt']);
     expect(cat.engineReading, 'w3');
     expect(cat.ink, hasLength(3), reason: 'its strokes, for corrections');
     d.ensure(1, page);

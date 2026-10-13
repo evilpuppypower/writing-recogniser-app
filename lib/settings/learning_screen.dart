@@ -155,7 +155,7 @@ class _LearningScreenState extends State<LearningScreen> {
 
     try {
       final (corrections, samples, pageTexts) = await widget.loadTrainingData();
-      if (corrections.isEmpty && samples.isEmpty) {
+      if (corrections.isEmpty && samples.isEmpty && pageTexts.isEmpty) {
         closeDialog();
         messenger.showSnackBar(
           const SnackBar(
