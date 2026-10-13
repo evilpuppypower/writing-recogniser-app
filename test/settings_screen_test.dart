@@ -73,6 +73,20 @@ void main() {
     expect(find.textContaining('thin see-through bar'), findsOneWidget);
   });
 
+  testWidgets('smoothness graphs switch on, and are not saved', (tester) async {
+    await pumpScreen(tester);
+    final tile = find.widgetWithText(SwitchListTile, 'Show smoothness graphs');
+    await tester.scrollUntilVisible(
+      tile,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    expect(settings.showSmoothnessGraphs, isTrue);
+    expect(saved, isEmpty);
+  });
+
   testWidgets('the pen toolbar position is chosen in Settings', (tester) async {
     await pumpScreen(tester);
     expect(find.text('Where the pen toolbar sits'), findsOneWidget);
@@ -329,6 +343,8 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.textContaining('made by evilpuppypower'), findsOneWidget);
+    await tester.ensureVisible(find.text('About and open source licences'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('About and open source licences'));
     await tester.pumpAndSettle();
     expect(find.textContaining('MIT licence.'), findsWidgets);

@@ -12,7 +12,7 @@ import 'page_ink_layer.dart' show DocumentInkController;
 /// while [showTyped] is on; the ink of converted words is hidden then.
 /// Draws only: taps on a word (to edit it, choice 4a) are found with
 /// [typedWordAt], so writing over typed text still works.
-class PageTypedText extends StatelessWidget {
+class PageTypedText extends StatefulWidget {
   const PageTypedText({
     super.key,
     required this.pageNumber,
@@ -29,20 +29,47 @@ class PageTypedText extends StatelessWidget {
   final ValueListenable<bool> showTyped;
 
   @override
+  State<PageTypedText> createState() => _PageTypedTextState();
+}
+
+class _PageTypedTextState extends State<PageTypedText> {
+  // Built again only when this page's ink or the layout changes (any
+  // page's ink changing notifies every page).
+  Widget? _built;
+  Object? _builtFrom;
+
+  @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([controller, showTyped]),
+    listenable: Listenable.merge([widget.controller, widget.showTyped]),
     builder: (context, _) {
-      if (!showTyped.value) return const SizedBox.shrink();
-      final words = typedWords(controller.ink.strokesOn(pageNumber));
-      if (words.isEmpty) return const SizedBox.shrink();
-      final scale = viewWidth / geometry.displayWidth;
-      return IgnorePointer(
-        child: Stack(children: [for (final w in words) _word(w, scale)]),
+      final strokes = widget.controller.ink.strokesOn(widget.pageNumber);
+      final g = widget.geometry;
+      final from = (
+        widget.showTyped.value,
+        strokes,
+        widget.viewWidth,
+        g.width,
+        g.height,
+        g.quarterTurns,
       );
+      if (_built != null && from == _builtFrom) return _built!;
+      _builtFrom = from;
+      return _built = _build(strokes);
     },
   );
 
+  Widget _build(List<PageStroke> strokes) {
+    if (!widget.showTyped.value) return const SizedBox.shrink();
+    final words = typedWords(strokes);
+    if (words.isEmpty) return const SizedBox.shrink();
+    final scale = widget.viewWidth / widget.geometry.displayWidth;
+    return IgnorePointer(
+      child: Stack(children: [for (final w in words) _word(w, scale)]),
+    );
+  }
+
   Widget _word(TypedWord w, double scale) {
+    final geometry = widget.geometry, viewWidth = widget.viewWidth;
     final r = geometry.rectToView(
       PdfPageRect(
         left: w.box.left,

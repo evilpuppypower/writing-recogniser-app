@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -277,6 +278,7 @@ class PageInkLayer extends StatefulWidget {
 
 class _PageInkLayerState extends State<PageInkLayer> {
   final _active = ValueNotifier<List<PageInkPoint>>(const []);
+  final _picture = _InkPicture();
   bool _erasing = false;
 
   /// Drawing a lasso loop (task 2.3c) rather than ink.
@@ -606,11 +608,13 @@ class _PageInkLayerState extends State<PageInkLayer> {
     _eraserHide?.cancel();
     _active.dispose();
     _eraserAt.dispose();
+    _picture.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final pressure = SettingsScope.valueOf(context).pressureResponse;
     final layer = RawGestureDetector(
       behavior: HitTestBehavior.translucent,
       gestures: {
@@ -624,23 +628,37 @@ class _PageInkLayerState extends State<PageInkLayer> {
                 ..onCancel = _cancel,
             ),
       },
-      child: RepaintBoundary(
-        child: CustomPaint(
-          painter: _PageInkPainter(
-            controller: widget.controller,
-            active: _active,
-            pageNumber: widget.pageNumber,
-            geometry: widget.geometry,
-            viewWidth: widget.viewWidth,
-            activeStyle: () => _style,
-            pressure: SettingsScope.valueOf(context).pressureResponse,
-            eraserAt: _eraserAt,
-            eraserRadius: () => _tools.eraserSize,
-            showTyped: widget.showTyped,
-            lassoing: () => _lassoing,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          RepaintBoundary(
+            child: CustomPaint(
+              painter: _PageInkPainter(
+                controller: widget.controller,
+                pageNumber: widget.pageNumber,
+                geometry: widget.geometry,
+                viewWidth: widget.viewWidth,
+                pressure: pressure,
+                cache: _picture,
+                showTyped: widget.showTyped,
+              ),
+            ),
           ),
-          child: const SizedBox.expand(),
-        ),
+          RepaintBoundary(
+            child: CustomPaint(
+              painter: _ActiveInkPainter(
+                active: _active,
+                geometry: widget.geometry,
+                viewWidth: widget.viewWidth,
+                activeStyle: () => _style,
+                pressure: pressure,
+                eraserAt: _eraserAt,
+                eraserRadius: () => _tools.eraserSize,
+                lassoing: () => _lassoing,
+              ),
+            ),
+          ),
+        ],
       ),
     );
     // Hover events from the pen (it reports its position before touching).
@@ -754,32 +772,119 @@ class StylusInkRecognizer extends OneSequenceGestureRecognizer {
   String get debugDescription => 'stylus ink';
 }
 
+/// A page's finished ink, drawn once and kept (task: owner's test
+/// feedback on stutter). Everything on the page scales with the view width,
+/// so one drawing serves every zoom level; it's redrawn only when the
+/// page's ink, the typed-text switch or the pressure setting changes.
+class _InkPicture {
+  ui.Picture? picture;
+  double width = 0;
+  Object? key;
+
+  void dispose() {
+    picture?.dispose();
+    picture = null;
+    key = null;
+  }
+}
+
+/// The page's finished ink (cached in an [_InkPicture]).
 class _PageInkPainter extends CustomPainter {
   _PageInkPainter({
     required this.controller,
-    required this.active,
     required this.pageNumber,
+    required this.geometry,
+    required this.viewWidth,
+    required this.pressure,
+    required this.cache,
+    this.showTyped,
+  }) : super(repaint: Listenable.merge([controller, ?showTyped]));
+
+  final ValueListenable<bool>? showTyped;
+  final DocumentInkController controller;
+  final int pageNumber;
+  final PageGeometry geometry;
+  final double viewWidth;
+  final PressureResponse pressure;
+  final _InkPicture cache;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (viewWidth <= 0) return;
+    final strokes = controller.ink.strokesOn(pageNumber);
+    if (strokes.isEmpty) return;
+    final typedShown = showTyped?.value ?? false;
+    final key = (
+      strokes,
+      typedShown,
+      pressure,
+      geometry.width,
+      geometry.height,
+      geometry.quarterTurns,
+    );
+    if (cache.picture == null || cache.key != key) {
+      final recorder = ui.PictureRecorder();
+      final c = Canvas(recorder);
+      final ink = _InkDrawer(geometry, viewWidth, pressure);
+      // Typed text shown instead of the ink of converted words.
+      final typed = typedShown ? convertedGroups(strokes) : const <String>{};
+      for (final s in strokes) {
+        if (typed.contains(s.typedGroup)) continue;
+        ink.draw(
+          c,
+          s.points,
+          PenStyle(
+            tool: s.tool,
+            colorArgb: s.colorArgb,
+            width: s.width,
+            arrow: s.arrow,
+          ),
+        );
+      }
+      cache
+        ..dispose()
+        ..picture = recorder.endRecording()
+        ..width = viewWidth
+        ..key = key;
+    }
+    canvas.save();
+    final zoom = viewWidth / cache.width;
+    canvas.scale(zoom, zoom);
+    canvas.drawPicture(cache.picture!);
+    canvas.restore();
+  }
+
+  // Never claim a touch: pdfrx stacks this layer on top of its scroll/zoom
+  // view, so claiming would stop fingers reaching it. The pen still gets
+  // here through the (translucent) gesture detector around the painting.
+  @override
+  bool hitTest(Offset position) => false;
+
+  @override
+  bool shouldRepaint(_PageInkPainter old) =>
+      old.pageNumber != pageNumber ||
+      old.viewWidth != viewWidth ||
+      old.pressure != pressure ||
+      old.controller != controller ||
+      old.cache != cache;
+}
+
+/// What's being drawn right now: the stroke under the pen, the lasso, the
+/// eraser outline. Kept apart from the finished ink, so moving the pen
+/// doesn't redraw the whole page.
+class _ActiveInkPainter extends CustomPainter {
+  _ActiveInkPainter({
+    required this.active,
     required this.geometry,
     required this.viewWidth,
     required this.activeStyle,
     required this.pressure,
     required this.eraserAt,
     required this.eraserRadius,
-    this.showTyped,
     this.lassoing,
-  }) : super(
-         repaint: Listenable.merge([controller, active, eraserAt, ?showTyped]),
-       );
+  }) : super(repaint: Listenable.merge([active, eraserAt]));
 
-  final ValueListenable<bool>? showTyped;
-
-  /// Whether [active] is a lasso loop being drawn (drawn dotted, closed by a
-  /// straight dotted line back to where it started).
-  final bool Function()? lassoing;
-
-  final DocumentInkController controller;
   final ValueNotifier<List<PageInkPoint>> active;
-  final int pageNumber;
   final PageGeometry geometry;
   final double viewWidth;
   final PenStyle Function() activeStyle;
@@ -787,32 +892,17 @@ class _PageInkPainter extends CustomPainter {
   final ValueListenable<Offset?> eraserAt;
   final double Function() eraserRadius;
 
+  /// Whether [active] is a lasso loop being drawn (drawn dotted, closed by a
+  /// straight dotted line back to where it started).
+  final bool Function()? lassoing;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final scale = viewWidth / geometry.displayWidth;
-    final strokes = controller.ink.strokesOn(pageNumber);
-    // Typed text shown instead of the ink of converted words.
-    final typed = showTyped?.value ?? false
-        ? convertedGroups(strokes)
-        : const <String>{};
-    for (final s in strokes) {
-      if (typed.contains(s.typedGroup)) continue;
-      _draw(
-        canvas,
-        s.points,
-        PenStyle(
-          tool: s.tool,
-          colorArgb: s.colorArgb,
-          width: s.width,
-          arrow: s.arrow,
-        ),
-        scale,
-      );
-    }
+    final ink = _InkDrawer(geometry, viewWidth, pressure);
     if (lassoing?.call() ?? false) {
-      _drawLasso(canvas, active.value);
+      ink.drawLasso(canvas, active.value);
     } else {
-      _draw(canvas, active.value, activeStyle(), scale);
+      ink.draw(canvas, active.value, activeStyle());
     }
     final at = eraserAt.value;
     if (at != null) {
@@ -837,10 +927,28 @@ class _PageInkPainter extends CustomPainter {
     }
   }
 
+  @override
+  bool hitTest(Offset position) => false;
+
+  @override
+  bool shouldRepaint(_ActiveInkPainter old) =>
+      old.viewWidth != viewWidth || old.pressure != pressure;
+}
+
+/// Draws strokes on a page laid out [viewWidth] pixels wide.
+class _InkDrawer {
+  _InkDrawer(this.geometry, this.viewWidth, this.pressure)
+    : scale = viewWidth / geometry.displayWidth;
+
+  final PageGeometry geometry;
+  final double viewWidth;
+  final PressureResponse pressure;
+  final double scale;
+
   /// The lasso: a dotted loop, with a straight dotted line from the pen back
   /// to the start, so it's clear what's inside. Blue dashes on white, so
   /// it shows on any page.
-  void _drawLasso(Canvas canvas, List<PageInkPoint> points) {
+  void drawLasso(Canvas canvas, List<PageInkPoint> points) {
     if (points.length < 2) return;
     final path = [
       for (final p in points)
@@ -863,12 +971,7 @@ class _PageInkPainter extends CustomPainter {
     }
   }
 
-  void _draw(
-    Canvas canvas,
-    List<PageInkPoint> points,
-    PenStyle style,
-    double scale,
-  ) {
+  void draw(Canvas canvas, List<PageInkPoint> points, PenStyle style) {
     if (points.isEmpty) return;
     Offset at(PageInkPoint p) {
       final v = geometry.toView(PdfPagePoint(p.x, p.y), viewWidth);
@@ -928,17 +1031,4 @@ class _PageInkPainter extends CustomPainter {
       }
     }
   }
-
-  // Never claim a touch: pdfrx stacks this layer on top of its scroll/zoom
-  // view, so claiming would stop fingers reaching it. The pen still gets
-  // here through the (translucent) gesture detector around the painting.
-  @override
-  bool hitTest(Offset position) => false;
-
-  @override
-  bool shouldRepaint(_PageInkPainter old) =>
-      old.pageNumber != pageNumber ||
-      old.viewWidth != viewWidth ||
-      old.pressure != pressure ||
-      old.controller != controller;
 }

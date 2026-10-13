@@ -94,6 +94,7 @@ class WritingRecogniserApp extends StatelessWidget {
           ),
           // Follows the tablet's light/dark setting.
           themeMode: ThemeMode.system,
+          showPerformanceOverlay: settings.showSmoothnessGraphs,
           home: const HomeScreen(),
         ),
       ),
