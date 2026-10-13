@@ -170,4 +170,15 @@ void main() {
       }
     }
   });
+
+  test('the export "Also convert" choice is saved', () {
+    expect(const AppSettings().exportConvertRest, ExportConvertRest.auto);
+    final on = const AppSettings().copyWith(
+      exportConvertRest: ExportConvertRest.on,
+    );
+    expect(
+      AppSettings.fromMap(on.toMap()).exportConvertRest,
+      ExportConvertRest.on,
+    );
+  });
 }

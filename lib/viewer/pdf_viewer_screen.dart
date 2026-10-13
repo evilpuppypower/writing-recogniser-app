@@ -1166,6 +1166,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           ? ExportHandwriting.typed
           : ExportHandwriting.ink,
       anyConverted: _hasTyped,
+      convertRest: switch (SettingsScope.of(context).value.exportConvertRest) {
+        ExportConvertRest.on => true,
+        ExportConvertRest.off => false,
+        ExportConvertRest.auto => null,
+      },
       anyUnconverted: _ink.ink.pagesWithInk.any(
         (p) => _ink.ink
             .strokesOn(p)
@@ -1178,6 +1183,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       ),
     );
     if (choice == null || !mounted) return;
+    if (choice.askedConvertRest) {
+      // Remembered for next time (owner).
+      final settings = SettingsScope.of(context);
+      settings.update(
+        settings.value.copyWith(
+          exportConvertRest: choice.convertRest
+              ? ExportConvertRest.on
+              : ExportConvertRest.off,
+        ),
+      );
+    }
     final mode = choice.handwriting;
     final text = <int, List<ExportWord>>{};
     var exportInk = _ink.ink;

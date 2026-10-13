@@ -10,6 +10,7 @@ void main() {
     ExportHandwriting startWith = ExportHandwriting.ink,
     bool anyConverted = false,
     bool anyUnconverted = false,
+    bool? convertRest,
   }) async {
     late Future<ExportChoice?> result;
     await tester.pumpWidget(
@@ -23,6 +24,7 @@ void main() {
               startWith: startWith,
               anyConverted: anyConverted,
               anyUnconverted: anyUnconverted,
+              convertRest: convertRest,
             ),
             child: const Text('go'),
           ),
@@ -148,5 +150,31 @@ void main() {
     await tester.pumpAndSettle();
     c = (await choice)!;
     expect(c.convertRest, isTrue);
+  });
+
+  testWidgets('the "Also convert" tick is remembered', (tester) async {
+    // Last time it was unticked: starts unticked even with nothing
+    // converted.
+    var choice = await open(
+      tester,
+      startWith: ExportHandwriting.typed,
+      anyUnconverted: true,
+      convertRest: false,
+    );
+    expect(
+      tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+      isFalse,
+    );
+    await tester.tap(find.text('Export'));
+    await tester.pumpAndSettle();
+    var c = (await choice)!;
+    expect((c.convertRest, c.askedConvertRest), (false, true));
+
+    // Not asked for "My handwriting": nothing to remember.
+    choice = await open(tester, anyUnconverted: true, convertRest: true);
+    await tester.tap(find.text('Export'));
+    await tester.pumpAndSettle();
+    c = (await choice)!;
+    expect(c.askedConvertRest, isFalse);
   });
 }

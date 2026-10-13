@@ -10,6 +10,7 @@ class ExportChoice {
     this.pages,
     this.handwriting = ExportHandwriting.ink,
     this.convertRest = false,
+    this.askedConvertRest = false,
   });
 
   /// Handwriting, typed text or both (task 2.3d).
@@ -18,6 +19,10 @@ class ExportChoice {
   /// For typed text: also convert the handwriting not converted yet, in the
   /// exported copy only (task 1.4, owner's choice 1b).
   final bool convertRest;
+
+  /// Whether the "Also convert" tick was shown (so its choice is
+  /// remembered for next time).
+  final bool askedConvertRest;
 
   /// Add the recognised handwriting as invisible, searchable text.
   final bool searchable;
@@ -42,6 +47,7 @@ Future<ExportChoice?> showExportOptions(
   ExportHandwriting startWith = ExportHandwriting.ink,
   bool anyConverted = false,
   bool anyUnconverted = false,
+  bool? convertRest,
 }) => showDialog<ExportChoice>(
   context: context,
   builder: (_) => _ExportOptionsDialog(
@@ -50,6 +56,7 @@ Future<ExportChoice?> showExportOptions(
     startWith: startWith,
     anyConverted: anyConverted,
     anyUnconverted: anyUnconverted,
+    convertRest: convertRest,
   ),
 );
 
@@ -60,6 +67,7 @@ class _ExportOptionsDialog extends StatefulWidget {
     required this.startWith,
     required this.anyConverted,
     required this.anyUnconverted,
+    this.convertRest,
   });
 
   final int pageCount;
@@ -67,6 +75,9 @@ class _ExportOptionsDialog extends StatefulWidget {
   final ExportHandwriting startWith;
   final bool anyConverted;
   final bool anyUnconverted;
+
+  /// The "Also convert" tick as last chosen (null: not chosen yet).
+  final bool? convertRest;
 
   @override
   State<_ExportOptionsDialog> createState() => _ExportOptionsDialogState();
@@ -76,9 +87,9 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
   bool _searchable = true;
   late ExportHandwriting _handwriting = widget.startWith;
 
-  /// Starts ticked when nothing is converted yet (typed text would be
-  /// empty otherwise).
-  late bool _convertRest = !widget.anyConverted;
+  /// As last chosen (owner); before that, ticked when nothing is converted
+  /// yet (typed text would be empty otherwise).
+  late bool _convertRest = widget.convertRest ?? !widget.anyConverted;
   bool _allPages = true;
   final _pages = TextEditingController();
   String? _error;
@@ -122,6 +133,8 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
             _handwriting != ExportHandwriting.ink &&
             widget.anyUnconverted &&
             _convertRest,
+        askedConvertRest:
+            _handwriting != ExportHandwriting.ink && widget.anyUnconverted,
       ),
     );
   }
