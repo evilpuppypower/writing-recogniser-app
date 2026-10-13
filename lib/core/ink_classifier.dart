@@ -39,9 +39,10 @@ class ShapeInkClassifier implements InkClassifier {
       for (final s in strokes) s.points.isEmpty ? null : InkBox.of(s),
     ];
     final page = typicalLetterHeight(boxes.nonNulls);
+    final index = _BoxIndex(boxes);
     return [
       for (var i = 0; i < strokes.length; i++)
-        kindOf(strokes[i], localLetterHeight(boxes, i) ?? page),
+        kindOf(strokes[i], _localLetterHeight(boxes, i, index) ?? page),
     ];
   }
 
@@ -51,13 +52,21 @@ class ShapeInkClassifier implements InkClassifier {
   /// against big writing, while a circle or bracket drawn round small
   /// writing is measured against the small writing. Null when nothing is
   /// beside it (the page's letter height is used then).
-  static double? localLetterHeight(List<InkBox?> boxes, int i) {
+  static double? localLetterHeight(List<InkBox?> boxes, int i) =>
+      _localLetterHeight(boxes, i, _BoxIndex(boxes));
+
+  static double? _localLetterHeight(
+    List<InkBox?> boxes,
+    int i,
+    _BoxIndex index,
+  ) {
     final b = boxes[i];
     if (b == null) return null;
     final reach = math.max(b.width, b.height);
     final near = <InkBox>[];
-    for (final o in boxes) {
-      if (o == null) continue;
+    // Only strokes near enough sideways are looked at (quick on a full
+    // page: not every stroke against every other).
+    for (final o in index.within(b.left - reach, b.right + reach)) {
       final dx = b.horizontalGap(o);
       final sharesHeight = o.bottom <= b.top && o.top >= b.bottom;
       if (sharesHeight && dx <= reach) near.add(o);
@@ -94,4 +103,38 @@ class ShapeInkClassifier implements InkClassifier {
 
   static double _dist(PageInkPoint a, PageInkPoint b) =>
       math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+}
+
+/// The boxes of a page's strokes sorted by their left edge, to find those
+/// overlapping a stretch of the page sideways without checking them all.
+class _BoxIndex {
+  _BoxIndex(List<InkBox?> boxes)
+    : _sorted = boxes.nonNulls.toList()
+        ..sort((a, b) => a.left.compareTo(b.left)) {
+    for (final b in _sorted) {
+      if (b.width > _widest) _widest = b.width;
+    }
+  }
+
+  final List<InkBox> _sorted;
+  double _widest = 0;
+
+  /// The boxes reaching into [from]..[to] sideways (some may be just
+  /// outside; callers check exactly).
+  Iterable<InkBox> within(double from, double to) sync* {
+    // First box whose left edge could still reach [from].
+    var lo = 0, hi = _sorted.length;
+    final start = from - _widest;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (_sorted[mid].left < start) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    for (var k = lo; k < _sorted.length && _sorted[k].left <= to; k++) {
+      if (_sorted[k].right >= from) yield _sorted[k];
+    }
+  }
 }
