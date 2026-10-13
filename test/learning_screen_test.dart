@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/event_log.dart';
 import 'package:writing_recogniser/core/feedback/correction.dart';
 import 'package:writing_recogniser/core/labeled_sample.dart';
+import 'package:writing_recogniser/core/training_data.dart';
 import 'package:writing_recogniser/settings/learning_screen.dart';
 
 class _Log implements EventLog {
@@ -50,7 +51,8 @@ void main() {
             saved?.add((name, bytes));
             return true;
           },
-          loadTrainingData: () async => (corrections, const <LabeledSample>[]),
+          loadTrainingData: () async =>
+              (corrections, const <LabeledSample>[], const <SavedPageText>[]),
         ),
       ),
     );

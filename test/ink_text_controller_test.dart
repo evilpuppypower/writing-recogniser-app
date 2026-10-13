@@ -133,6 +133,8 @@ void main() {
     expect(d.wordsOn(1).map((w) => w.text), ['cat', 'w2']);
     final cat = d.wordsOn(1).first;
     expect(cat.corrected, isTrue);
+    // The engine's own readings are kept, untouched by the correction.
+    expect(cat.engineReadings, ['w3', 'alt']);
     expect(cat.engineReading, 'w3');
     expect(cat.ink, hasLength(3), reason: 'its strokes, for corrections');
     d.ensure(1, page);
@@ -196,9 +198,7 @@ void main() {
 
     final d = InkTextController(engine: FakeEngine(ready: false));
     d.restore(1, saved);
-    final words = await tester.runAsync(
-      () => d.readNow(1, page.sublist(0, 3)),
-    );
+    final words = await tester.runAsync(() => d.readNow(1, page.sublist(0, 3)));
     expect(words!.map((w) => w.text), ['w3'], reason: 'w2 was rubbed out');
     d.dispose();
   });
