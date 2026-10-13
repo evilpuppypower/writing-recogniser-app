@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pdfium_dart/pdfium_dart.dart' as pdfium;
 import 'package:writing_recogniser/core/ink_export_plan.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
+import 'package:writing_recogniser/core/page_ranges.dart';
 import 'package:writing_recogniser/core/pressure_response.dart';
 import 'package:writing_recogniser/export/pdf_exporter.dart';
 import 'package:writing_recogniser/export/pdf_ink_writer.dart';
@@ -217,6 +218,43 @@ void main() {
         throwsA(isA<PdfExportException>()),
         reason: 'none of the chosen pages exist',
       );
+    });
+
+    test('"1-3" of 5 pages, with ink and text on each: pages 1, 2, 3', () {
+      final src = blankPdf(lib, dir, 5);
+      final line = exportLines([
+        pen([(10, 10, 0.5), (20, 20, 0.5)]),
+      ]);
+      final bytes = writeInkIntoPdf(
+        lib,
+        src,
+        {
+          for (final p in [1, 2, 3, 5]) p: line,
+        },
+        text: {
+          for (final p in [1, 2, 3]) p: [ExportWord('p$p', 10, 10, 40, 20)],
+        },
+        onlyPages: parsePageRanges('1-3', 5),
+      );
+      final out = File('${dir.path}/first3.pdf')..writeAsBytesSync(bytes);
+      final path = out.path.toNativeUtf8();
+      final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+      malloc.free(path);
+      expect(lib.FPDF_GetPageCount(doc), 3);
+      // Each page kept its own text, in order.
+      for (var i = 0; i < 3; i++) {
+        final page = lib.FPDF_LoadPage(doc, i);
+        final tp = lib.FPDFText_LoadPage(page);
+        final n = lib.FPDFText_CountChars(tp);
+        final buf = calloc<UnsignedShort>(n + 1);
+        lib.FPDFText_GetText(tp, 0, n, buf);
+        final got = String.fromCharCodes([for (var k = 0; k < n; k++) buf[k]]);
+        calloc.free(buf);
+        lib.FPDFText_ClosePage(tp);
+        lib.FPDF_ClosePage(page);
+        expect(got.trim(), 'p${i + 1}');
+      }
+      lib.FPDF_CloseDocument(doc);
     });
 
     test('recognised words become invisible, searchable text', () {

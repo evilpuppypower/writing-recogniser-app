@@ -68,6 +68,20 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
     super.dispose();
   }
 
+  /// "Exports pages 1–3 (3 of 5)" once the pages typed can be read.
+  String _preview() {
+    final all = 'This PDF has ${widget.pageCount} pages.';
+    if (_pages.text.trim().isEmpty) return all;
+    try {
+      final pages = parsePageRanges(_pages.text, widget.pageCount);
+      final n = pages.length;
+      return 'Exports ${n == 1 ? 'page' : 'pages'} ${describePages(pages)} '
+          '($n of ${widget.pageCount}).';
+    } on FormatException {
+      return all;
+    }
+  }
+
   void _done() {
     Set<int>? pages;
     if (!_allPages) {
@@ -157,9 +171,11 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
                       decoration: InputDecoration(
                         labelText: 'Pages',
                         hintText: 'e.g. 1-3, 7',
-                        helperText: 'This PDF has ${widget.pageCount} pages.',
+                        // Says which pages will go in, as you type.
+                        helperText: _preview(),
                         errorText: _error,
                       ),
+                      onChanged: (_) => setState(() => _error = null),
                       onSubmitted: (_) => _done(),
                     ),
                 ],
