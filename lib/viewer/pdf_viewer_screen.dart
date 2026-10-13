@@ -19,6 +19,7 @@ import '../core/open_timing.dart';
 import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/page_recognition.dart' show HiddenInk, hiddenInkAt;
+import '../core/stroke_grouping.dart' show isWriting;
 import '../core/typed_text.dart';
 import '../core/pen_tools.dart';
 import '../core/recognition/recognizer.dart';
@@ -1153,34 +1154,55 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       );
       return;
     }
+    final converted = {
+      for (final p in _ink.ink.pagesWithInk)
+        p: convertedStrokeIds(_ink.ink.strokesOn(p)),
+    };
     final choice = await showExportOptions(
       context,
       pageCount: _pageCount ?? _ink.ink.pagesWithInk.fold(1, math.max),
       share: share,
-      typed: !_hasTyped
-          ? null
-          : _showTyped.value
+      startWith: _hasTyped && _showTyped.value
           ? ExportHandwriting.typed
           : ExportHandwriting.ink,
+      anyConverted: _hasTyped,
+      anyUnconverted: _ink.ink.pagesWithInk.any(
+        (p) => _ink.ink
+            .strokesOn(p)
+            .any(
+              (s) =>
+                  isWriting(s) &&
+                  !s.notWriting &&
+                  !converted[p]!.contains(s.id),
+            ),
+      ),
     );
     if (choice == null || !mounted) return;
     final mode = choice.handwriting;
     final text = <int, List<ExportWord>>{};
-    if (choice.searchable) {
+    var exportInk = _ink.ink;
+    if (choice.searchable || choice.convertRest) {
       final read = await _readForExport(
         choice.pages,
         // Typed text is searchable by itself: no invisible copy.
         skip: mode == ExportHandwriting.ink
             ? null
-            : (page, w) => _isConverted(page, w),
+            : (page, w) => choice.convertRest || _isConverted(page, w),
       );
       if (read == null || !mounted) return; // cancelled
-      text.addAll(read);
+      if (choice.searchable) text.addAll(read);
+      // Owner's choice 1b: the rest converted too, in the export only.
+      if (choice.convertRest) {
+        exportInk = inkWithRestConverted(_ink.ink, [
+          for (final p in _ink.ink.pagesWithInk)
+            if (choice.pages == null || choice.pages!.contains(p)) p,
+        ], _text.wordsOn);
+      }
     }
     // Converted handwriting as visible typed text (task 2.3d).
-    for (final page in _ink.ink.pagesWithInk) {
+    for (final page in exportInk.pagesWithInk) {
       if (choice.pages != null && !choice.pages!.contains(page)) continue;
-      final typed = typedForExport(_ink.ink.strokesOn(page), mode);
+      final typed = typedForExport(exportInk.strokesOn(page), mode);
       if (typed.isNotEmpty) text[page] = [...?text[page], ...typed];
     }
     if (!mounted) return;
@@ -1207,7 +1229,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     try {
       bytes = await widget.exportPdf(
         sourcePath: source,
-        ink: inkForExport(_ink.ink, mode),
+        ink: inkForExport(exportInk, mode),
         pressure: pressure,
         text: text,
         onlyPages: choice.pages,

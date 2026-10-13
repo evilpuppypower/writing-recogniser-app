@@ -7,7 +7,9 @@ void main() {
   /// Opens the dialog; returns what it will give back when closed.
   Future<Future<ExportChoice?>> open(
     WidgetTester tester, {
-    ExportHandwriting? typed,
+    ExportHandwriting startWith = ExportHandwriting.ink,
+    bool anyConverted = false,
+    bool anyUnconverted = false,
   }) async {
     late Future<ExportChoice?> result;
     await tester.pumpWidget(
@@ -18,7 +20,9 @@ void main() {
               context,
               pageCount: 12,
               share: false,
-              typed: typed,
+              startWith: startWith,
+              anyConverted: anyConverted,
+              anyUnconverted: anyUnconverted,
             ),
             child: const Text('go'),
           ),
@@ -86,17 +90,63 @@ void main() {
     tester,
   ) async {
     var choice = await open(tester);
-    expect(find.text('Converted handwriting'), findsNothing);
+    expect(find.text('Handwriting'), findsNothing);
     await tester.tap(find.text('Export'));
     await tester.pumpAndSettle();
     expect((await choice)!.handwriting, ExportHandwriting.ink);
 
-    choice = await open(tester, typed: ExportHandwriting.typed);
-    expect(find.text('Converted handwriting'), findsOneWidget);
+    choice = await open(
+      tester,
+      startWith: ExportHandwriting.typed,
+      anyConverted: true,
+    );
+    expect(find.text('Handwriting'), findsOneWidget);
+    expect(find.byType(CheckboxListTile), findsNothing, reason: 'all done');
     await tester.tap(find.text(ExportHandwriting.both.label));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Export'));
     await tester.pumpAndSettle();
-    expect((await choice)!.handwriting, ExportHandwriting.both);
+    final c = (await choice)!;
+    expect(c.handwriting, ExportHandwriting.both);
+    expect(c.convertRest, isFalse);
+  });
+
+  testWidgets('typed text can also convert the rest (owner\'s choice 1b)', (
+    tester,
+  ) async {
+    // Nothing converted yet: the choice is still offered, and ticked.
+    var choice = await open(tester, anyUnconverted: true);
+    expect(find.text('Handwriting'), findsOneWidget);
+    final tick = find.text("Also convert handwriting I haven't converted");
+    expect(tick, findsNothing, reason: 'not for "My handwriting"');
+    await tester.tap(find.text(ExportHandwriting.typed.label));
+    await tester.pumpAndSettle();
+    expect(tick, findsOneWidget);
+    expect(
+      tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+      isTrue,
+    );
+    await tester.tap(find.text('Export'));
+    await tester.pumpAndSettle();
+    var c = (await choice)!;
+    expect((c.handwriting, c.convertRest), (ExportHandwriting.typed, true));
+
+    // Some converted, some not: unticked to start with.
+    choice = await open(
+      tester,
+      startWith: ExportHandwriting.typed,
+      anyConverted: true,
+      anyUnconverted: true,
+    );
+    expect(
+      tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+      isFalse,
+    );
+    await tester.tap(tick);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Export'));
+    await tester.pumpAndSettle();
+    c = (await choice)!;
+    expect(c.convertRest, isTrue);
   });
 }

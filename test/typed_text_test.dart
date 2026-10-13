@@ -170,6 +170,42 @@ void main() {
     });
   });
 
+  group('export: also convert the rest (owner\'s choice 1b)', () {
+    test('the copy is converted line by line; the page is left alone', () {
+      final ink = DocumentInk();
+      final the = [letter(100, 700, 0), letter(107, 700, 200)];
+      final cat = [letter(140, 700, 1000), letter(147, 700, 1200)];
+      final dog = [letter(100, 660, 5000), letter(107, 660, 5200)];
+      for (final s in [...the, ...cat, ...dog]) {
+        ink.add(1, s);
+      }
+      Set<String> ids(List<PageStroke> s) => {for (final x in s) x.id};
+      ink.convert(1, {ids(cat): 'cart'}); // converted and edited earlier
+      RecognizedWord w(String text, List<PageStroke> s, int line, double x) =>
+          RecognizedWord(
+            text: text,
+            alternatives: const [],
+            box: InkBox(x, 0, x + 10, 10),
+            line: line,
+            key: [for (final x in s) x.id].join(','),
+          );
+      final read = [w('the', the, 0, 100), w('cat', cat, 0, 140)];
+      final copy = inkWithRestConverted(ink, [
+        1,
+      ], (_) => [...read, w('dog', dog, 1, 100)]);
+      expect(typedLines(copy.strokesOn(1)).map((l) => l.text), [
+        'the cart',
+        'dog',
+      ], reason: 'the edited word kept');
+      expect(typedWords(ink.strokesOn(1)).single.text, 'cart');
+      // Pages not chosen are left as they are.
+      expect(
+        typedWords(inkWithRestConverted(ink, [], (_) => read).strokesOn(1)),
+        hasLength(1),
+      );
+    });
+  });
+
   group('fitting the text to the handwriting', () {
     test('as tall as the handwriting allows', () {
       expect(fitFontSize('hi', const InkBox(0, 0, 100, 20)), 16);
