@@ -401,3 +401,12 @@ The PDF writer was checked again with exactly that case (pages 1–3 of 5, ink a
 ## 2026-10-13 — When PDFium can't save an export (owner's test: "couldn't save" again)
 
 The error gave no reason, so the cause couldn't be told. Now, if PDFium's usual save fails, the export tries once more as a fresh, non-incremental file (some PDFs only save that way). If that fails too, the message says what is known: the tablet ran out of memory (with a hint to export fewer pages), PDFium's error number, or that writing failed, plus the page count. Nothing about the document's content goes in the message.
+
+## 2026-10-13 — Review fixes for the round of test-feedback fixes
+
+An independent review of PRs 18-26 found, and this fixes:
+- **Converting a line again repeated words** ("cat cat dog"): words already converted are now left out before the line's text is made.
+- **Typed text converted in pieces on one line** showed as one line but a tap edited only one piece. A tap now edits the whole line, and saving makes it one piece.
+- **Small writing just under big writing** was taken for the big line's dots and full stops. Small marks now join a line only above its letters or right at their foot.
+- **The writing guide** could stay on screen after a highlighter stroke, a tap or the lasso; it now always fades 3 s after the pen lifts. It isn't shown on pages turned sideways, where lines are found along the page's own rows.
+- **Export:** the save-failure message no longer shows PDFium's last-error number (that is about opening files, not saving). Page ranges also accept "1to3" and "-3" (up to page 3).

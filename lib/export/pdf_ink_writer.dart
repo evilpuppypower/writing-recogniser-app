@@ -253,9 +253,10 @@ Uint8List _save(pdfium.PDFium lib, pdfium.FPDF_DOCUMENT doc) {
       _saving = null; // let a failed attempt's bytes go before retrying
     }
     throw PdfExportException(
+      // (PDFium's last-error number is about opening files, not saving, so
+      // it's left out.)
       saveFailureMessage(
         writeError: writeError,
-        pdfiumError: lib.FPDF_GetLastError(),
         pages: lib.FPDF_GetPageCount(doc),
       ),
     );
@@ -269,16 +270,11 @@ Uint8List _save(pdfium.PDFium lib, pdfium.FPDF_DOCUMENT doc) {
 
 /// The message for a PDF that couldn't be saved, with what is known about
 /// why (nothing about the document's content).
-String saveFailureMessage({
-  Object? writeError,
-  int pdfiumError = 0,
-  int pages = 0,
-}) {
+String saveFailureMessage({Object? writeError, int pages = 0}) {
   final why = switch (writeError) {
     OutOfMemoryError() =>
       'the tablet ran out of memory for the new PDF. Try exporting fewer '
           'pages at a time.',
-    null when pdfiumError != 0 => 'PDFium error $pdfiumError.',
     null => 'PDFium gave no reason.',
     _ => 'writing it failed (${writeError.runtimeType}).',
   };

@@ -11,7 +11,7 @@ import 'page_ink_layer.dart' show DocumentInkController;
 /// one box per line of handwriting (owner's choice F1), sized to fit it, in the ink's colour (owner's choice 3b). Shown only
 /// while [showTyped] is on; the ink of converted words is hidden then.
 /// Draws only: taps on a word (to edit it, choice 4a) are found with
-/// [typedWordAt], so writing over typed text still works.
+/// [typedLineAt], so writing over typed text still works.
 class PageTypedText extends StatefulWidget {
   const PageTypedText({
     super.key,
@@ -112,9 +112,9 @@ double shownFontSize(String text, InkBox box, PageGeometry geometry) =>
     ? fitFontSize(text, InkBox(box.bottom, box.left, box.top, box.right))
     : fitFontSize(text, box);
 
-/// The typed word at [at] (pixels in a page laid out [viewWidth] wide), if
-/// any, allowing a little room around it.
-TypedWord? typedWordAt(
+/// The line of typed text at [at] (pixels in a page laid out [viewWidth]
+/// wide), if any, allowing a little room around it.
+TypedLine? typedLineAt(
   List<PageStroke> strokes,
   Offset at,
   PageGeometry geometry,
@@ -122,13 +122,13 @@ TypedWord? typedWordAt(
 ) {
   final p = geometry.toPdf(ViewPoint(at.dx, at.dy), viewWidth);
   const reach = 2.0;
-  for (final w in typedWords(strokes)) {
-    final b = w.box;
+  for (final l in typedLines(strokes)) {
+    final b = l.box;
     if (p.x >= b.left - reach &&
         p.x <= b.right + reach &&
         p.y >= b.bottom - reach &&
         p.y <= b.top + reach) {
-      return w;
+      return l;
     }
   }
   return null;

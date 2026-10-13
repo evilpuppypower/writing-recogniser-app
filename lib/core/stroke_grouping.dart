@@ -133,13 +133,16 @@ List<InkLine> groupStrokes(
     final b = boxes[i]!;
     _Line? best;
     var bestOverlap = params.lineOverlap;
-    // Dots and small marks (the dot of an i, an accent) sit just above or
-    // below the letters: they join the line they hover over.
+    // Dots and small marks (the dot of an i, an accent, a full stop) join
+    // the line they belong to.
     for (final line in lines) {
       final l = line.box, h = line.letter ?? letter;
+      // Above the letters (dots, accents) or right at their foot (full
+      // stops, commas); not well below, where smaller writing under big
+      // writing would be taken for its dots.
       if (math.max(b.width, b.height) < h * 0.4 &&
           b.horizontalGap(l) <= 0 &&
-          b.centerY > l.bottom - h * 0.8 &&
+          b.centerY > l.bottom - h * 0.25 &&
           b.centerY < l.top + h * 0.8) {
         best = line;
         break;

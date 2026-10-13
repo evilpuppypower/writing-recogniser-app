@@ -312,19 +312,29 @@ class DocumentInk {
   }
 
   /// Changes the typed text of converted word [group] on [page] (the user
-  /// edited it). Returns whether anything changed.
-  bool setTypedText(int page, String group, String text) {
+  /// edited it). Groups in [merge] (others shown on the same line) join
+  /// [group], so the line is one piece of typed text from then on. Returns
+  /// whether anything changed.
+  bool setTypedText(
+    int page,
+    String group,
+    String text, {
+    Set<String> merge = const {},
+  }) {
     final t = text.trim();
     if (t.isEmpty) return false;
     var changed = false;
     var first = true;
     _pages[page] = [
       for (final s in strokesOn(page))
-        if (s.typedGroup == group)
+        if (s.typedGroup == group || merge.contains(s.typedGroup))
           () {
             final next = s.withTyped(group, first ? t : null);
             first = false;
-            if (next.typedText != s.typedText) changed = true;
+            if (next.typedText != s.typedText ||
+                next.typedGroup != s.typedGroup) {
+              changed = true;
+            }
             return next;
           }()
         else

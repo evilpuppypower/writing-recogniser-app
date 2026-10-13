@@ -74,6 +74,21 @@ void main() {
       expect(ink.strokesOn(1).where((s) => s.typedText != null), hasLength(1));
     });
 
+    test('editing a line converted in pieces makes it one piece', () {
+      ink.convert(1, {ids(cat): 'cat'});
+      ink.convert(1, {ids(dog): 'dog'});
+      final line = typedLines(ink.strokesOn(1)).single;
+      expect(line.text, 'cat dog');
+      final groups = [for (final w in line.words) w.group];
+      expect(
+        ink.setTypedText(1, groups.first, 'cat dig', merge: {groups.last}),
+        isTrue,
+      );
+      final words = typedWords(ink.strokesOn(1));
+      expect(words.single.text, 'cat dig');
+      expect(words.single.strokeIds, {...ids(cat), ...ids(dog)});
+    });
+
     test('converting again keeps an edited word as it is', () {
       ink.convert(1, {ids(cat): 'cat'});
       final group = typedWords(ink.strokesOn(1)).single.group;

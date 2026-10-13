@@ -134,6 +134,31 @@ void main() {
     expect(lines[1].words.single.strokes, [6, 7]);
   });
 
+  test('small notes just under a big heading are their own line', () {
+    // A heading of 20 pt letters, then 6 pt notes 9 pt below it.
+    final strokes = [
+      for (var i = 0; i < 6; i++) letter(100 + i * 14.0, 700, i * 200, h: 20),
+      for (var i = 0; i < 12; i++)
+        letter(100 + i * 7.0, 685, 5000 + i * 200, h: 6),
+    ];
+    final lines = groupStrokes(strokes);
+    expect(lines, hasLength(2));
+    expect(lines[0].words.expand((w) => w.strokes), hasLength(6));
+  });
+
+  test('a full stop at the foot of a line joins it', () {
+    final strokes = [
+      ...word(100, 700, 3, 0),
+      PageStroke(
+        points: const [
+          PageInkPoint(122, 700, 1000),
+          PageInkPoint(122.5, 700.5, 1010),
+        ],
+      ),
+    ];
+    expect(groupStrokes(strokes).single.words.last.strokes, contains(3));
+  });
+
   test('letter height ignores dots', () {
     final boxes = [
       for (var i = 0; i < 5; i++) const InkBox(0, 0, 6, 10),

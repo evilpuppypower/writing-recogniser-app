@@ -2,7 +2,7 @@
 /// make only some pages' handwriting searchable). Pure Dart.
 library;
 
-/// The pages in [text] ("1-3, 7", "2", "4-", "1 to 3"), each between 1 and
+/// The pages in [text] ("1-3, 7", "2", "4-", "-3", "1 to 3"), each between 1 and
 /// [pageCount]. Any kind of dash works (keyboards offer several), with or
 /// without spaces around it. Throws a [FormatException] with a message to
 /// show if the text can't be read.
@@ -10,7 +10,8 @@ Set<int> parsePageRanges(String text, int pageCount) {
   final pages = <int>{};
   final tidy = text
       .replaceAll(RegExp('[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]'), '-')
-      .replaceAll(RegExp(r'\s*(?:-|\bto\b)\s*', caseSensitive: false), '-');
+      .replaceAll(RegExp(r'(?<=\d)\s*to\s*(?=\d|$)', caseSensitive: false), '-')
+      .replaceAll(RegExp(r'\s*-\s*'), '-');
   final parts = tidy.split(RegExp(r'[,;\s]+')).where((p) => p.isNotEmpty);
   if (parts.isEmpty) {
     throw const FormatException('Type the pages, e.g. 1-3, 7.');
@@ -29,7 +30,11 @@ Set<int> parsePageRanges(String text, int pageCount) {
     if (dash.length == 1) {
       pages.add(page(part));
     } else if (dash.length == 2) {
-      final from = page(dash[0]);
+      if (dash[0].trim().isEmpty && dash[1].trim().isEmpty) {
+        throw FormatException('"$part" isn\'t a page range.');
+      }
+      // "-3" means up to page 3.
+      final from = dash[0].trim().isEmpty ? 1 : page(dash[0]);
       final to = dash[1].trim().isEmpty ? pageCount : page(dash[1]);
       if (to < from) throw FormatException('"$part" runs backwards.');
       pages.addAll([for (var p = from; p <= to; p++) p]);

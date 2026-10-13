@@ -122,10 +122,16 @@ class DocumentInkController extends ChangeNotifier {
     return true;
   }
 
-  /// The user edited converted word [group]'s typed text; one undo step.
-  void setTypedText(int page, String group, String text) {
+  /// The user edited converted word [group]'s typed text (and that of the
+  /// groups in [merge], shown on the same line); one undo step.
+  void setTypedText(
+    int page,
+    String group,
+    String text, {
+    Set<String> merge = const {},
+  }) {
     final before = ink.strokesOn(page);
-    if (!ink.setTypedText(page, group, text)) return;
+    if (!ink.setTypedText(page, group, text, merge: merge)) return;
     if (_gesture == null) _record(page, before);
     notifyListeners();
     onChanged?.call(page);
@@ -494,6 +500,18 @@ class _PageInkLayerState extends State<PageInkLayer> {
   }
 
   void _up(PointerEvent e) {
+    _finishStroke(e);
+    _fadeGuideLater();
+  }
+
+  /// However the pen lifted (a stroke, a tap, the lasso, the highlighter),
+  /// a guide still showing fades [_guideFor] later.
+  void _fadeGuideLater() {
+    if (!_guideShown.value || (_guideHide?.isActive ?? false)) return;
+    _guideHide = Timer(_guideFor, () => _guideShown.value = false);
+  }
+
+  void _finishStroke(PointerEvent e) {
     _snapTimer?.cancel();
     if (_lassoing) {
       final loop = [..._active.value, _pointOf(e)];
@@ -578,7 +596,13 @@ class _PageInkLayerState extends State<PageInkLayer> {
 
   void _showGuide(PageStroke stroke) {
     final setting = SettingsScope.valueOf(context).writingGuide;
-    if (setting == WritingGuide.off || stroke.tool != InkTool.pen) return;
+    // Lines are found along the page's own rows, which run up and down the
+    // screen on a page turned sideways: no guide there.
+    if (setting == WritingGuide.off ||
+        stroke.tool != InkTool.pen ||
+        widget.geometry.quarterTurns != 0) {
+      return;
+    }
     final guide = guideFor(
       widget.controller.ink.strokesOn(widget.pageNumber),
       stroke.id,
@@ -591,6 +615,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   }
 
   void _cancel() {
+    _fadeGuideLater();
     _snapTimer?.cancel();
     _snapped = false;
     _lassoing = false;
@@ -1023,7 +1048,9 @@ class _GuidePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_GuidePainter old) =>
-      old.viewWidth != viewWidth || old.colorArgb != colorArgb;
+      old.viewWidth != viewWidth ||
+      old.colorArgb != colorArgb ||
+      old.geometry != geometry;
 }
 
 /// Draws strokes on a page laid out [viewWidth] pixels wide.

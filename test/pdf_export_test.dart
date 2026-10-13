@@ -475,7 +475,6 @@ void main() {
       saveFailureMessage(writeError: OutOfMemoryError(), pages: 400),
       allOf(contains('400 pages'), contains('ran out of memory')),
     );
-    expect(saveFailureMessage(pdfiumError: 3), contains('PDFium error 3'));
     expect(saveFailureMessage(), contains('no reason'));
     expect(
       saveFailureMessage(writeError: StateError('x')),

@@ -189,8 +189,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     double viewWidth,
   ) {
     if (!_showTyped.value) return null;
-    final w = typedWordAt(_ink.ink.strokesOn(page), at, geometry, viewWidth);
-    return w == null ? null : () => _editTyped(page, w);
+    final l = typedLineAt(_ink.ink.strokesOn(page), at, geometry, viewWidth);
+    return l == null ? null : () => _editTyped(page, l);
   }
 
   /// Reads [page] (if needed) with a progress dialog and Cancel; null if
@@ -261,12 +261,24 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// stays together and can be edited as one (owner's choice F1).
   void _convertWords(int page, List<RecognizedWord> words) {
     final messenger = ScaffoldMessenger.of(context);
-    final map = typedTextByLine(words);
+    // Words already converted (perhaps edited since) are left as they are.
+    final fresh = [
+      for (final w in words)
+        if (!_isConverted(page, w)) w,
+    ];
+    final map = typedTextByLine(fresh);
     final count = map.values.fold(0, (n, t) => n + t.split(' ').length);
     if (map.isEmpty) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('No handwriting was read there.')),
+        SnackBar(
+          content: Text(
+            fresh.length < words.length
+                ? 'That handwriting is already converted.'
+                : 'No handwriting was read there.',
+          ),
+        ),
       );
+      if (fresh.length < words.length) _showTyped.value = true;
       return;
     }
     if (!_ink.convert(page, map)) {
@@ -351,7 +363,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// Tap on typed text: edit it (owner's choice 4a). The edit also teaches
   /// the learning layer, like a correction.
-  Future<void> _editTyped(int page, TypedWord typed) async {
+  Future<void> _editTyped(int page, TypedLine typed) async {
     final field = TextEditingController(text: typed.text);
     final text = await showDialog<String>(
       context: context,
@@ -379,13 +391,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => field.dispose());
     final t = text?.trim() ?? '';
     if (t.isEmpty || t == typed.text || !mounted) return;
-    _ink.setTypedText(page, typed.group, t);
+    // The whole line is edited, even if it was converted in pieces; it
+    // becomes one piece from then on.
+    final groups = [for (final w in typed.words) w.group];
+    _ink.setTypedText(page, groups.first, t, merge: groups.skip(1).toSet());
+    final strokeIds = {for (final w in typed.words) ...w.strokeIds};
     // Teach the learning layer, like a correction, word by word: the words
     // as read (mostly the same strokes), left to right, matched with the
     // edited words when there are as many of them.
     final read = [
       for (final w in _text.wordsOn(page))
-        if (mostlyConverted(w.key, typed.strokeIds)) w,
+        if (mostlyConverted(w.key, strokeIds)) w,
     ]..sort((a, b) => a.box.left.compareTo(b.box.left));
     final before = typed.text.split(RegExp(r'\s+'));
     final after = t.split(RegExp(r'\s+'));
