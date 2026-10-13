@@ -410,3 +410,11 @@ An independent review of PRs 18-26 found, and this fixes:
 - **Small writing just under big writing** was taken for the big line's dots and full stops. Small marks now join a line only above its letters or right at their foot.
 - **The writing guide** could stay on screen after a highlighter stroke, a tap or the lasso; it now always fades 3 s after the pen lifts. It isn't shown on pages turned sideways, where lines are found along the page's own rows.
 - **Export:** the save-failure message no longer shows PDFium's last-error number (that is about opening files, not saving). Page ranges also accept "1to3" and "-3" (up to page 3).
+
+## 2026-10-13 — What the handwriting was read as is saved with the ink (owner's report)
+
+Reopening a PDF used to read all its handwriting again, which is slow, uses battery and could give different words than before. Now each page's recognised words are saved in the database with the ink (version 7 table `page_text`: one row per page, the words as JSON, including corrections, alternatives and each word's strokes for later corrections). They are put back before the ink is looked at, so only handwriting that is new or changed since is sent to the engine. Saving happens half a second after a page's words change, and at once when leaving the PDF or the app. Saved text that can't be read is ignored and the page is simply read again. Deleting a PDF's ink deletes its saved text too. Like everything else, it stays on the tablet.
+
+## 2026-10-13 — Correcting a word: typing is enough (owner's choice 2b)
+
+The correction pop-up keeps offering the other readings and typing. There is no "write it again" box: to change a handwritten word, the user erases it on the page and writes it again, and the new writing is read as usual.

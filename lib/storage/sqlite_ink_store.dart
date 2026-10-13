@@ -57,8 +57,46 @@ class SqliteInkStore implements InkStore {
   }
 
   @override
-  Future<void> deleteDocument(String documentId) =>
-      _db.delete('page_ink', where: 'document_id = ?', whereArgs: [documentId]);
+  Future<void> deleteDocument(String documentId) async {
+    await _db.delete(
+      'page_ink',
+      where: 'document_id = ?',
+      whereArgs: [documentId],
+    );
+    await _db.delete(
+      'page_text',
+      where: 'document_id = ?',
+      whereArgs: [documentId],
+    );
+  }
+
+  @override
+  Future<Map<int, String>> loadText(String documentId) async => {
+    for (final r in await _db.query(
+      'page_text',
+      where: 'document_id = ?',
+      whereArgs: [documentId],
+    ))
+      r['page']! as int: r['words']! as String,
+  };
+
+  @override
+  Future<void> saveText(String documentId, int page, String? json) async {
+    if (json == null) {
+      await _db.delete(
+        'page_text',
+        where: 'document_id = ? AND page = ?',
+        whereArgs: [documentId, page],
+      );
+      return;
+    }
+    await _db.insert('page_text', {
+      'document_id': documentId,
+      'page': page,
+      'words': json,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
 
   @override
   Future<Set<String>> documentsWithInk() async => {

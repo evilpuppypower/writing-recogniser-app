@@ -527,6 +527,16 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   InkAutosaver? _autosaver;
+
+  /// Saves the recognised text with the ink, so reopening doesn't read it
+  /// all again.
+  TextAutosaver? _textSaver;
+
+  void _flushSaves() {
+    _autosaver?.flush();
+    _textSaver?.flush();
+  }
+
   late final AppLifecycleListener _lifecycle;
 
   /// False until saved ink has loaded (a small notice shows meanwhile).
@@ -935,8 +945,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     // Save straight away if the app is sent to the background (it may be
     // closed there without warning).
     _lifecycle = AppLifecycleListener(
-      onHide: () => _autosaver?.flush(),
-      onPause: () => _autosaver?.flush(),
+      onHide: _flushSaves,
+      onPause: _flushSaves,
     );
     _loadInk();
     widget
@@ -959,7 +969,23 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     try {
       final store = await widget.openInkStore();
       final saved = await store.load(widget.documentId);
+      final savedText = await store
+          .loadText(widget.documentId)
+          .catchError((_) => <int, String>{}); // read again instead
       if (!mounted) return;
+      // What the saved ink was read as, before the ink is looked at, so
+      // only new or changed handwriting goes to the engine.
+      for (final e in savedText.entries) {
+        _text.restore(e.key, e.value);
+      }
+      final textSaver = TextAutosaver(
+        store: store,
+        documentId: widget.documentId,
+        pageText: _text.pageJson,
+        onError: (_) {}, // it's only read again next time
+      );
+      _textSaver = textSaver;
+      _text.onWordsChanged = textSaver.changed;
       final saver = InkAutosaver(
         store: store,
         documentId: widget.documentId,
@@ -1266,6 +1292,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   @override
   void dispose() {
+    _textSaver?.flush(); // takes the text now, before it's thrown away
+    _textSaver?.dispose();
     _text.dispose();
     _saveTimer?.cancel();
     _resumeNoteTimer?.cancel();
@@ -1296,7 +1324,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         if (!didPop) return;
         _saveTimer?.cancel();
         _savePosition();
-        _autosaver?.flush();
+        _flushSaves();
       },
       child: Scaffold(
         appBar: AppBar(

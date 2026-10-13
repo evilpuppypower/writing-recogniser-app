@@ -42,6 +42,20 @@ class MemoryInkStore implements InkStore {
 
   @override
   Future<Set<String>> documentsWithInk() async => pages.keys.toSet();
+
+  final texts = <String, Map<int, String>>{};
+
+  @override
+  Future<Map<int, String>> loadText(String id) async => {...?texts[id]};
+
+  @override
+  Future<void> saveText(String id, int page, String? json) async {
+    if (json == null) {
+      texts[id]?.remove(page);
+    } else {
+      (texts[id] ??= {})[page] = json;
+    }
+  }
 }
 
 void main() {
@@ -89,8 +103,21 @@ void main() {
     test('deleting a document forgets only its ink', () async {
       await store.savePage('a', 1, [stroke(1)]);
       await store.savePage('b', 1, [stroke(1)]);
+      await store.saveText('a', 1, '[]');
+      await store.saveText('b', 1, '[]');
       await store.deleteDocument('a');
       expect(await store.documentsWithInk(), {'b'});
+      expect(await store.loadText('a'), isEmpty, reason: 'and its text');
+      expect(await store.loadText('b'), {1: '[]'});
+    });
+
+    test('recognised text is saved per page, replaced and removed', () async {
+      await store.saveText('doc', 1, '["one"]');
+      await store.saveText('doc', 3, '["three"]');
+      await store.saveText('doc', 1, '["uno"]');
+      expect(await store.loadText('doc'), {1: '["uno"]', 3: '["three"]'});
+      await store.saveText('doc', 3, null);
+      expect(await store.loadText('doc'), {1: '["uno"]'});
     });
 
     test('a version 4 database gains the ink table', () async {
@@ -114,6 +141,33 @@ void main() {
       await upgraded.close();
       await databaseFactoryFfi.deleteDatabase(path);
     });
+
+    test(
+      'a version 6 database keeps its ink and gains the text table',
+      () async {
+        final path = '${await databaseFactoryFfi.getDatabasesPath()}/v6-ink.db';
+        await databaseFactoryFfi.deleteDatabase(path);
+        // Today's database, as the current build left it.
+        final v7 = await AppDatabase.open(
+          factory: databaseFactoryFfi,
+          path: path,
+        );
+        await SqliteInkStore(v7).savePage('doc', 1, [stroke(1)]);
+        await v7.execute('DROP TABLE page_text');
+        await v7.setVersion(6);
+        await v7.close();
+        final upgraded = await AppDatabase.open(
+          factory: databaseFactoryFfi,
+          path: path,
+        );
+        final s = SqliteInkStore(upgraded);
+        expect((await s.load('doc')).strokesOn(1), hasLength(1));
+        await s.saveText('doc', 1, '[]');
+        expect(await s.loadText('doc'), {1: '[]'});
+        await upgraded.close();
+        await databaseFactoryFfi.deleteDatabase(path);
+      },
+    );
   });
 
   group('autosave', () {

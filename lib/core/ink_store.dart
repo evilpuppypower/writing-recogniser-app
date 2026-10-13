@@ -15,8 +15,16 @@ abstract class InkStore {
   /// Replaces [page]'s saved strokes; an empty list removes the page.
   Future<void> savePage(String documentId, int page, List<PageStroke> strokes);
 
-  /// Forgets all ink of [documentId].
+  /// Forgets all ink of [documentId] (and its recognised text).
   Future<void> deleteDocument(String documentId);
+
+  /// The recognised text saved for [documentId]'s pages (page -> the
+  /// recognition results as JSON), so reopening a PDF doesn't read its
+  /// handwriting all over again (owner's report, 2026-10-13).
+  Future<Map<int, String>> loadText(String documentId);
+
+  /// Replaces [page]'s saved recognised text; null removes it.
+  Future<void> saveText(String documentId, int page, String? json);
 
   /// Ids of documents that have any ink.
   Future<Set<String>> documentsWithInk();
@@ -69,6 +77,59 @@ class InkAutosaver {
       for (final e in snapshot.entries) {
         try {
           await store.savePage(documentId, e.key, e.value);
+        } catch (err) {
+          onError?.call(err);
+        }
+      }
+    });
+    return _saving;
+  }
+
+  void dispose() => _timer?.cancel();
+}
+
+/// Saves a page's recognised text shortly after it changes, like
+/// [InkAutosaver] does for ink: one save for a burst of results, and
+/// [flush] saves anything pending at once.
+class TextAutosaver {
+  TextAutosaver({
+    required this.store,
+    required this.documentId,
+    required this.pageText,
+    this.delay = const Duration(milliseconds: 500),
+    this.onError,
+  });
+
+  final InkStore store;
+  final String documentId;
+
+  /// A page's recognised text now, as JSON (null: none).
+  final String? Function(int page) pageText;
+  final Duration delay;
+  final void Function(Object error)? onError;
+
+  final _dirty = <int>{};
+  Timer? _timer;
+  Future<void> _saving = Future.value();
+
+  /// Marks [page] as changed; it is saved after [delay].
+  void changed(int page) {
+    _dirty.add(page);
+    _timer?.cancel();
+    _timer = Timer(delay, () => unawaited(flush()));
+  }
+
+  /// Saves every changed page now. Saves run one after another.
+  Future<void> flush() {
+    _timer?.cancel();
+    if (_dirty.isEmpty) return _saving;
+    final pages = _dirty.toList()..sort();
+    _dirty.clear();
+    final snapshot = {for (final p in pages) p: pageText(p)};
+    _saving = _saving.then((_) async {
+      for (final e in snapshot.entries) {
+        try {
+          await store.saveText(documentId, e.key, e.value);
         } catch (err) {
           onError?.call(err);
         }

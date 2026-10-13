@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -60,6 +61,39 @@ class RecognizedWord {
   final List<InkStroke> ink;
 
   String get engineReading => engineText ?? text;
+
+  /// Saved with the ink (see [InkTextController.restore]).
+  Map<String, Object?> toJson() => {
+    'text': text,
+    'alt': alternatives,
+    'box': [box.left, box.bottom, box.right, box.top],
+    'line': line,
+    'key': key,
+    'engine': ?engineText,
+    if (autoReplaced) 'auto': true,
+    if (corrected) 'corrected': true,
+    if (previousWord.isNotEmpty) 'prev': previousWord,
+    'ink': [for (final s in ink) s.toJson()],
+  };
+
+  factory RecognizedWord.fromJson(Map<String, Object?> j) {
+    final b = [for (final v in j['box']! as List) (v as num).toDouble()];
+    return RecognizedWord(
+      text: j['text']! as String,
+      alternatives: [for (final a in j['alt'] as List? ?? const []) '$a'],
+      box: InkBox(b[0], b[1], b[2], b[3]),
+      line: (j['line'] as num?)?.toInt() ?? 0,
+      key: j['key'] as String? ?? '',
+      engineText: j['engine'] as String?,
+      autoReplaced: j['auto'] == true,
+      corrected: j['corrected'] == true,
+      previousWord: j['prev'] as String? ?? '',
+      ink: [
+        for (final s in j['ink'] as List? ?? const [])
+          InkStroke.fromJson(s as List),
+      ],
+    );
+  }
 
   RecognizedWord copyWith({
     String? text,
@@ -132,6 +166,7 @@ class InkTextController extends ChangeNotifier {
       autoReplaced: false,
     );
     _notify();
+    _wordsChanged(page);
     final undo = t == word.engineReading; // undoing a swap
     if (undo) {
       _logCorrection(page, word, t, undo: true);
@@ -193,6 +228,7 @@ class InkTextController extends ChangeNotifier {
     );
     _words[page]?.remove(word.key);
     _notify();
+    _wordsChanged(page);
   }
 
   final _notWriting = <int, Set<String>>{};
@@ -246,6 +282,41 @@ class InkTextController extends ChangeNotifier {
 
   /// Why recognition isn't running (e.g. MyScript keys missing), if so.
   String? problem;
+
+  /// Called when a page's words change (read, corrected, marked), so they
+  /// can be saved with the ink.
+  void Function(int page)? onWordsChanged;
+
+  /// Puts back [page]'s words saved earlier ([pageJson]), before its ink is
+  /// looked at, so only new or changed handwriting is read again (owner's
+  /// report: reopening a PDF read everything again). Unreadable saved text
+  /// is ignored: the page is simply read again.
+  void restore(int page, String json) {
+    try {
+      final list = jsonDecode(json) as List;
+      final words = {
+        for (final w in list)
+          if (RecognizedWord.fromJson((w as Map).cast<String, Object?>())
+              case final word when word.key.isNotEmpty)
+            word.key: word,
+      };
+      _words[page] = words;
+      _notify();
+    } catch (_) {
+      // Read again instead.
+    }
+  }
+
+  /// [page]'s words as JSON, to save; null when it has none.
+  String? pageJson(int page) {
+    final words = _words[page];
+    if (words == null || words.isEmpty) return null;
+    return jsonEncode([for (final w in words.values) w.toJson()]);
+  }
+
+  void _wordsChanged(int page) {
+    if (!_disposed) onWordsChanged?.call(page);
+  }
 
   /// Words on [page] in reading order (top line first, left to right).
   List<RecognizedWord> wordsOn(int page) {
@@ -338,6 +409,7 @@ class InkTextController extends ChangeNotifier {
     final strokes = _pending.remove(page);
     if (strokes == null || !await _isReady() || _disposed) return;
     _running.add(page);
+    var dirty = false;
     try {
       final words = _words.putIfAbsent(page, () => {});
       final known = {for (final e in words.entries) e.key: e.value.text};
@@ -361,10 +433,14 @@ class InkTextController extends ChangeNotifier {
           final old = words[key];
           if (old != null && old.line != l) {
             words[key] = old.copyWith(line: l);
+            dirty = true;
           }
         }
       }
-      if (words.length != before) _notify();
+      if (words.length != before) {
+        dirty = true;
+        _notify();
+      }
       for (final job in plan.jobs) {
         if (_disposed) return;
         final scale = engineLetterPixels / job.letterHeight;
@@ -411,6 +487,7 @@ class InkTextController extends ChangeNotifier {
           ink: ink,
         );
         problem = null;
+        dirty = true;
         _notify();
         final now = DateTime.now().millisecondsSinceEpoch;
         unawaited(
@@ -447,6 +524,7 @@ class InkTextController extends ChangeNotifier {
       }
     } finally {
       _running.remove(page);
+      if (dirty) _wordsChanged(page);
       if (_again.remove(page) && !_disposed) unawaited(_run(page));
     }
   }
