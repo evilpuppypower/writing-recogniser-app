@@ -111,6 +111,22 @@ void main() {
       expect(ink.ink.strokesOn(1), hasLength(1));
     });
 
+    test('the lasso is drawn dotted, closed back to the start', () {
+      // An L-shaped path 20 + 10 px long, then back to the start (~22 px).
+      const path = [Offset(0, 0), Offset(20, 0), Offset(20, 10), Offset(0, 0)];
+      final d = dashes(path, dash: 6, gap: 4);
+      // 6 on, 4 off along the first side: dashes at 0..6, 10..16.
+      expect(d[0], (const Offset(0, 0), const Offset(6, 0)));
+      expect(d[1], (const Offset(10, 0), const Offset(16, 0)));
+      // The dash at 20 starts on the corner and runs down the second side.
+      expect(d[2], (const Offset(20, 0), const Offset(20, 6)));
+      // Some dashes are on the closing line.
+      expect(d.where((s) => s.$1.dy < 10 && s.$1.dx < 20), isNotEmpty);
+      final drawn = d.fold(0.0, (t, s) => t + (s.$2 - s.$1).distance);
+      final total = 30 + const Offset(20, 10).distance;
+      expect(drawn, closeTo(total * 0.6, 4), reason: '6 of every 10 px');
+    });
+
     test('the lasso is not remembered as the tool for next time', () {
       final saved = const PenToolsState(mode: PenMode.lasso).toJson();
       expect(PenToolsState.fromJson(saved).mode, PenMode.pen);

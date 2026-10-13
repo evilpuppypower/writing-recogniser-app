@@ -637,6 +637,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
             eraserAt: _eraserAt,
             eraserRadius: () => _tools.eraserSize,
             showTyped: widget.showTyped,
+            lassoing: () => _lassoing,
           ),
           child: const SizedBox.expand(),
         ),
@@ -654,6 +655,37 @@ class _PageInkLayerState extends State<PageInkLayer> {
       ),
     );
   }
+}
+
+/// The dashes of a dotted line along [path] (screen pixels): [dash] long
+/// with [gap] between them, carried smoothly round corners.
+List<(Offset, Offset)> dashes(
+  List<Offset> path, {
+  double dash = 6,
+  double gap = 4,
+}) {
+  final out = <(Offset, Offset)>[];
+  var drawing = true;
+  var left = dash; // of the current dash or gap
+  for (var i = 1; i < path.length; i++) {
+    var a = path[i - 1];
+    final b = path[i];
+    var length = (b - a).distance;
+    while (length > 0) {
+      final step = math.min(left, length);
+      final end = Offset.lerp(a, b, step / length)!;
+      // A dash that turns a corner is drawn as two pieces.
+      if (drawing) out.add((a, end));
+      left -= step;
+      length -= step;
+      a = end;
+      if (left <= 0) {
+        drawing = !drawing;
+        left = drawing ? dash : gap;
+      }
+    }
+  }
+  return out;
 }
 
 /// Claims stylus pointers the moment they touch, so the pen writes instead
@@ -734,11 +766,16 @@ class _PageInkPainter extends CustomPainter {
     required this.eraserAt,
     required this.eraserRadius,
     this.showTyped,
+    this.lassoing,
   }) : super(
          repaint: Listenable.merge([controller, active, eraserAt, ?showTyped]),
        );
 
   final ValueListenable<bool>? showTyped;
+
+  /// Whether [active] is a lasso loop being drawn (drawn dotted, closed by a
+  /// straight dotted line back to where it started).
+  final bool Function()? lassoing;
 
   final DocumentInkController controller;
   final ValueNotifier<List<PageInkPoint>> active;
@@ -772,7 +809,11 @@ class _PageInkPainter extends CustomPainter {
         scale,
       );
     }
-    _draw(canvas, active.value, activeStyle(), scale);
+    if (lassoing?.call() ?? false) {
+      _drawLasso(canvas, active.value);
+    } else {
+      _draw(canvas, active.value, activeStyle(), scale);
+    }
     final at = eraserAt.value;
     if (at != null) {
       // Dark ring inside a light one, so it shows on any page colour.
@@ -793,6 +834,32 @@ class _PageInkPainter extends CustomPainter {
           ..strokeWidth = 1.2
           ..color = const Color(0xCC333333),
       );
+    }
+  }
+
+  /// The lasso: a dotted loop, with a straight dotted line from the pen back
+  /// to the start, so it's clear what's inside. Blue dashes on white, so
+  /// it shows on any page.
+  void _drawLasso(Canvas canvas, List<PageInkPoint> points) {
+    if (points.length < 2) return;
+    final path = [
+      for (final p in points)
+        geometry.toView(PdfPagePoint(p.x, p.y), viewWidth),
+    ].map((v) => Offset(v.x, v.y)).toList();
+    final loop = [...path, path.first];
+    final segments = dashes(loop);
+    final under = Paint()
+      ..color = const Color(0xCCFFFFFF)
+      ..strokeWidth = 3.5
+      ..strokeCap = StrokeCap.round;
+    final over = Paint()
+      ..color = const Color(0xFF1E88E5)
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    for (final paint in [under, over]) {
+      for (final (a, b) in segments) {
+        canvas.drawLine(a, b, paint);
+      }
     }
   }
 
