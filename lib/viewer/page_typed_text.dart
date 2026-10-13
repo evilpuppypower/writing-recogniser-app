@@ -8,7 +8,7 @@ import '../core/typed_text.dart';
 import 'page_ink_layer.dart' show DocumentInkController;
 
 /// Handwriting converted to typed text (task 2.3c), drawn where the ink is,
-/// sized to fit it, in the ink's colour (owner's choice 3b). Shown only
+/// one box per line of handwriting (owner's choice F1), sized to fit it, in the ink's colour (owner's choice 3b). Shown only
 /// while [showTyped] is on; the ink of converted words is hidden then.
 /// Draws only: taps on a word (to edit it, choice 4a) are found with
 /// [typedWordAt], so writing over typed text still works.
@@ -60,15 +60,15 @@ class _PageTypedTextState extends State<PageTypedText> {
 
   Widget _build(List<PageStroke> strokes) {
     if (!widget.showTyped.value) return const SizedBox.shrink();
-    final words = typedWords(strokes);
-    if (words.isEmpty) return const SizedBox.shrink();
+    final lines = typedLines(strokes);
+    if (lines.isEmpty) return const SizedBox.shrink();
     final scale = widget.viewWidth / widget.geometry.displayWidth;
     return IgnorePointer(
-      child: Stack(children: [for (final w in words) _word(w, scale)]),
+      child: Stack(children: [for (final l in lines) _line(l, scale)]),
     );
   }
 
-  Widget _word(TypedWord w, double scale) {
+  Widget _line(TypedLine w, double scale) {
     final geometry = widget.geometry, viewWidth = widget.viewWidth;
     final r = geometry.rectToView(
       PdfPageRect(
@@ -95,7 +95,7 @@ class _PageTypedTextState extends State<PageTypedText> {
           textScaler: TextScaler.noScaling,
           style: TextStyle(
             color: Color(w.colorArgb),
-            fontSize: shownFontSize(w, geometry) * scale,
+            fontSize: shownFontSize(w.text, w.box, geometry) * scale,
             height: 1,
           ),
         ),
@@ -104,15 +104,13 @@ class _PageTypedTextState extends State<PageTypedText> {
   }
 }
 
-/// [w]'s text size (points) as it shows on screen: on a page turned
-/// sideways, the handwriting's screen width is its height on the page.
-double shownFontSize(TypedWord w, PageGeometry geometry) =>
+/// The size (points) of [text] fitted to handwriting in [box] as it shows
+/// on screen: on a page turned sideways, the handwriting's screen width is
+/// its height on the page.
+double shownFontSize(String text, InkBox box, PageGeometry geometry) =>
     geometry.quarterTurns.isOdd
-    ? fitFontSize(
-        w.text,
-        InkBox(w.box.bottom, w.box.left, w.box.top, w.box.right),
-      )
-    : w.fontSize;
+    ? fitFontSize(text, InkBox(box.bottom, box.left, box.top, box.right))
+    : fitFontSize(text, box);
 
 /// The typed word at [at] (pixels in a page laid out [viewWidth] wide), if
 /// any, allowing a little room around it.

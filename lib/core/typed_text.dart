@@ -57,6 +57,68 @@ List<TypedWord> typedWords(List<PageStroke> strokes) {
   ];
 }
 
+/// One line of typed text: the converted words written along one line of
+/// handwriting, shown together in one box with one text size, so a
+/// sentence stays together (owner's choice F1, 2026-10-13).
+class TypedLine {
+  const TypedLine(this.words);
+
+  /// Left to right.
+  final List<TypedWord> words;
+
+  String get text => words.map((w) => w.text).join(' ');
+  InkBox get box => words.map((w) => w.box).reduce((a, b) => a.union(b));
+  int get colorArgb => words.first.colorArgb;
+
+  /// The text size, in points, that fits the whole line into its box.
+  double get fontSize => fitFontSize(text, box);
+}
+
+/// The converted words on a page, gathered into lines as the handwriting
+/// is (see [groupStrokes]: words far apart at the same height are separate
+/// lines), top first.
+List<TypedLine> typedLines(List<PageStroke> strokes) {
+  final words = typedWords(strokes);
+  if (words.isEmpty) return const [];
+  final ids = {for (final w in words) ...w.strokeIds};
+  final lines = groupStrokes(
+    strokes,
+    include: (i) => ids.contains(strokes[i].id),
+  );
+  final lineOf = <String, int>{
+    for (var l = 0; l < lines.length; l++)
+      for (final w in lines[l].words)
+        for (final i in w.strokes) strokes[i].id: l,
+  };
+  // A word goes on the line most of its strokes are on.
+  int lineOfWord(TypedWord w) {
+    final votes = <int, int>{};
+    for (final id in w.strokeIds) {
+      final l = lineOf[id];
+      if (l != null) votes[l] = (votes[l] ?? 0) + 1;
+    }
+    if (votes.isEmpty) return -1;
+    return votes.entries.reduce((a, b) => b.value > a.value ? b : a).key;
+  }
+
+  final byLine = <int, List<TypedWord>>{};
+  final alone = <TypedLine>[];
+  for (final w in words) {
+    final l = lineOfWord(w);
+    if (l < 0) {
+      alone.add(TypedLine([w]));
+    } else {
+      byLine.putIfAbsent(l, () => []).add(w);
+    }
+  }
+  final keys = byLine.keys.toList()..sort();
+  return [
+    for (final l in keys)
+      TypedLine(byLine[l]!..sort((a, b) => a.box.left.compareTo(b.box.left))),
+    ...alone,
+  ];
+}
+
 /// The converted words' groups on a page (cheap: no boxes are worked out).
 Set<String> convertedGroups(List<PageStroke> strokes) => {
   for (final s in strokes)
@@ -173,7 +235,7 @@ DocumentInk inkForExport(DocumentInk ink, ExportHandwriting mode) {
   return out;
 }
 
-/// The typed words of a page as visible export text: over the handwriting
+/// The typed lines of a page as visible export text: over the handwriting
 /// for [ExportHandwriting.typed], just under it for [ExportHandwriting.both]
 /// (the writer places it, following the page's rotation).
 List<ExportWord> typedForExport(
@@ -182,7 +244,7 @@ List<ExportWord> typedForExport(
 ) {
   if (mode == ExportHandwriting.ink) return const [];
   return [
-    for (final w in typedWords(strokes))
+    for (final w in typedLines(strokes))
       ExportWord(
         w.text,
         w.box.left,

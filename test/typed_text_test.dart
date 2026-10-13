@@ -3,6 +3,7 @@ import 'package:writing_recogniser/core/ink_export_plan.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/core/stroke_grouping.dart';
 import 'package:writing_recogniser/core/typed_text.dart';
+import 'package:writing_recogniser/viewer/ink_text_controller.dart';
 import 'package:writing_recogniser/viewer/page_ink_layer.dart';
 
 /// A letter-sized stroke at (x, y), started at time [t].
@@ -100,6 +101,57 @@ void main() {
       expect(typedWords(c.ink.strokesOn(1)), isEmpty);
       c.redo();
       expect(typedWords(c.ink.strokesOn(1)), hasLength(2));
+    });
+  });
+
+  group('one box per line (owner\'s choice F1)', () {
+    test('words converted on one line show as one line of text', () {
+      final ink = DocumentInk();
+      final a = [letter(100, 700, 0), letter(107, 700, 200)];
+      final b = [letter(140, 700, 1000), letter(147, 700, 1200)];
+      // Same height but far across the page: its own line.
+      final far = [letter(480, 700, 3000), letter(487, 700, 3200)];
+      final below = [letter(100, 660, 5000), letter(107, 660, 5200)];
+      for (final s in [...a, ...b, ...far, ...below]) {
+        ink.add(1, s);
+      }
+      Set<String> ids(List<PageStroke> s) => {for (final x in s) x.id};
+      // Converted at different times: still one line on screen.
+      ink.convert(1, {ids(b): 'cat'});
+      ink.convert(1, {ids(a): 'the', ids(far): 'note', ids(below): 'dog'});
+      final lines = typedLines(ink.strokesOn(1));
+      expect(lines.map((l) => l.text), ['the cat', 'note', 'dog']);
+      final first = lines.first;
+      expect(first.box.left, 100);
+      expect(first.box.right, 153);
+      expect(first.fontSize, fitFontSize('the cat', first.box));
+      // Exported the same way.
+      expect(
+        typedForExport(
+          ink.strokesOn(1),
+          ExportHandwriting.typed,
+        ).map((w) => w.text),
+        ['the cat', 'note', 'dog'],
+      );
+    });
+
+    test('converting keeps each line together, words in order', () {
+      RecognizedWord w(String text, String key, int line, double left) =>
+          RecognizedWord(
+            text: text,
+            alternatives: const [],
+            box: InkBox(left, 0, left + 10, 10),
+            line: line,
+            key: key,
+          );
+      final map = typedTextByLine([
+        w('cat', 'c1,c2', 0, 140),
+        w('the', 't1', 0, 100),
+        w('dog', 'd1', 1, 100),
+        w(' ', 'x1', 1, 200), // nothing read: left out
+      ]);
+      expect(map.values, ['the cat', 'dog']);
+      expect(map.keys.first, {'c1', 'c2', 't1'});
     });
   });
 

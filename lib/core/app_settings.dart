@@ -80,6 +80,19 @@ enum TextPanelPlace {
   final String label;
 }
 
+/// The faint line under the line being written (owner's choice F2).
+enum WritingGuide {
+  grey('Pale grey', 0x33000000),
+  blue('Pale blue', 0x551E88E5),
+  off('Off', 0);
+
+  const WritingGuide(this.label, this.colorArgb);
+  final String label;
+
+  /// See-through, so it shows faintly on any page.
+  final int colorArgb;
+}
+
 class AppSettings {
   const AppSettings({
     this.appColour = AppColour.system,
@@ -98,6 +111,7 @@ class AppSettings {
     this.keepInkOnDelete = true,
     this.textLabels = TextLabelPlace.above,
     this.textPanel = TextPanelPlace.off,
+    this.writingGuide = WritingGuide.grey,
   });
 
   static const minWritingBoxPercent = 40;
@@ -191,6 +205,9 @@ class AppSettings {
   /// The recognised-text panel: off, docked to a side, or floating.
   final TextPanelPlace textPanel;
 
+  /// The guide line under the line being written, or off.
+  final WritingGuide writingGuide;
+
   AppSettings copyWith({
     AppColour? appColour,
     ScrollTabIdle? scrollTabIdle,
@@ -208,6 +225,7 @@ class AppSettings {
     bool? keepInkOnDelete,
     TextLabelPlace? textLabels,
     TextPanelPlace? textPanel,
+    WritingGuide? writingGuide,
   }) => AppSettings(
     appColour: appColour ?? this.appColour,
     scrollTabIdle: scrollTabIdle ?? this.scrollTabIdle,
@@ -239,6 +257,7 @@ class AppSettings {
     keepInkOnDelete: keepInkOnDelete ?? this.keepInkOnDelete,
     textLabels: textLabels ?? this.textLabels,
     textPanel: textPanel ?? this.textPanel,
+    writingGuide: writingGuide ?? this.writingGuide,
   );
 
   Map<String, Object> toMap() => {
@@ -258,6 +277,7 @@ class AppSettings {
     'keepInkOnDelete': keepInkOnDelete,
     'textLabels': textLabels.name,
     'textPanel': textPanel.name,
+    'writingGuide': writingGuide.name,
   };
 
   /// Reads settings saved by [toMap] (or by older versions, see
@@ -328,6 +348,11 @@ class AppSettings {
       keepInkOnDelete: keepInk is bool ? keepInk : d.keepInkOnDelete,
       textLabels: byName(TextLabelPlace.values, m['textLabels'], d.textLabels),
       textPanel: byName(TextPanelPlace.values, m['textPanel'], d.textPanel),
+      writingGuide: byName(
+        WritingGuide.values,
+        m['writingGuide'],
+        d.writingGuide,
+      ),
     );
   }
 
@@ -349,7 +374,8 @@ class AppSettings {
       other.arrowHookMs == arrowHookMs &&
       other.keepInkOnDelete == keepInkOnDelete &&
       other.textLabels == textLabels &&
-      other.textPanel == textPanel;
+      other.textPanel == textPanel &&
+      other.writingGuide == writingGuide;
 
   @override
   int get hashCode => Object.hash(
@@ -369,5 +395,6 @@ class AppSettings {
     keepInkOnDelete,
     textLabels,
     textPanel,
+    writingGuide,
   );
 }
