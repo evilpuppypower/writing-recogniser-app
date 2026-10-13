@@ -1,0 +1,2 @@
+# Windows batch files keep Windows line endings, also in GitHub zip downloads.
+*.bat -text

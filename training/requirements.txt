@@ -1,0 +1,2 @@
+# NumPy (BSD-3 licence): the maths library the model uses. No network use.
+numpy==2.5.4
