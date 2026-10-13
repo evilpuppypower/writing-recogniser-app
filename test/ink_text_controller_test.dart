@@ -108,6 +108,57 @@ void main() {
     c.dispose();
   });
 
+  testWidgets('saved words come back without reading the ink again', (
+    tester,
+  ) async {
+    final engine = FakeEngine();
+    final c = InkTextController(engine: engine);
+    final saved = <int>[];
+    c.onWordsChanged = saved.add;
+    final page = [...word(100, 700, 3, 0), ...word(135, 700, 2, 1000)];
+    c.inkChanged(1, page, pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    expect(saved, [1], reason: 'saved once, after the run');
+    await c.correct(1, c.wordsOn(1).first, 'cat');
+    expect(saved, [1, 1]);
+    final json = c.pageJson(1)!;
+    expect(c.pageJson(2), isNull);
+    c.dispose();
+
+    // The PDF is opened again.
+    final again = FakeEngine();
+    final d = InkTextController(engine: again);
+    d.restore(1, json);
+    expect(d.wordsOn(1).map((w) => w.text), ['cat', 'w2']);
+    final cat = d.wordsOn(1).first;
+    expect(cat.corrected, isTrue);
+    expect(cat.engineReading, 'w3');
+    expect(cat.ink, hasLength(3), reason: 'its strokes, for corrections');
+    d.ensure(1, page);
+    d.inkChanged(1, page, pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    expect(again.calls, isEmpty, reason: 'nothing new to read');
+    // Only a new word is read.
+    d.inkChanged(1, [...page, ...word(100, 650, 2, 9000)], pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    expect(again.calls, hasLength(1));
+    expect(d.textOf(1), 'cat w2\nw2');
+    d.dispose();
+  });
+
+  testWidgets('unreadable saved text is simply read again', (tester) async {
+    final engine = FakeEngine();
+    final c = InkTextController(engine: engine);
+    c.restore(1, 'not json');
+    c.ensure(1, word(100, 700, 3, 0));
+    await tester.pumpAndSettle();
+    expect(c.textOf(1), 'w3');
+    c.dispose();
+  });
+
   testWidgets('erasing a word removes its text', (tester) async {
     final engine = FakeEngine();
     final c = InkTextController(engine: engine);

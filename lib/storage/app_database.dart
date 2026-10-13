@@ -7,7 +7,7 @@ class AppDatabase {
   AppDatabase._();
 
   static const fileName = 'writing_recogniser.db';
-  static const version = 6;
+  static const version = 7;
 
   /// Opens (and creates or upgrades) the database. [factory] and [path] can
   /// be overridden for tests.
@@ -97,6 +97,19 @@ class AppDatabase {
       await db.execute(
         'CREATE INDEX corrections_recognized ON corrections (recognized)',
       );
+    }
+    if (from < 7) {
+      // What the handwriting on each page was read as, kept with the ink so
+      // reopening a PDF doesn't read it all again. Stays on the tablet.
+      await db.execute('''
+        CREATE TABLE page_text (
+          document_id TEXT NOT NULL,   -- library id (as in page_ink)
+          page INTEGER NOT NULL,       -- 1-based
+          words TEXT NOT NULL,         -- JSON list of recognised words
+          updated_at INTEGER NOT NULL, -- ms since epoch
+          PRIMARY KEY (document_id, page)
+        )
+      ''');
     }
   }
 }
