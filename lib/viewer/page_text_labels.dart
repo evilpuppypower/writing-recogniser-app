@@ -120,6 +120,13 @@ const minLabelFontSize = 9.0;
 }
 
 class _PageTextLabelsState extends State<PageTextLabels> {
+  // The labels last built, and what they were built from: any change to
+  // the ink or any page's text notifies every page, so most rebuilds find
+  // nothing changed on this one and reuse them (owner's stutter feedback).
+  Widget? _built;
+  List<RecognizedWord> _builtWords = const [];
+  Object? _builtSettings;
+
   @override
   void initState() {
     super.initState();
@@ -137,7 +144,24 @@ class _PageTextLabelsState extends State<PageTextLabels> {
           for (final w in widget.text.wordsOn(widget.pageNumber))
             if (skip == null || !skip(w)) w,
         ];
-        return Stack(
+        final settings = (
+          widget.viewWidth,
+          widget.above,
+          widget.geometry.width,
+          widget.geometry.height,
+          widget.geometry.quarterTurns,
+          scheme,
+          MediaQuery.textScalerOf(context),
+          widget.onDoubleTap != null,
+        );
+        if (_built != null &&
+            settings == _builtSettings &&
+            _sameWords(words, _builtWords)) {
+          return _built!;
+        }
+        _builtWords = words;
+        _builtSettings = settings;
+        return _built = Stack(
           clipBehavior: Clip.none,
           children: [
             for (final w in words)
@@ -194,6 +218,16 @@ class _PageTextLabelsState extends State<PageTextLabels> {
       },
     );
   }
+}
+
+/// Whether [a] and [b] are the same word objects (a word that changes is
+/// replaced by a new object).
+bool _sameWords(List<RecognizedWord> a, List<RecognizedWord> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (!identical(a[i], b[i])) return false;
+  }
+  return true;
 }
 
 /// Hit-tests its child but reports "not hit", so whatever is underneath

@@ -331,23 +331,23 @@ void main() {
       final paint = find.descendant(
         of: find.byType(PageInkLayer),
         matching: find.byType(CustomPaint),
-      );
+      ); // the last is the layer for the pen's current action
       final at = tester.getTopLeft(find.byType(PageInkLayer));
       final g = await tester.createGesture(kind: PointerDeviceKind.stylus);
       await g.addPointer(location: at + const Offset(40, 40));
       await g.moveTo(at + const Offset(60, 60)); // hovering, not touching
       await tester.pump();
-      expect(tester.renderObject(paint.first), isNot(paints..circle()));
+      expect(tester.renderObject(paint.last), isNot(paints..circle()));
       await g.down(at + const Offset(60, 60)); // touching: erasing
       await g.moveTo(at + const Offset(70, 60));
       await tester.pump();
       expect(
-        tester.renderObject(paint.first),
+        tester.renderObject(paint.last),
         paints..circle(x: 70, y: 60, radius: 8),
       );
       await g.up(); // lifted: gone straight away
       await tester.pump();
-      expect(tester.renderObject(paint.first), isNot(paints..circle()));
+      expect(tester.renderObject(paint.last), isNot(paints..circle()));
       await g.removePointer();
       await tester.pump(const Duration(seconds: 1));
     });
@@ -365,7 +365,7 @@ void main() {
       await g.addPointer(location: at + const Offset(40, 40));
       await g.moveTo(at + const Offset(60, 60));
       await tester.pump();
-      expect(tester.renderObject(paint.first), isNot(paints..circle()));
+      expect(tester.renderObject(paint.last), isNot(paints..circle()));
       await g.removePointer();
     });
   });

@@ -668,6 +668,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const Divider(),
+          const _Header('Testing'),
+          SwitchListTile(
+            title: const Text('Show smoothness graphs'),
+            subtitle: const Text(
+              'Two graphs at the top of the screen measure how smoothly the '
+              'app draws. Thin green bars: smooth. Red bars: a stutter. '
+              'Turns off when the app restarts.',
+            ),
+            value: settings.showSmoothnessGraphs,
+            onChanged: (v) => settings.showSmoothnessGraphs = v,
+          ),
+          const Divider(),
           const _Header('About'),
           ListTile(
             leading: const Icon(Icons.info_outline),

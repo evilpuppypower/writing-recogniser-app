@@ -184,6 +184,36 @@ void main() {
     c.dispose();
   });
 
+  testWidgets('labels are reused when another page changes', (tester) async {
+    final c = InkTextController(engine: FakeEngine());
+    final strokes = word(100, 700, 3, 0);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 306,
+            height: 396,
+            child: PageTextLabels(
+              pageNumber: 1,
+              geometry: PageGeometry(width: 612, height: 792),
+              viewWidth: 306,
+              text: c,
+              strokes: () => strokes,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final before = tester.widget(find.text('w3'));
+    c.inkChanged(2, word(100, 700, 2, 9000), pause);
+    await tester.pump(pause * 2);
+    await tester.pumpAndSettle();
+    expect(c.wordsOn(2), isNotEmpty, reason: 'page 2 was read');
+    expect(identical(tester.widget(find.text('w3')), before), isTrue);
+    c.dispose();
+  });
+
   testWidgets('underlines are not read as words', (tester) async {
     final engine = FakeEngine();
     final c = InkTextController(engine: engine);

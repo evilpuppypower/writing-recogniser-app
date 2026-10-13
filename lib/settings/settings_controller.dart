@@ -20,6 +20,16 @@ class SettingsController extends ChangeNotifier {
     await onSave?.call(settings);
   }
 
+  /// Shows Flutter's frame-timing graphs over the app, to measure
+  /// stutter on the tablet. Not saved: off again when the app restarts.
+  bool get showSmoothnessGraphs => _graphs;
+  bool _graphs = false;
+  set showSmoothnessGraphs(bool on) {
+    if (on == _graphs) return;
+    _graphs = on;
+    notifyListeners();
+  }
+
   static const _prefix = 'settings.';
 
   /// Loads saved settings from the device (defaults if none saved yet).
