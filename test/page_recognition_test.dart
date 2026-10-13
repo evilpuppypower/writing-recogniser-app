@@ -21,6 +21,21 @@ void main() {
     ...word(100, 670, 2, 2000),
   ];
 
+  test('each line is measured on its own letters', () {
+    final big = [
+      for (var i = 0; i < 3; i++)
+        PageStroke(
+          points: [
+            PageInkPoint(100 + i * 35.0, 400, 5000 + i * 200),
+            PageInkPoint(115 + i * 35.0, 450, 5040 + i * 200),
+            PageInkPoint(130 + i * 35.0, 400, 5080 + i * 200),
+          ],
+        ),
+    ];
+    final plan = planRecognition([...page, ...big], const {});
+    expect(plan.jobs.map((j) => j.letterHeight), [10, 10, 10, 50]);
+  });
+
   test('everything is new at first, with no context', () {
     final plan = planRecognition(page, const {});
     expect(plan.jobs, hasLength(3));

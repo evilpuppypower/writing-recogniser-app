@@ -18,7 +18,8 @@ abstract class InkClassifier {
   Future<List<InkKind>> classify(List<PageStroke> strokes);
 }
 
-/// Shape rules, measured in the page's typical letter height h:
+/// Shape rules, measured in the typical letter height h of the writing
+/// around each stroke:
 ///  - much taller than a line of writing (> 3.5 h), or
 ///  - a nearly straight line longer than 4 h (underline, strike-through,
 ///    arrow shaft), or
@@ -34,11 +35,35 @@ class ShapeInkClassifier implements InkClassifier {
       classifySync(strokes);
 
   List<InkKind> classifySync(List<PageStroke> strokes) {
-    final h = typicalLetterHeight([
-      for (final s in strokes)
-        if (s.points.isNotEmpty) InkBox.of(s),
-    ]);
-    return [for (final s in strokes) kindOf(s, h)];
+    final boxes = [
+      for (final s in strokes) s.points.isEmpty ? null : InkBox.of(s),
+    ];
+    final page = typicalLetterHeight(boxes.nonNulls);
+    return [
+      for (var i = 0; i < strokes.length; i++)
+        kindOf(strokes[i], localLetterHeight(boxes, i) ?? page),
+    ];
+  }
+
+  /// The letter height around stroke [i]: the typical height of the
+  /// strokes beside it (sharing some of its height, no further to the side
+  /// than its own size; itself included), so big writing is measured
+  /// against big writing, while a circle or bracket drawn round small
+  /// writing is measured against the small writing. Null when nothing is
+  /// beside it (the page's letter height is used then).
+  static double? localLetterHeight(List<InkBox?> boxes, int i) {
+    final b = boxes[i];
+    if (b == null) return null;
+    final reach = math.max(b.width, b.height);
+    final near = <InkBox>[];
+    for (final o in boxes) {
+      if (o == null) continue;
+      final dx = b.horizontalGap(o);
+      final sharesHeight = o.bottom <= b.top && o.top >= b.bottom;
+      if (sharesHeight && dx <= reach) near.add(o);
+    }
+    if (near.length < 2) return null;
+    return typicalLetterHeight(near);
   }
 
   /// The kind of one stroke, given the letter height [h] (PDF points).

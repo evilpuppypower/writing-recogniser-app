@@ -18,6 +18,7 @@ class RecognitionJob {
     required this.word,
     required this.line,
     required this.preContext,
+    this.letterHeight = 4,
   });
 
   final String key;
@@ -29,17 +30,19 @@ class RecognitionJob {
   /// Recognised text of the words just before this one on the page, in
   /// reading order (helps the engine pick between similar words).
   final String preContext;
+
+  /// Typical letter height of the word's line, in PDF points: the engine
+  /// gets each line scaled to its own size, so big and small writing on
+  /// the same page are both read.
+  final double letterHeight;
 }
 
 /// The plan for one page: the words that need recognising, and every word
 /// key on the page now (results for other keys are out of date).
 class RecognitionPlan {
-  const RecognitionPlan(this.lines, this.jobs, this.keys, this.letterHeight);
+  const RecognitionPlan(this.lines, this.jobs, this.keys);
 
   final List<InkLine> lines;
-
-  /// Typical letter height of the writing on the page, in PDF points.
-  final double letterHeight;
   final List<RecognitionJob> jobs;
   final Set<String> keys;
 }
@@ -74,6 +77,7 @@ RecognitionPlan planRecognition(
             preContext: ctx.length > preContextChars
                 ? ctx.substring(ctx.length - preContextChars)
                 : ctx,
+            letterHeight: lines[l].letterHeight,
           ),
         );
       } else {
@@ -82,11 +86,7 @@ RecognitionPlan planRecognition(
       }
     }
   }
-  final letter = typicalLetterHeight([
-    for (final s in strokes)
-      if (isWriting(s)) InkBox.of(s),
-  ]);
-  return RecognitionPlan(lines, jobs, keys, letter);
+  return RecognitionPlan(lines, jobs, keys);
 }
 
 /// One piece of ink the user marked "This isn't writing" (task 2.4c),
