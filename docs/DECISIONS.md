@@ -389,3 +389,7 @@ Labels fade out 5 seconds after the ink last changed, so they don't clutter the 
 ## 2026-10-13 — One typed box per line (owner's choice F1)
 
 Converting now makes one piece of typed text per line of handwriting (its words left to right), shown in one box with one text size, so a sentence stays together and isn't cut off. Lines are the app's own handwriting lines, which keep writing far apart at the same height separate. Words converted at different times on the same line are also shown (and exported) as one line. Tapping the text edits that piece; when the edit has as many words as before, each changed word also teaches the learning layer, like a correction.
+
+## 2026-10-13 — Writing guide line (owner's choice F2)
+
+While writing with the pen, a faint line fades in under the line being written and fades out 3 seconds after the pen last lifts. It sits at the middle of the letters' bottoms (so tails of g, y and p don't pull it down) and runs from the start of the line to a little past its end, where the next word goes. Pale grey by default; Settings → Recognised text → "Writing guide line" offers pale blue or off. It's drawn only on screen, never saved or exported.

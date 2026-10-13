@@ -7,11 +7,13 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../core/app_settings.dart' show WritingGuide;
 import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/pen_tap.dart';
 import '../core/pen_tools.dart';
 import '../core/typed_text.dart' show convertedGroups;
+import '../core/writing_guide.dart';
 import '../settings/settings_controller.dart';
 
 /// One undoable change: a page's strokes before and after.
@@ -455,6 +457,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
     if (_erasing) {
       _erase(e);
     } else {
+      _guideHide?.cancel(); // stays while writing
       _active.value = [_pointOf(e)];
       _snapped = false;
       _restartSnapTimer(e.localPosition);
@@ -563,6 +566,28 @@ class _PageInkLayerState extends State<PageInkLayer> {
     }
     _drawHeld(); // keep the order the strokes were written in
     widget.controller.add(widget.pageNumber, stroke);
+    _showGuide(stroke);
+  }
+
+  /// The writing guide (owner's choice F2): under the line [stroke] is on,
+  /// fading in while writing and out [_guideFor] after the pen last lifts.
+  final _guide = ValueNotifier<GuideLine?>(null);
+  final _guideShown = ValueNotifier<bool>(false);
+  Timer? _guideHide;
+  static const _guideFor = Duration(seconds: 3);
+
+  void _showGuide(PageStroke stroke) {
+    final setting = SettingsScope.valueOf(context).writingGuide;
+    if (setting == WritingGuide.off || stroke.tool != InkTool.pen) return;
+    final guide = guideFor(
+      widget.controller.ink.strokesOn(widget.pageNumber),
+      stroke.id,
+    );
+    if (guide == null) return;
+    _guide.value = guide;
+    _guideShown.value = true;
+    _guideHide?.cancel();
+    _guideHide = Timer(_guideFor, () => _guideShown.value = false);
   }
 
   void _cancel() {
@@ -614,6 +639,9 @@ class _PageInkLayerState extends State<PageInkLayer> {
     _active.dispose();
     _eraserAt.dispose();
     _picture.dispose();
+    _guideHide?.cancel();
+    _guide.dispose();
+    _guideShown.dispose();
     super.dispose();
   }
 
@@ -646,6 +674,26 @@ class _PageInkLayerState extends State<PageInkLayer> {
                 pressure: pressure,
                 cache: _picture,
                 showTyped: widget.showTyped,
+              ),
+            ),
+          ),
+          ValueListenableBuilder(
+            valueListenable: _guideShown,
+            builder: (context, shown, child) => AnimatedOpacity(
+              opacity: shown ? 1 : 0,
+              duration: Duration(milliseconds: shown ? 250 : 800),
+              child: child,
+            ),
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: _GuidePainter(
+                  guide: _guide,
+                  geometry: widget.geometry,
+                  viewWidth: widget.viewWidth,
+                  colorArgb: SettingsScope.valueOf(context)
+                      .writingGuide
+                      .colorArgb,
+                ),
               ),
             ),
           ),
@@ -938,6 +986,44 @@ class _ActiveInkPainter extends CustomPainter {
   @override
   bool shouldRepaint(_ActiveInkPainter old) =>
       old.viewWidth != viewWidth || old.pressure != pressure;
+}
+
+/// The writing guide line (see [guideFor]).
+class _GuidePainter extends CustomPainter {
+  _GuidePainter({
+    required this.guide,
+    required this.geometry,
+    required this.viewWidth,
+    required this.colorArgb,
+  }) : super(repaint: guide);
+
+  final ValueListenable<GuideLine?> guide;
+  final PageGeometry geometry;
+  final double viewWidth;
+  final int colorArgb;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final g = guide.value;
+    if (g == null || colorArgb == 0) return;
+    final a = geometry.toView(PdfPagePoint(g.left, g.baseline), viewWidth);
+    final b = geometry.toView(PdfPagePoint(g.right, g.baseline), viewWidth);
+    canvas.drawLine(
+      Offset(a.x, a.y),
+      Offset(b.x, b.y),
+      Paint()
+        ..color = Color(colorArgb)
+        ..strokeWidth = 1.5
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool hitTest(Offset position) => false;
+
+  @override
+  bool shouldRepaint(_GuidePainter old) =>
+      old.viewWidth != viewWidth || old.colorArgb != colorArgb;
 }
 
 /// Draws strokes on a page laid out [viewWidth] pixels wide.

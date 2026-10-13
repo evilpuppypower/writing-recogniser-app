@@ -516,6 +516,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          ListTile(
+            title: const Text('Writing guide line'),
+            subtitle: const Text(
+              'A faint line that fades in under the line you are writing, '
+              'to keep a sentence straight and together.',
+            ),
+            trailing: DropdownButton<WritingGuide>(
+              value: s.writingGuide,
+              onChanged: (v) {
+                if (v != null) settings.update(s.copyWith(writingGuide: v));
+              },
+              items: [
+                for (final g in WritingGuide.values)
+                  DropdownMenuItem(value: g, child: Text(g.label)),
+              ],
+            ),
+          ),
           const Divider(),
           const _Header('MyScript Cloud'),
           FutureBuilder(
