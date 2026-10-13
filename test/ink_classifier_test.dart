@@ -84,4 +84,22 @@ void main() {
     ]);
     expect(kinds, [InkKind.writing, InkKind.drawing, InkKind.drawing]);
   });
+
+  test('big writing among small writing is writing', () {
+    PageStroke big(double x) =>
+        stroke([(x, 400), (x + 15, 450), (x + 30, 400)]);
+    final strokes = [
+      for (var i = 0; i < 12; i++) letter(100 + i * 8.0),
+      for (var i = 0; i < 4; i++) big(100 + i * 35.0),
+    ];
+    expect(c.classifySync(strokes).toSet(), {InkKind.writing});
+  });
+
+  test('a bracket beside small writing is still a drawing', () {
+    final strokes = [
+      for (var i = 0; i < 6; i++) letter(100 + i * 8.0),
+      stroke([(90, 740), (85, 700), (90, 660)]),
+    ];
+    expect(c.classifySync(strokes).last, InkKind.drawing);
+  });
 }

@@ -10,7 +10,8 @@ import 'ink.dart';
 import 'page_ink.dart';
 
 /// Tuning for [groupStrokes]. Distances are in multiples of the writing's
-/// typical letter height, so they work at any handwriting size.
+/// typical letter height (each line's own, so big and small writing on the
+/// same page both work).
 class GroupingParams {
   const GroupingParams({
     this.wordGap = 0.6,
@@ -93,9 +94,12 @@ class InkWord {
 
 /// One line of handwriting, words left to right.
 class InkLine {
-  InkLine(this.words);
+  InkLine(this.words, {this.letterHeight = 4});
 
   final List<InkWord> words;
+
+  /// Typical letter height of this line's writing, in PDF points.
+  final double letterHeight;
 
   InkBox get box => words.map((w) => w.box).reduce((a, b) => a.union(b));
 }
@@ -122,7 +126,8 @@ List<InkLine> groupStrokes(
   final letter = typicalLetterHeight(boxes.values);
 
   // Lines: each stroke joins the line it overlaps most in height (and is
-  // near enough to sideways), in writing order.
+  // near enough to sideways), in writing order. Sizes are measured against
+  // each line's own letters, so big writing next to small writing works.
   final lines = <_Line>[];
   for (final i in idx) {
     final b = boxes[i]!;
@@ -130,20 +135,20 @@ List<InkLine> groupStrokes(
     var bestOverlap = params.lineOverlap;
     // Dots and small marks (the dot of an i, an accent) sit just above or
     // below the letters: they join the line they hover over.
-    if (math.max(b.width, b.height) < letter * 0.4) {
-      for (final line in lines) {
-        final l = line.box;
-        if (b.horizontalGap(l) <= 0 &&
-            b.centerY > l.bottom - letter * 0.8 &&
-            b.centerY < l.top + letter * 0.8) {
-          best = line;
-          break;
-        }
+    for (final line in lines) {
+      final l = line.box, h = line.letter ?? letter;
+      if (math.max(b.width, b.height) < h * 0.4 &&
+          b.horizontalGap(l) <= 0 &&
+          b.centerY > l.bottom - h * 0.8 &&
+          b.centerY < l.top + h * 0.8) {
+        best = line;
+        break;
       }
     }
     for (final line in best == null ? lines : const <_Line>[]) {
-      if (b.horizontalGap(line.box) > params.lineReach * letter) continue;
-      final o = b.verticalOverlap(line.band(letter));
+      final h = math.max(letter, line.letter ?? letter);
+      if (b.horizontalGap(line.box) > params.lineReach * h) continue;
+      final o = b.verticalOverlap(line.band(line.letter ?? letter));
       if (o >= bestOverlap) {
         bestOverlap = o;
         best = line;
@@ -159,6 +164,7 @@ List<InkLine> groupStrokes(
   // Words: within a line, left to right, split at wide gaps.
   final result = <InkLine>[];
   for (final line in lines) {
+    final lineLetter = line.letter ?? letter;
     final order = [...line.strokes]
       ..sort((a, c) => boxes[a]!.left.compareTo(boxes[c]!.left));
     final words = <InkWord>[];
@@ -171,7 +177,8 @@ List<InkLine> groupStrokes(
         final apart = math.max(start - w.end, w.start - end);
         final touching = gap <= 0;
         if (touching ||
-            (gap < params.wordGap * letter && apart < params.newSessionMs)) {
+            (gap < params.wordGap * lineLetter &&
+                apart < params.newSessionMs)) {
           join = w;
           break;
         }
@@ -193,7 +200,7 @@ List<InkLine> groupStrokes(
       );
     }
     words.sort((a, c) => a.box.left.compareTo(c.box.left));
-    result.add(InkLine(words));
+    result.add(InkLine(words, letterHeight: lineLetter));
   }
   // Top of the page first (PDF y grows upward).
   result.sort((a, c) => c.box.centerY.compareTo(a.box.centerY));
@@ -202,12 +209,15 @@ List<InkLine> groupStrokes(
 
 /// The typical height of a letter in this writing: the median height of the
 /// strokes, ignoring dots and stray marks. At least 4 pt.
-double typicalLetterHeight(Iterable<InkBox> boxes) {
+double typicalLetterHeight(Iterable<InkBox> boxes) => _medianLetter(boxes) ?? 4;
+
+/// Like [typicalLetterHeight], but null when there are only dots.
+double? _medianLetter(Iterable<InkBox> boxes) {
   final h = [
     for (final b in boxes)
       if (math.max(b.width, b.height) > 1.5) b.height,
   ]..sort();
-  if (h.isEmpty) return 4;
+  if (h.isEmpty) return null;
   return math.max(4.0, h[h.length ~/ 2]);
 }
 
@@ -233,14 +243,23 @@ List<InkStroke> wordInk(
 ];
 
 class _Line {
-  _Line(int i, InkBox b) : strokes = [i], box = b;
+  _Line(int i, InkBox b) : strokes = [i], box = b, _boxes = [b] {
+    letter = _medianLetter(_boxes);
+  }
 
   final List<int> strokes;
+  final List<InkBox> _boxes;
   InkBox box;
+
+  /// Typical letter height of this line so far (null while it has only
+  /// dots).
+  double? letter;
 
   void add(int i, InkBox b) {
     strokes.add(i);
+    _boxes.add(b);
     box = box.union(b);
+    letter = _medianLetter(_boxes);
   }
 
   /// The height band this line's letters sit in: its box, but at least one

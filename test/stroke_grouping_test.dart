@@ -101,6 +101,39 @@ void main() {
     expect(groupStrokes(strokes).single.words.single.strokes, [0, 1, 2]);
   });
 
+  test('big writing below small writing stays whole words', () {
+    // Small notes (10 pt letters), then a big word: 50 pt letters 35 pt
+    // apart, so 10 pt gaps (more than 0.6 x the small letters).
+    final strokes = [
+      ...word(100, 700, 4, 0),
+      ...word(100, 680, 4, 1000),
+      for (var i = 0; i < 4; i++)
+        letter(100 + i * 35.0, 550, 2000 + i * 200, h: 50),
+    ];
+    final lines = groupStrokes(strokes);
+    expect(lines, hasLength(3));
+    expect(lines[2].words.single.strokes, hasLength(4));
+    expect(lines[2].letterHeight, 50);
+    expect(lines[0].letterHeight, 10);
+  });
+
+  test('the dot of a big i joins its line', () {
+    final strokes = [
+      ...word(100, 700, 6, 0),
+      letter(100, 500, 2000, h: 50),
+      // A 5 pt dot 6 pt above the big letter.
+      PageStroke(
+        points: const [
+          PageInkPoint(103, 556, 2500),
+          PageInkPoint(106, 561, 2510),
+        ],
+      ),
+    ];
+    final lines = groupStrokes(strokes);
+    expect(lines, hasLength(2));
+    expect(lines[1].words.single.strokes, [6, 7]);
+  });
+
   test('letter height ignores dots', () {
     final boxes = [
       for (var i = 0; i < 5; i++) const InkBox(0, 0, 6, 10),

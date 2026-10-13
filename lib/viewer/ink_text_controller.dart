@@ -365,9 +365,9 @@ class InkTextController extends ChangeNotifier {
         }
       }
       if (words.length != before) _notify();
-      final scale = engineLetterPixels / plan.letterHeight;
       for (final job in plan.jobs) {
         if (_disposed) return;
+        final scale = engineLetterPixels / job.letterHeight;
         final ink = wordInk(strokes, job.word, scale: scale);
         final sent = DateTime.now().millisecondsSinceEpoch;
         List<Candidate> candidates;
