@@ -193,17 +193,14 @@ void main() {
 
     test('text size on a page turned sideways follows the screen', () {
       // Written across the screen of a page turned 90°: tall on the page.
-      final w = TypedWord(
-        group: 'g',
-        text: 'hello',
-        box: const InkBox(100, 500, 120, 600),
-        colorArgb: 0,
-        strokeIds: const {},
-      );
+      const box = InkBox(100, 500, 120, 600);
       final upright = PageGeometry(width: 612, height: 792);
       final sideways = PageGeometry(width: 612, height: 792, quarterTurns: 1);
-      expect(shownFontSize(w, upright), lessThan(shownFontSize(w, sideways)));
-      expect(shownFontSize(w, sideways), 16, reason: '80% of 20 pt');
+      expect(
+        shownFontSize('hello', box, upright),
+        lessThan(shownFontSize('hello', box, sideways)),
+      );
+      expect(shownFontSize('hello', box, sideways), 16, reason: '80% of 20 pt');
     });
 
     testWidgets('hidden while the handwriting is shown', (tester) async {

@@ -385,3 +385,7 @@ The PDF stuttered with only a little handwriting. Each page's finished ink is no
 ## 2026-10-13 — Recognised-text labels fade (owner's choice C1 + C4, 5 seconds)
 
 Labels fade out 5 seconds after the ink last changed, so they don't clutter the page. They come back when writing (any ink change), when the pen hovers near a recognised word or its label, when a finger taps the page, or with the labels button: when labels are on but faded, the button brings them back instead of switching them off; otherwise it switches them on and off as before (its tooltip says which). Faded labels don't take touches. Not a setting for now.
+
+## 2026-10-13 — One typed box per line (owner's choice F1)
+
+Converting now makes one piece of typed text per line of handwriting (its words left to right), shown in one box with one text size, so a sentence stays together and isn't cut off. Lines are the app's own handwriting lines, which keep writing far apart at the same height separate. Words converted at different times on the same line are also shown (and exported) as one line. Tapping the text edits that piece; when the edit has as many words as before, each changed word also teaches the learning layer, like a correction.

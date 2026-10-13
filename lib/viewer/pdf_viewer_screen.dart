@@ -256,14 +256,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     return words;
   }
 
-  /// Converts [words] on [page] to typed text and shows it (task 2.3c).
+  /// Converts [words] on [page] to typed text and shows it (task 2.3c):
+  /// the words of each line become one piece of typed text, so a sentence
+  /// stays together and can be edited as one (owner's choice F1).
   void _convertWords(int page, List<RecognizedWord> words) {
     final messenger = ScaffoldMessenger.of(context);
-    final map = <Set<String>, String>{
-      for (final w in words)
-        if (w.key.isNotEmpty && w.text.trim().isNotEmpty)
-          w.key.split(',').toSet(): w.text,
-    };
+    final map = typedTextByLine(words);
+    final count = map.values.fold(0, (n, t) => n + t.split(' ').length);
     if (map.isEmpty) {
       messenger.showSnackBar(
         const SnackBar(content: Text('No handwriting was read there.')),
@@ -281,8 +280,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     messenger.showSnackBar(
       SnackBar(
         content: Text(
-          'Converted ${map.length} word${map.length == 1 ? '' : 's'} to '
-          'typed text. Undo takes it back; tap a word to edit it.',
+          'Converted $count word${count == 1 ? '' : 's'} to typed text. '
+          'Undo takes it back; tap the text to edit it.',
         ),
       ),
     );
@@ -381,13 +380,18 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final t = text?.trim() ?? '';
     if (t.isEmpty || t == typed.text || !mounted) return;
     _ink.setTypedText(page, typed.group, t);
-    // The same word as read (mostly the same strokes): teach the learning
-    // layer, like a correction.
-    for (final w in _text.wordsOn(page)) {
-      if (mostlyConverted(w.key, typed.strokeIds)) {
-        await _text.correct(page, w, t);
-        break;
-      }
+    // Teach the learning layer, like a correction, word by word: the words
+    // as read (mostly the same strokes), left to right, matched with the
+    // edited words when there are as many of them.
+    final read = [
+      for (final w in _text.wordsOn(page))
+        if (mostlyConverted(w.key, typed.strokeIds)) w,
+    ]..sort((a, b) => a.box.left.compareTo(b.box.left));
+    final before = typed.text.split(RegExp(r'\s+'));
+    final after = t.split(RegExp(r'\s+'));
+    if (read.length != before.length || before.length != after.length) return;
+    for (var i = 0; i < read.length; i++) {
+      if (after[i] != before[i]) await _text.correct(page, read[i], after[i]);
     }
   }
 

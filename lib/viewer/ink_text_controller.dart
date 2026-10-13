@@ -485,3 +485,23 @@ class InkTextController extends ChangeNotifier {
     super.dispose();
   }
 }
+
+/// What converting [words] stores (owner's choice F1): one piece of typed
+/// text per line of handwriting, its words left to right, keyed by all
+/// their strokes' ids.
+Map<Set<String>, String> typedTextByLine(List<RecognizedWord> words) {
+  final byLine = <int, List<RecognizedWord>>{};
+  for (final w in words) {
+    if (w.key.isNotEmpty && w.text.trim().isNotEmpty) {
+      byLine.putIfAbsent(w.line, () => []).add(w);
+    }
+  }
+  return {
+    for (final line in byLine.values)
+      {
+        for (final w in line) ...w.key.split(','),
+      }: (line..sort((a, b) => a.box.left.compareTo(b.box.left)))
+          .map((w) => w.text.trim())
+          .join(' '),
+  };
+}
