@@ -263,9 +263,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void _convertWords(int page, List<RecognizedWord> words) {
     final messenger = ScaffoldMessenger.of(context);
     // Words already converted (perhaps edited since) are left as they are.
+    // Words with any converted stroke are left as they are (converting the
+    // rest of one would repeat the converted part's text).
+    final done = convertedStrokeIds(_ink.ink.strokesOn(page));
     final fresh = [
       for (final w in words)
-        if (!_isConverted(page, w)) w,
+        if (!w.key.split(',').any(done.contains)) w,
     ];
     final map = typedTextByLine(fresh);
     final count = map.values.fold(0, (n, t) => n + t.split(' ').length);
@@ -1004,6 +1007,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       for (final page in {...written, ...mixed}) {
         saver.changed(page);
         _inkChangedForText(page);
+      }
+      // Saved words are checked against the ink: a page whose ink changed
+      // after its words were saved (closed before a pause ended, or
+      // erased) is read again; only new handwriting goes to the engine.
+      for (final page in {...savedText.keys, ..._ink.ink.pagesWithInk}) {
+        if (written.contains(page) || mixed.contains(page)) continue;
+        _text.ensure(page, _ink.ink.strokesOn(page));
       }
     } catch (e) {
       if (mounted) _saveFailed(e);

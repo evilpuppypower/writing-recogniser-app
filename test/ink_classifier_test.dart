@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/ink_classifier.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
+import 'package:writing_recogniser/core/stroke_grouping.dart';
 
 PageStroke stroke(List<(double, double)> pts) => PageStroke(
   points: [
@@ -101,5 +102,46 @@ void main() {
       stroke([(90, 740), (85, 700), (90, 660)]),
     ];
     expect(c.classifySync(strokes).last, InkKind.drawing);
+  });
+
+  test('a full page: same answers as checking every pair, and quick', () {
+    final r = math.Random(7);
+    // 3000 strokes: lines of small letters, a few big words, some lines.
+    final strokes = <PageStroke>[
+      for (var i = 0; i < 3000; i++)
+        if (i % 50 == 0)
+          stroke([(r.nextDouble() * 500, r.nextDouble() * 700), (550, 20)])
+        else
+          () {
+            final x = r.nextDouble() * 560, y = r.nextDouble() * 760;
+            final h = i % 7 == 0 ? 40.0 : 8 + r.nextDouble() * 4;
+            return stroke([(x, y), (x + h / 3, y + h), (x + h / 2, y)]);
+          }(),
+    ];
+    final boxes = [for (final s in strokes) InkBox.of(s)];
+    // The old way: every stroke against every other.
+    double? slow(int i) {
+      final b = boxes[i];
+      final reach = math.max(b.width, b.height);
+      final near = [
+        for (final o in boxes)
+          if (o.bottom <= b.top &&
+              o.top >= b.bottom &&
+              b.horizontalGap(o) <= reach)
+            o,
+      ];
+      return near.length < 2 ? null : typicalLetterHeight(near);
+    }
+
+    for (var i = 0; i < strokes.length; i += 37) {
+      expect(
+        ShapeInkClassifier.localLetterHeight(boxes, i),
+        slow(i),
+        reason: 'stroke $i',
+      );
+    }
+    final watch = Stopwatch()..start();
+    c.classifySync(strokes);
+    expect(watch.elapsedMilliseconds, lessThan(3000));
   });
 }
