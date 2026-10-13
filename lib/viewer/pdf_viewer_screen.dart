@@ -35,6 +35,7 @@ import '../storage/sqlite_document_store.dart';
 import '../storage/sqlite_event_log.dart';
 import '../storage/sqlite_ink_store.dart';
 import 'ink_text_controller.dart';
+import 'label_fade.dart';
 import 'page_ink_layer.dart';
 import 'correct_word_sheet.dart';
 import 'export_options_dialog.dart';
@@ -161,6 +162,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// Typed text shown instead of the handwriting it was converted from
   /// (task 2.3c; owner: switchable, typed text by default).
   final _showTyped = ValueNotifier<bool>(true);
+
+  /// Labels fade 5 s after writing stops, and come back with the pen
+  /// near them, a tap, or the labels button (owner's choice C1 + C4).
+  final _labelsShown = LabelFade();
 
   /// Whether [w]'s ink is converted and the typed text is showing, so its
   /// label is left out.
@@ -441,6 +446,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void _toggleLabels() {
     final settings = SettingsScope.of(context);
     final s = settings.value;
+    // On but faded: bring them back rather than switching them off (C4).
+    if (s.textLabels != TextLabelPlace.off && !_labelsShown.value) {
+      _labelsShown.wake();
+      return;
+    }
+    _labelsShown.wake();
     if (s.textLabels != TextLabelPlace.off) _lastLabels = s.textLabels;
     settings.update(
       s.copyWith(
@@ -468,11 +479,33 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     settings.update(settings.value.copyWith(textPanel: place));
   }
 
-  void _inkChangedForText(int page) => _text.inkChanged(
-    page,
-    _ink.ink.strokesOn(page),
-    Duration(milliseconds: SettingsScope.of(context).value.recognitionPauseMs),
-  );
+  void _inkChangedForText(int page) {
+    _labelsShown.wake();
+    _text.inkChanged(
+      page,
+      _ink.ink.strokesOn(page),
+      Duration(
+        milliseconds: SettingsScope.of(context).value.recognitionPauseMs,
+      ),
+    );
+  }
+
+  /// The pen hovering near a recognised word (or its label, just above or
+  /// below it) brings the labels back.
+  void _penHover(int page, Offset at, PageGeometry geometry, double width) {
+    final p = geometry.toPdf(ViewPoint(at.dx, at.dy), width);
+    for (final w in _text.wordsOn(page)) {
+      final b = w.box, reach = b.height * 1.5;
+      if (p.x >= b.left - reach &&
+          p.x <= b.right + reach &&
+          p.y >= b.bottom - reach &&
+          p.y <= b.top + reach) {
+        _labelsShown.wake();
+        return;
+      }
+    }
+  }
+
   InkAutosaver? _autosaver;
   late final AppLifecycleListener _lifecycle;
 
@@ -691,12 +724,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       child: GestureDetector(
         supportedDevices: const {PointerDeviceKind.touch},
         behavior: HitTestBehavior.translucent,
-        onTapUp: (d) => _typedTapAt(
-          page.pageNumber,
-          d.localPosition,
-          _geometryOf(page),
-          pageRect.width,
-        )?.call(),
+        onTapUp: (d) {
+          _labelsShown.wake();
+          _typedTapAt(
+            page.pageNumber,
+            d.localPosition,
+            _geometryOf(page),
+            pageRect.width,
+          )?.call();
+        },
         child: PageInkLayer(
           pageNumber: page.pageNumber,
           geometry: _geometryOf(page),
@@ -705,6 +741,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           tools: _tools,
           showTyped: _showTyped,
           onLasso: (loop) => _lassoDrawn(page.pageNumber, loop),
+          onPenHover: (at) =>
+              _penHover(page.pageNumber, at, _geometryOf(page), pageRect.width),
           // Pen tap on typed text: edit it (task 2.3c).
           tapActionAt: (at) => _typedTapAt(
             page.pageNumber,
@@ -768,6 +806,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   onDoubleTap: (w) => _fixWord(page.pageNumber, w),
                   skip: (w) => _shownTyped(page.pageNumber, w),
                   refresh: Listenable.merge([_ink, _showTyped]),
+                  shown: _labelsShown,
                 );
         },
       ),
@@ -1220,6 +1259,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _ink.dispose();
     _tools.dispose();
     _showTyped.dispose();
+    _labelsShown.dispose();
     super.dispose();
   }
 
@@ -1279,13 +1319,19 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                       return Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          IconButton(
-                            tooltip: labels
-                                ? 'Hide recognised text over the ink'
-                                : 'Show recognised text over the ink',
-                            isSelected: labels,
-                            icon: const Icon(Icons.text_fields),
-                            onPressed: _toggleLabels,
+                          ValueListenableBuilder(
+                            valueListenable: _labelsShown,
+                            builder: (context, awake, _) => IconButton(
+                              tooltip: !labels
+                                  ? 'Show recognised text over the ink'
+                                  : awake
+                                  ? 'Hide recognised text over the ink'
+                                  : 'Bring back the recognised text (it '
+                                        'fades while you\'re not writing)',
+                              isSelected: labels,
+                              icon: const Icon(Icons.text_fields),
+                              onPressed: _toggleLabels,
+                            ),
                           ),
                           IconButton(
                             tooltip: panel
