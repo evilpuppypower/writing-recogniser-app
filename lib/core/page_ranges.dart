@@ -2,12 +2,16 @@
 /// make only some pages' handwriting searchable). Pure Dart.
 library;
 
-/// The pages in [text] ("1-3, 7", "2", "4-"), each between 1 and
-/// [pageCount]. Throws a [FormatException] with a message to show if the
-/// text can't be read.
+/// The pages in [text] ("1-3, 7", "2", "4-", "1 to 3"), each between 1 and
+/// [pageCount]. Any kind of dash works (keyboards offer several), with or
+/// without spaces around it. Throws a [FormatException] with a message to
+/// show if the text can't be read.
 Set<int> parsePageRanges(String text, int pageCount) {
   final pages = <int>{};
-  final parts = text.split(RegExp(r'[,;\s]+')).where((p) => p.isNotEmpty);
+  final tidy = text
+      .replaceAll(RegExp('[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]'), '-')
+      .replaceAll(RegExp(r'\s*(?:-|\bto\b)\s*', caseSensitive: false), '-');
+  final parts = tidy.split(RegExp(r'[,;\s]+')).where((p) => p.isNotEmpty);
   if (parts.isEmpty) {
     throw const FormatException('Type the pages, e.g. 1-3, 7.');
   }
@@ -21,7 +25,7 @@ Set<int> parsePageRanges(String text, int pageCount) {
   }
 
   for (final part in parts) {
-    final dash = part.split(RegExp(r'[-–]'));
+    final dash = part.split('-');
     if (dash.length == 1) {
       pages.add(page(part));
     } else if (dash.length == 2) {
@@ -34,4 +38,25 @@ Set<int> parsePageRanges(String text, int pageCount) {
     }
   }
   return pages;
+}
+
+/// [pages] written short, e.g. "1–3, 7" (for "Exports pages 1–3, 7").
+String describePages(Set<int> pages) {
+  final sorted = pages.toList()..sort();
+  final runs = <String>[];
+  for (var i = 0; i < sorted.length; i++) {
+    final from = sorted[i];
+    while (i + 1 < sorted.length && sorted[i + 1] == sorted[i] + 1) {
+      i++;
+    }
+    final to = sorted[i];
+    runs.add(
+      to == from
+          ? '$from'
+          : to == from + 1
+          ? '$from, $to'
+          : '$from–$to',
+    );
+  }
+  return runs.join(', ');
 }

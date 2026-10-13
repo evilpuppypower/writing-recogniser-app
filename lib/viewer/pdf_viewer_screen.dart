@@ -1182,6 +1182,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       return;
     }
     final took = (watch.elapsedMilliseconds / 1000).toStringAsFixed(1);
+    // So a wrong page choice shows straight away.
+    final all = _pageCount;
+    final n = choice.pages?.where((p) => all == null || p <= all).length ?? all;
+    final pageCount = n == null ? 'all pages' : '$n page${n == 1 ? '' : 's'}';
     bool saved;
     try {
       saved = await (share ? widget.shareFile : widget.saveFile)(
@@ -1206,7 +1210,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       SnackBar(
         content: Text(
           'Saved ${exportFileName(widget.title)} '
-          '(${formatBytes(bytes.length)}, made in $took s). '
+          '($pageCount, ${formatBytes(bytes.length)}, made in $took s). '
           'The original PDF is unchanged.',
         ),
       ),

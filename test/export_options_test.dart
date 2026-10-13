@@ -50,7 +50,10 @@ void main() {
     await tester.tap(find.text('Export'));
     await tester.pumpAndSettle();
     expect(find.textContaining("isn't in this PDF (1-12)"), findsOneWidget);
-    await tester.enterText(find.byType(TextField), '2-4, 9');
+    await tester.enterText(find.byType(TextField), '2 – 4, 9');
+    await tester.pump();
+    // Says which pages go in before exporting.
+    expect(find.text('Exports pages 2–4, 9 (4 of 12).'), findsOneWidget);
     await tester.tap(find.text('Export'));
     await tester.pumpAndSettle();
     final c = await choice;
