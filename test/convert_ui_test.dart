@@ -182,11 +182,11 @@ void main() {
       final geometry = PageGeometry(width: 612, height: 792);
       final strokes = ink.ink.strokesOn(1);
       expect(
-        typedWordAt(strokes, const Offset(105, 87), geometry, 612)?.text,
+        typedLineAt(strokes, const Offset(105, 87), geometry, 612)?.text,
         'cat',
       );
       expect(
-        typedWordAt(strokes, const Offset(300, 87), geometry, 612),
+        typedLineAt(strokes, const Offset(300, 87), geometry, 612),
         isNull,
       );
     });

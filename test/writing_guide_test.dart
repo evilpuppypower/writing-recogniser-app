@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/app_settings.dart';
 import 'package:writing_recogniser/core/page_coordinates.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
+import 'package:writing_recogniser/core/pen_tools.dart';
 import 'package:writing_recogniser/core/writing_guide.dart';
 import 'package:writing_recogniser/viewer/page_ink_layer.dart';
 
@@ -49,6 +50,7 @@ void main() {
 
   testWidgets('fades in while writing and out 3 s after', (tester) async {
     final ink = DocumentInkController();
+    final tools = ValueNotifier(const PenToolsState());
     await tester.pumpWidget(
       MaterialApp(
         home: Align(
@@ -61,6 +63,7 @@ void main() {
               geometry: PageGeometry(width: 612, height: 792),
               viewWidth: 612,
               controller: ink,
+              tools: tools,
             ),
           ),
         ),
@@ -88,5 +91,62 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
     expect(opacity(), 0);
     await tester.pumpAndSettle();
+    // A pen stroke, then straight away the highlighter (no guide for it):
+    // the guide still fades.
+    await pen.down(const Offset(120, 100));
+    await pen.moveTo(const Offset(123, 90));
+    await tester.pump(const Duration(milliseconds: 40));
+    await pen.moveTo(const Offset(126, 100));
+    await pen.up();
+    await tester.pump();
+    expect(opacity(), 1);
+    tools.value = tools.value.copyWith(mode: PenMode.highlighter);
+    await pen.down(const Offset(100, 300));
+    await pen.moveTo(const Offset(200, 300));
+    await tester.pump(const Duration(milliseconds: 40));
+    await pen.up();
+    await tester.pump(const Duration(seconds: 3));
+    expect(opacity(), 0);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('no guide on a page turned sideways', (tester) async {
+    final ink = DocumentInkController();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 792,
+            height: 612,
+            child: PageInkLayer(
+              pageNumber: 1,
+              geometry: PageGeometry(width: 612, height: 792, quarterTurns: 1),
+              viewWidth: 792,
+              controller: ink,
+            ),
+          ),
+        ),
+      ),
+    );
+    final pen = await tester.createGesture(kind: PointerDeviceKind.stylus);
+    await pen.down(const Offset(100, 100));
+    await pen.moveTo(const Offset(103, 90));
+    await tester.pump(const Duration(milliseconds: 40));
+    await pen.moveTo(const Offset(106, 100));
+    await pen.up();
+    await tester.pump();
+    expect(ink.ink.strokesOn(1), hasLength(1));
+    expect(
+      tester
+          .widget<AnimatedOpacity>(
+            find.descendant(
+              of: find.byType(PageInkLayer),
+              matching: find.byType(AnimatedOpacity),
+            ),
+          )
+          .opacity,
+      0,
+    );
   });
 }

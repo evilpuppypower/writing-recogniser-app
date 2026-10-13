@@ -21,6 +21,9 @@ void main() {
       '1\u20113', // non-breaking hyphen
       '1 to 3',
       '1 TO 3',
+      '1to3',
+      '1 to3',
+      '-3',
     ]) {
       expect(parsePageRanges(range, 5), {1, 2, 3}, reason: range);
     }
@@ -35,7 +38,7 @@ void main() {
   });
 
   test('mistakes give a message to show', () {
-    for (final bad in ['', 'abc', '0', '11', '5-2', '1-2-3']) {
+    for (final bad in ['', 'abc', '0', '11', '5-2', '1-2-3', '-', 'to 5']) {
       expect(
         () => parsePageRanges(bad, 10),
         throwsA(isA<FormatException>()),
