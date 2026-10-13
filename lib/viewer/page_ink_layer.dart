@@ -236,7 +236,11 @@ class PageInkLayer extends StatefulWidget {
     this.onLasso,
     this.showTyped,
     this.tapActionAt,
+    this.onPenHover,
   });
+
+  /// Called as the pen hovers over the page (not touching), with where.
+  final void Function(Offset at)? onPenHover;
 
   /// What a single pen tap at a point does (e.g. edit the typed text
   /// there, task 2.3c), or null if a tap there is just a dot.
@@ -317,6 +321,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
     // The outline shows only while erasing (owner: the tablet's own hover
     // circle already shows where the pen is), so hovering hides it.
     if (_eraserAt.value != null) _hideEraser();
+    widget.onPenHover?.call(e.localPosition);
   }
 
   /// Where and when the pen touched down, and how far it has moved since

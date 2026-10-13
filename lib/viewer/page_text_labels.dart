@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
@@ -20,7 +21,12 @@ class PageTextLabels extends StatefulWidget {
     this.onDoubleTap,
     this.skip,
     this.refresh,
+    this.shown,
   });
+
+  /// Whether the labels are showing (they fade out when not, see
+  /// [LabelFade]). Always shown when null.
+  final ValueListenable<bool>? shown;
 
   /// Words whose label isn't shown (e.g. converted to typed text, which
   /// shows instead, task 2.3c), and what to listen to for changes to that.
@@ -135,6 +141,24 @@ class _PageTextLabelsState extends State<PageTextLabels> {
 
   @override
   Widget build(BuildContext context) {
+    final labels = _labels(context);
+    final shown = widget.shown;
+    if (shown == null) return labels;
+    return ValueListenableBuilder(
+      valueListenable: shown,
+      child: labels,
+      builder: (context, on, child) => IgnorePointer(
+        ignoring: !on,
+        child: AnimatedOpacity(
+          opacity: on ? 1 : 0,
+          duration: Duration(milliseconds: on ? 150 : 600),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  Widget _labels(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return ListenableBuilder(
       listenable: Listenable.merge([widget.text, ?widget.refresh]),

@@ -381,3 +381,7 @@ Big handwriting wasn't read when the same page also had smaller writing: everyth
 ## 2026-10-13 — Smoother scrolling and writing (owner's test feedback)
 
 The PDF stuttered with only a little handwriting. Each page's finished ink is now drawn once and kept as a picture that is scaled for every zoom level, and only drawn again when that page's ink changes; the stroke under the pen, the lasso and the eraser outline are drawn on their own layer, so moving the pen no longer redraws the whole page. A page's labels and typed text are rebuilt only when that page's words or the layout change (any change used to rebuild every visible page's labels). To measure it on the tablet, Settings → Testing → "Show smoothness graphs" turns on Flutter's own frame-timing graphs (not saved, so it is off after a restart).
+
+## 2026-10-13 — Recognised-text labels fade (owner's choice C1 + C4, 5 seconds)
+
+Labels fade out 5 seconds after the ink last changed, so they don't clutter the page. They come back when writing (any ink change), when the pen hovers near a recognised word or its label, when a finger taps the page, or with the labels button: when labels are on but faded, the button brings them back instead of switching them off; otherwise it switches them on and off as before (its tooltip says which). Faded labels don't take touches. Not a setting for now.
