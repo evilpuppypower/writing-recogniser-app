@@ -1,0 +1,5 @@
+# Never commit the environment, results or anyone's training data.
+.venv/
+output/
+*.zip
+__pycache__/
