@@ -126,10 +126,18 @@ class ExportWord {
     this.colorArgb,
     this.fontSize,
     this.under = false,
+    this.angle = 0,
+    this.cx = 0,
+    this.cy = 0,
   });
 
   final String text;
   final double left, bottom, right, top;
+
+  /// Writing at a slant: the box is the word turned level by -[angle]
+  /// (radians) about ([cx], [cy]), and the text is turned back to follow
+  /// the writing (see [levelPoint]).
+  final double angle, cx, cy;
 
   /// Visible typed text (task 2.3d) in this colour and size (points);
   /// null: invisible, searchable text stretched over the box (task 1.4b).
@@ -153,6 +161,9 @@ class ExportWord {
     colorArgb,
     fontSize,
     under,
+    angle,
+    cx,
+    cy,
   ];
 
   factory ExportWord.fromMessage(List<Object?> m) => ExportWord(
@@ -164,5 +175,8 @@ class ExportWord {
     colorArgb: m.length > 5 ? (m[5] as num?)?.toInt() : null,
     fontSize: m.length > 6 ? (m[6] as num?)?.toDouble() : null,
     under: m.length > 7 && m[7] == true,
+    angle: m.length > 10 ? (m[8]! as num).toDouble() : 0,
+    cx: m.length > 10 ? (m[9]! as num).toDouble() : 0,
+    cy: m.length > 10 ? (m[10]! as num).toDouble() : 0,
   );
 }

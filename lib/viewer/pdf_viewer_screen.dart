@@ -20,7 +20,7 @@ import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/page_recognition.dart' show HiddenInk, hiddenInkAt;
 import '../core/selection.dart';
-import '../core/stroke_grouping.dart' show isWriting;
+import '../core/stroke_grouping.dart' show isWriting, levelPoint;
 import '../core/typed_text.dart';
 import '../core/pen_tools.dart';
 import '../core/recognition/recognizer.dart';
@@ -597,11 +597,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void _penHover(int page, Offset at, PageGeometry geometry, double width) {
     final p = geometry.toPdf(ViewPoint(at.dx, at.dy), width);
     for (final w in _text.wordsOn(page)) {
-      final b = w.box, reach = b.height * 1.5;
-      if (p.x >= b.left - reach &&
-          p.x <= b.right + reach &&
-          p.y >= b.bottom - reach &&
-          p.y <= b.top + reach) {
+      // A word at a slant: measured turned level.
+      final slant = w.slant;
+      final b = slant?.box ?? w.box, reach = b.height * 1.5;
+      final q = slant == null
+          ? PageInkPoint(p.x, p.y, 0)
+          : levelPoint(
+              PageInkPoint(p.x, p.y, 0),
+              slant.angle,
+              slant.cx,
+              slant.cy,
+            );
+      if (q.x >= b.left - reach &&
+          q.x <= b.right + reach &&
+          q.y >= b.bottom - reach &&
+          q.y <= b.top + reach) {
         _labelsShown.wake();
         return;
       }
@@ -1274,13 +1284,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         words[page] = [
           for (final w in read)
             if (w.text.trim().isNotEmpty && !(skip?.call(page, w) ?? false))
-              ExportWord(
-                w.text,
-                w.box.left,
-                w.box.bottom,
-                w.box.right,
-                w.box.top,
-              ),
+              if (w.slant?.box ?? w.box case final b)
+                ExportWord(
+                  w.text,
+                  b.left,
+                  b.bottom,
+                  b.right,
+                  b.top,
+                  angle: w.slant?.angle ?? 0,
+                  cx: w.slant?.cx ?? 0,
+                  cy: w.slant?.cy ?? 0,
+                ),
         ];
       }
     } catch (e) {

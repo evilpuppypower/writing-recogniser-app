@@ -1,9 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
-import '../core/stroke_grouping.dart' show InkBox;
+import '../core/stroke_grouping.dart' show InkBox, Slant, levelPoint;
 import '../core/typed_text.dart';
 import 'page_ink_layer.dart' show DocumentInkController;
 
@@ -70,6 +72,8 @@ class _PageTypedTextState extends State<PageTypedText> {
 
   Widget _line(TypedLine w, double scale) {
     final geometry = widget.geometry, viewWidth = widget.viewWidth;
+    final slant = w.slant;
+    if (slant != null) return _slanted(w, slant, scale);
     final r = geometry.rectToView(
       PdfPageRect(
         left: w.box.left,
@@ -102,6 +106,54 @@ class _PageTypedTextState extends State<PageTypedText> {
       ),
     );
   }
+
+  /// A line written at a slant: the text along it, fitted to the line
+  /// turned level.
+  Widget _slanted(TypedLine w, Slant slant, double scale) {
+    final g = widget.geometry, viewWidth = widget.viewWidth;
+    final b = slant.box;
+    Offset view(double x, double y) {
+      final p = levelPoint(
+        PageInkPoint(x, y, 0),
+        -slant.angle,
+        slant.cx,
+        slant.cy,
+      );
+      final v = g.toView(PdfPagePoint(p.x, p.y), viewWidth);
+      return Offset(v.x, v.y);
+    }
+
+    final corner = view(b.left, b.top);
+    final along = view(b.right, b.top) - corner;
+    final down = view(b.left, b.bottom) - corner;
+    return Positioned(
+      left: 0,
+      top: 0,
+      child: Transform(
+        transform: Matrix4.translationValues(corner.dx, corner.dy, 0)
+          ..rotateZ(math.atan2(along.dy, along.dx)),
+        child: SizedBox(
+          width: along.distance,
+          height: down.distance,
+          child: OverflowBox(
+            alignment: Alignment.centerLeft,
+            maxWidth: double.infinity,
+            child: Text(
+              w.text,
+              maxLines: 1,
+              softWrap: false,
+              textScaler: TextScaler.noScaling,
+              style: TextStyle(
+                color: Color(w.colorArgb),
+                fontSize: w.fontSize * scale,
+                height: 1,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// The size (points) of [text] fitted to handwriting in [box] as it shows
@@ -123,11 +175,21 @@ TypedLine? typedLineAt(
   final p = geometry.toPdf(ViewPoint(at.dx, at.dy), viewWidth);
   const reach = 2.0;
   for (final l in typedLines(strokes)) {
-    final b = l.box;
-    if (p.x >= b.left - reach &&
-        p.x <= b.right + reach &&
-        p.y >= b.bottom - reach &&
-        p.y <= b.top + reach) {
+    // At a slant: measured with the line turned level.
+    final slant = l.slant;
+    final b = slant?.box ?? l.box;
+    final PageInkPoint q = slant == null
+        ? PageInkPoint(p.x, p.y, 0)
+        : levelPoint(
+            PageInkPoint(p.x, p.y, 0),
+            slant.angle,
+            slant.cx,
+            slant.cy,
+          );
+    if (q.x >= b.left - reach &&
+        q.x <= b.right + reach &&
+        q.y >= b.bottom - reach &&
+        q.y <= b.top + reach) {
       return l;
     }
   }

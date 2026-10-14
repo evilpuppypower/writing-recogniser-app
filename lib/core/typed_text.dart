@@ -4,6 +4,8 @@
 /// Pure Dart: the screen and the PDF export both draw from this.
 library;
 
+import 'dart:math' as math;
+
 import 'ink_export_plan.dart' show ExportWord;
 import 'page_ink.dart';
 import 'stroke_grouping.dart';
@@ -61,17 +63,23 @@ List<TypedWord> typedWords(List<PageStroke> strokes) {
 /// handwriting, shown together in one box with one text size, so a
 /// sentence stays together (owner's choice F1, 2026-10-13).
 class TypedLine {
-  const TypedLine(this.words);
+  const TypedLine(this.words, {this.slant});
 
   /// Left to right.
   final List<TypedWord> words;
 
+  /// Set when the handwriting is at a slant: the text follows it, fitted
+  /// to the line turned level ([Slant.box]).
+  final Slant? slant;
+
   String get text => words.map((w) => w.text).join(' ');
+
+  /// Where the handwriting is on the page.
   InkBox get box => words.map((w) => w.box).reduce((a, b) => a.union(b));
   int get colorArgb => words.first.colorArgb;
 
   /// The text size, in points, that fits the whole line into its box.
-  double get fontSize => fitFontSize(text, box);
+  double get fontSize => fitFontSize(text, slant?.box ?? box);
 }
 
 /// The converted words on a page, gathered into lines as the handwriting
@@ -112,11 +120,41 @@ List<TypedLine> typedLines(List<PageStroke> strokes) {
     }
   }
   final keys = byLine.keys.toList()..sort();
-  return [
-    for (final l in keys)
-      TypedLine(byLine[l]!..sort((a, b) => a.box.left.compareTo(b.box.left))),
-    ...alone,
-  ];
+  final byId = {for (final s in strokes) s.id: s};
+  TypedLine line(int l) {
+    final words = byLine[l]!;
+    final first = lines[l].words.first.slant;
+    if (first == null) {
+      return TypedLine(words..sort((a, b) => a.box.left.compareTo(b.box.left)));
+    }
+    // At a slant: words in order along the line, and the line's box
+    // turned level.
+    InkBox level(TypedWord w) => [
+      for (final id in w.strokeIds)
+        if (byId[id] case final s?)
+          InkBox.of(
+            s.copyWith(
+              points: [
+                for (final p in s.points)
+                  levelPoint(p, first.angle, first.cx, first.cy),
+              ],
+            ),
+          ),
+    ].reduce((a, b) => a.union(b));
+    final boxes = {for (final w in words) w: level(w)};
+    words.sort((a, b) => boxes[a]!.left.compareTo(boxes[b]!.left));
+    return TypedLine(
+      words,
+      slant: (
+        angle: first.angle,
+        cx: first.cx,
+        cy: first.cy,
+        box: boxes.values.reduce((a, b) => a.union(b)),
+      ),
+    );
+  }
+
+  return [for (final l in keys) line(l), ...alone];
 }
 
 /// The converted words' groups on a page (cheap: no boxes are worked out).
@@ -245,16 +283,20 @@ List<ExportWord> typedForExport(
   if (mode == ExportHandwriting.ink) return const [];
   return [
     for (final w in typedLines(strokes))
-      ExportWord(
-        w.text,
-        w.box.left,
-        w.box.bottom,
-        w.box.right,
-        w.box.top,
-        colorArgb: w.colorArgb,
-        fontSize: w.fontSize,
-        under: mode == ExportHandwriting.both,
-      ),
+      if (w.slant?.box ?? w.box case final b)
+        ExportWord(
+          w.text,
+          b.left,
+          b.bottom,
+          b.right,
+          b.top,
+          colorArgb: w.colorArgb,
+          fontSize: w.fontSize,
+          under: mode == ExportHandwriting.both,
+          angle: w.slant?.angle ?? 0,
+          cx: w.slant?.cx ?? 0,
+          cy: w.slant?.cy ?? 0,
+        ),
   ];
 }
 
@@ -303,4 +345,25 @@ double typedSizeOnPage(ExportWord w, int quarterTurns) {
       ? InkBox(w.bottom, w.left, w.top, w.right)
       : InkBox(w.left, w.bottom, w.right, w.top);
   return fitFontSize(w.text, box);
+}
+
+/// A text matrix [m] (see [typedPlacement]) for text placed with its line
+/// turned level, turned back by [angle] about ([cx], [cy]) so the text
+/// follows writing at a slant.
+({double a, double b, double c, double d, double e, double f}) atSlant(
+  ({double a, double b, double c, double d, double e, double f}) m,
+  double angle,
+  double cx,
+  double cy,
+) {
+  if (angle == 0) return m;
+  final cs = math.cos(angle), sn = math.sin(angle);
+  return (
+    a: cs * m.a - sn * m.b,
+    b: sn * m.a + cs * m.b,
+    c: cs * m.c - sn * m.d,
+    d: sn * m.c + cs * m.d,
+    e: cx + cs * (m.e - cx) - sn * (m.f - cy),
+    f: cy + sn * (m.e - cx) + cs * (m.f - cy),
+  );
 }

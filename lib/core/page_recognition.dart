@@ -51,12 +51,15 @@ class RecognitionPlan {
 const preContextChars = 40;
 
 /// Plans recognition for a page's [strokes], given the text already
-/// recognised for each word key in [known].
+/// recognised for each word key in [known]. A known word that [reread]
+/// says yes to is read again (e.g. it was read tilted before its slant
+/// was noticed).
 RecognitionPlan planRecognition(
   List<PageStroke> strokes,
   Map<String, String> known, {
   GroupingParams params = const GroupingParams(),
   bool Function(int index)? include,
+  bool Function(String key, InkWord word)? reread,
 }) {
   final lines = groupStrokes(strokes, params: params, include: include);
   final jobs = <RecognitionJob>[];
@@ -66,7 +69,7 @@ RecognitionPlan planRecognition(
     for (final w in lines[l].words) {
       final key = wordKey(strokes, w);
       keys.add(key);
-      final text = known[key];
+      final text = (reread?.call(key, w) ?? false) ? null : known[key];
       if (text == null) {
         final ctx = before.toString();
         jobs.add(

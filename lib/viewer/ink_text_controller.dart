@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -29,6 +30,7 @@ class RecognizedWord {
     this.previousWord = '',
     this.ink = const [],
     this.engineReadings,
+    this.slant,
   });
 
   final String text;
@@ -67,6 +69,9 @@ class RecognizedWord {
   /// them, task 4.2). Null for words saved before this was kept.
   final List<String>? engineReadings;
 
+  /// Set when the word is written at a slant (its label follows it).
+  final Slant? slant;
+
   String get engineReading => engineText ?? text;
 
   /// Saved with the ink (see [InkTextController.restore]).
@@ -82,6 +87,16 @@ class RecognizedWord {
     if (previousWord.isNotEmpty) 'prev': previousWord,
     'ink': [for (final s in ink) s.toJson()],
     'readings': ?engineReadings,
+    if (slant case final s?)
+      'slant': [
+        s.angle,
+        s.cx,
+        s.cy,
+        s.box.left,
+        s.box.bottom,
+        s.box.right,
+        s.box.top,
+      ],
   };
 
   factory RecognizedWord.fromJson(Map<String, Object?> j) {
@@ -104,6 +119,18 @@ class RecognizedWord {
         final List r => [for (final x in r) '$x'],
         _ => null,
       },
+      slant: switch (j['slant']) {
+        final List v when v.length == 7 => () {
+          final n = [for (final x in v) (x as num).toDouble()];
+          return (
+            angle: n[0],
+            cx: n[1],
+            cy: n[2],
+            box: InkBox(n[3], n[4], n[5], n[6]),
+          );
+        }(),
+        _ => null,
+      },
     );
   }
 
@@ -114,6 +141,7 @@ class RecognizedWord {
     InkBox? box,
     bool? autoReplaced,
     bool? corrected,
+    Object? slant = _keep,
   }) => RecognizedWord(
     text: text ?? this.text,
     alternatives: alternatives ?? this.alternatives,
@@ -126,8 +154,11 @@ class RecognizedWord {
     previousWord: previousWord,
     ink: ink,
     engineReadings: engineReadings,
+    slant: identical(slant, _keep) ? this.slant : slant as Slant?,
   );
 }
+
+const _keep = Object();
 
 /// Recognises the handwriting on a PDF's pages (task 2.3): after the pen
 /// pauses on a page, new or changed words go to the [Recognizer] (with the
@@ -273,6 +304,17 @@ class InkTextController extends ChangeNotifier {
       a.bottom == b.bottom &&
       a.right == b.right &&
       a.top == b.top;
+
+  static bool _sameSlant(Slant? a, Slant? b) => a == null || b == null
+      ? a == b
+      : a.angle == b.angle &&
+            a.cx == b.cx &&
+            a.cy == b.cy &&
+            _sameBox(a.box, b.box);
+
+  static bool _slantChanged(Slant? a, Slant? b) => a == null || b == null
+      ? (a == null) != (b == null)
+      : (a.angle - b.angle).abs() > 3 * math.pi / 180;
 
   static String _lastWord(String text) {
     final parts = text.trim().split(RegExp(r'\s+'));
@@ -483,6 +525,14 @@ class InkTextController extends ChangeNotifier {
             !strokes[i].notWriting &&
             (i >= kinds.length || kinds[i] == InkKind.writing) &&
             (flipped.isEmpty || !flipped.contains(strokes[i].id)),
+        // Read tilted before its slant was noticed (or at another slant):
+        // read again level, unless the user corrected it.
+        reread: (key, w) {
+          final old = words[key];
+          return old != null &&
+              !old.corrected &&
+              _slantChanged(old.slant, w.slant);
+        },
       );
       final before = words.length;
       words.removeWhere((key, _) => !plan.keys.contains(key));
@@ -493,8 +543,11 @@ class InkTextController extends ChangeNotifier {
           final old = words[key];
           // Lines renumbered, or the word moved (Select tool): same
           // strokes, so the same text, in its new place.
-          if (old != null && (old.line != l || !_sameBox(old.box, w.box))) {
-            words[key] = old.copyWith(line: l, box: w.box);
+          if (old != null &&
+              (old.line != l ||
+                  !_sameBox(old.box, w.box) ||
+                  !_sameSlant(old.slant, w.slant))) {
+            words[key] = old.copyWith(line: l, box: w.box, slant: w.slant);
             dirty = true;
           }
         }
@@ -515,8 +568,10 @@ class InkTextController extends ChangeNotifier {
             RecognitionContext(
               // Includes words recognised earlier in this same run.
               preContext: _textBefore(words, job),
-              writingAreaWidth: job.word.box.width * scale,
-              writingAreaHeight: job.word.box.height * scale,
+              writingAreaWidth:
+                  (job.word.slant?.box ?? job.word.box).width * scale,
+              writingAreaHeight:
+                  (job.word.slant?.box ?? job.word.box).height * scale,
             ),
           );
         } on RecognitionException catch (e) {
@@ -542,6 +597,7 @@ class InkTextController extends ChangeNotifier {
           text: texts.first,
           alternatives: texts.skip(1).toList(),
           box: job.word.box,
+          slant: job.word.slant,
           line: job.line,
           key: job.key,
           engineText: engineTexts.first,

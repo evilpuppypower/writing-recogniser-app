@@ -1,9 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
+import '../core/stroke_grouping.dart' show levelPoint;
 import 'ink_text_controller.dart';
 
 /// The recognised text of one PDF page, as small labels above (or below)
@@ -74,13 +77,17 @@ class PageTextLabels extends StatefulWidget {
         textScaler: textScaler,
       )..layout();
       final rect = Rect.fromLTWH(
-        l.topLeft.dx,
-        l.topLeft.dy,
+        0,
+        0,
         painter.width + 6,
         painter.height,
       ).inflate(6);
       painter.dispose();
-      if (rect.contains(point)) return w;
+      // The point in the label's own pixels (labels can be at a slant).
+      final inverse = Matrix4.tryInvert(_labelTransform(l));
+      if (inverse == null) continue;
+      final local = MatrixUtils.transformPoint(inverse, point);
+      if (rect.contains(local)) return w;
     }
     return null;
   }
@@ -98,32 +105,70 @@ double labelFontSize(double heightPt, double pxPerPt) {
 /// Labels are never smaller than this (pixels).
 const minLabelFontSize = 9.0;
 
-/// Where a word's label goes (top-left, in the page's pixels) and its text
-/// size (see [labelFontSize]).
-({Offset topLeft, double fontSize}) _labelLayout(
+/// Where a word's label goes and its text size (see [labelFontSize]): the
+/// label's top-left corner (in the page's pixels) is [anchor] moved by
+/// [shift] along the word's own directions (right, down), turned by
+/// [angle] (radians, clockwise on screen) to follow writing at a slant.
+({Offset anchor, Offset shift, double angle, double fontSize}) _labelLayout(
   RecognizedWord w,
   PageGeometry g,
   double viewWidth,
   bool above,
 ) {
-  final r = g.rectToView(
-    PdfPageRect(
-      left: w.box.left,
-      bottom: w.box.bottom,
-      right: w.box.right,
-      top: w.box.top,
-    ),
-    viewWidth,
-  );
   final pxPerPt = viewWidth / g.displayWidth;
-  final size = labelFontSize(w.box.height, pxPerPt);
+  final slant = w.slant;
+  if (slant == null) {
+    final r = g.rectToView(
+      PdfPageRect(
+        left: w.box.left,
+        bottom: w.box.bottom,
+        right: w.box.right,
+        top: w.box.top,
+      ),
+      viewWidth,
+    );
+    final size = labelFontSize(w.box.height, pxPerPt);
+    return (
+      anchor: Offset.zero,
+      shift: above
+          ? Offset(r.left, r.top - size * 1.15 - 3)
+          : Offset(r.left, r.top + r.height + 1),
+      angle: 0,
+      fontSize: size,
+    );
+  }
+  // Along the slant: from the corner of the word turned level, back on
+  // the page, and the way its line runs there on screen.
+  final b = slant.box;
+  final size = labelFontSize(b.height, pxPerPt);
+  Offset view(double x, double y) {
+    final p = levelPoint(
+      PageInkPoint(x, y, 0),
+      -slant.angle,
+      slant.cx,
+      slant.cy,
+    );
+    final v = g.toView(PdfPagePoint(p.x, p.y), viewWidth);
+    return Offset(v.x, v.y);
+  }
+
+  final corner = view(b.left, above ? b.top : b.bottom);
+  final along = view(b.right, above ? b.top : b.bottom) - corner;
   return (
-    topLeft: above
-        ? Offset(r.left, r.top - size * 1.15 - 3)
-        : Offset(r.left, r.top + r.height + 1),
+    anchor: corner,
+    shift: above ? Offset(0, -size * 1.15 - 3) : const Offset(0, 1),
+    angle: math.atan2(along.dy, along.dx),
     fontSize: size,
   );
 }
+
+/// The label's transform: from its own pixels (top-left at 0, 0) to the
+/// page's.
+Matrix4 _labelTransform(
+  ({Offset anchor, Offset shift, double angle, double fontSize}) l,
+) => Matrix4.translationValues(l.anchor.dx, l.anchor.dy, 0)
+  ..rotateZ(l.angle)
+  ..translateByDouble(l.shift.dx, l.shift.dy, 0, 1);
 
 class _PageTextLabelsState extends State<PageTextLabels> {
   // The labels last built, and what they were built from: any change to
@@ -232,9 +277,9 @@ class _PageTextLabelsState extends State<PageTextLabels> {
                         ),
                       );
                 return Positioned(
-                  left: l.topLeft.dx,
-                  top: l.topLeft.dy,
-                  child: label,
+                  left: 0,
+                  top: 0,
+                  child: Transform(transform: _labelTransform(l), child: label),
                 );
               }(),
           ],
