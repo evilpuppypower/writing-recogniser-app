@@ -19,6 +19,7 @@ import '../core/open_timing.dart';
 import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/page_recognition.dart' show HiddenInk, hiddenInkAt;
+import '../core/selection.dart';
 import '../core/stroke_grouping.dart' show isWriting;
 import '../core/typed_text.dart';
 import '../core/pen_tools.dart';
@@ -321,11 +322,19 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   /// A lasso loop was drawn on [page]: offer to convert the words inside.
-  Future<void> _lassoDrawn(int page, List<PageInkPoint> loop) async {
+  /// The strokes picked with the Select tool (owner, 2026-10-14: select,
+  /// then move, resize, or use the bar's actions), or null.
+  final _selection = ValueNotifier<InkSelection?>(null);
+
+  /// Strokes copied with the selection bar's Copy, for Paste.
+  List<PageStroke>? _clipboard;
+
+  /// A loop was drawn with the Select tool on [page]: select what's inside.
+  void _lassoDrawn(int page, List<PageInkPoint> loop) {
     final picked = strokesInLoop(_ink.ink.strokesOn(page), loop);
-    final messenger = ScaffoldMessenger.of(context);
     if (picked.isEmpty) {
-      messenger.showSnackBar(
+      _selection.value = null;
+      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
             'Nothing inside the loop. Draw it all the way around the '
@@ -335,37 +344,103 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       );
       return;
     }
-    final go = await showDialog<bool>(
+    _selection.value = InkSelection(page, picked);
+  }
+
+  /// The selection bar's "Convert": the words mostly inside the selection.
+  Future<void> _convertSelection(InkSelection sel) async {
+    _selection.value = null;
+    final words = await _readPage(sel.page);
+    if (words == null || !mounted) return;
+    _convertWords(sel.page, [
+      for (final w in words)
+        if (w.key.isNotEmpty &&
+            w.key.split(',').where(sel.ids.contains).length * 2 >=
+                w.key.split(',').length)
+          w,
+    ]);
+  }
+
+  /// "Read as one word": these strokes are always read together, as
+  /// writing (also kept as a lesson for a future word-finding model).
+  void _oneWord(InkSelection sel) {
+    _selection.value = null;
+    _text.markWriting(sel.page, sel.ids);
+    _ink.markOneWord(sel.page, sel.ids);
+    _logDiagnostic('one_word', {'strokes': sel.ids.length});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('These strokes are read as one word now.')),
+    );
+  }
+
+  /// "This isn't writing" for everything selected.
+  void _selectionNotWriting(InkSelection sel) {
+    _selection.value = null;
+    for (final w in _text.wordsOn(sel.page)) {
+      if (w.key.split(',').every(sel.ids.contains)) {
+        _text.markNotWriting(sel.page, w);
+      }
+    }
+    _ink.markNotWriting(sel.page, sel.ids);
+  }
+
+  Future<void> _recolourSelection(InkSelection sel) async {
+    final argb = await showDialog<int>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Convert to typed text?'),
-        content: const Text(
-          'The handwriting inside the loop is shown as typed text. Your ink '
-          'is kept: switch back any time with the handwriting button.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Convert'),
+      builder: (context) => SimpleDialog(
+        title: const Text('Colour'),
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final c in penColours)
+                  Tooltip(
+                    message: colourName(c),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => Navigator.of(context).pop(c),
+                      child: CircleAvatar(backgroundColor: Color(c)),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
     );
-    if (go != true || !mounted) return;
-    final words = await _readPage(page);
-    if (words == null || !mounted) return;
-    // Words mostly inside the loop.
-    _convertWords(page, [
-      for (final w in words)
-        if (w.key.isNotEmpty &&
-            w.key.split(',').where(picked.contains).length * 2 >=
-                w.key.split(',').length)
-          w,
-    ]);
+    if (argb != null) _ink.recolour(sel.page, sel.ids, argb);
+  }
+
+  void _copySelection(InkSelection sel) {
+    _clipboard = [
+      for (final s in _ink.ink.strokesOn(sel.page))
+        if (sel.ids.contains(s.id)) s,
+    ];
+    setState(() {}); // shows Paste in the title bar
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Copied. Use Paste in the title bar on any page.'),
+      ),
+    );
+  }
+
+  void _deleteSelection(InkSelection sel) {
+    _selection.value = null;
+    _ink.removeStrokes(sel.page, sel.ids);
+  }
+
+  /// Pastes the copied strokes on the page showing, a little down and to
+  /// the right of where they were, and selects them.
+  void _paste() {
+    final copied = _clipboard;
+    if (copied == null || copied.isEmpty) return;
+    final page = _pageNumber.value ?? 1;
+    final pasted = pastedCopies(copied, DateTime.now().millisecondsSinceEpoch);
+    _ink.addStrokes(page, pasted);
+    _selection.value = InkSelection(page, {for (final s in pasted) s.id});
   }
 
   /// Tap on typed text: edit it (owner's choice 4a). The edit also teaches
@@ -831,6 +906,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           tools: _tools,
           showTyped: _showTyped,
           onLasso: (loop) => _lassoDrawn(page.pageNumber, loop),
+          selection: _selection,
+          onClearSelection: () => _selection.value = null,
           onPenHover: (at) =>
               _penHover(page.pageNumber, at, _geometryOf(page), pageRect.width),
           // Pen tap on typed text: edit it (task 2.3c).
@@ -908,6 +985,50 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         viewWidth: pageRect.width,
         controller: _ink,
         showTyped: _showTyped,
+      ),
+    ),
+    // The selection bar, just above what's selected (below it when that's
+    // at the top of the page).
+    Positioned.fill(
+      child: ListenableBuilder(
+        listenable: Listenable.merge([_selection, _ink]),
+        builder: (context, _) {
+          final sel = _selection.value;
+          if (sel == null || sel.page != page.pageNumber) {
+            return const SizedBox.shrink();
+          }
+          final rect = selectionRect(
+            _ink.ink.strokesOn(page.pageNumber),
+            sel.ids,
+            _geometryOf(page),
+            pageRect.width,
+          );
+          if (rect == null) return const SizedBox.shrink();
+          const barHeight = 48.0;
+          final top = rect.top >= barHeight + 8
+              ? rect.top - barHeight - 8
+              : rect.bottom + 8;
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                // About as wide as the bar, so it stays on the page.
+                left: rect.left.clamp(0, math.max(0, pageRect.width - 620)),
+                top: top,
+                child: SelectionBar(
+                  count: sel.ids.length,
+                  onOneWord: () => _oneWord(sel),
+                  onConvert: () => _convertSelection(sel),
+                  onColour: () => _recolourSelection(sel),
+                  onCopy: () => _copySelection(sel),
+                  onDelete: () => _deleteSelection(sel),
+                  onNotWriting: () => _selectionNotWriting(sel),
+                  onClose: () => _selection.value = null,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     ),
   ];
@@ -992,6 +1113,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void initState() {
     super.initState();
     _frames.start();
+    // A selection belongs to the Select tool.
+    _tools.addListener(() {
+      if (_tools.value.mode != PenMode.lasso) _selection.value = null;
+    });
     _tappedAt = widget.tappedAt ?? DateTime.now();
     _slowOpenTimer = Timer(const Duration(seconds: 5), () {
       if (mounted && !_timingShown) _slowOpen.value = true;
@@ -1449,6 +1574,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _tools.dispose();
     _showTyped.dispose();
     _labelsShown.dispose();
+    _selection.dispose();
     super.dispose();
   }
 
@@ -1482,6 +1608,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     icon: const Icon(Icons.redo),
                     onPressed: _ink.canRedo ? _ink.redo : null,
                   ),
+                  if (_clipboard != null)
+                    IconButton(
+                      tooltip: 'Paste the copied ink on this page',
+                      icon: const Icon(Icons.content_paste),
+                      onPressed: _paste,
+                    ),
                   IconButton(
                     tooltip: "Convert this page's handwriting to typed text",
                     icon: const Icon(Icons.keyboard),
@@ -1817,4 +1949,104 @@ class TypedSwitchButton extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// The Select tool's bar: what can be done with the selected strokes
+/// (owner's choices, 2026-10-14). Moving and resizing are done on the
+/// selection itself: drag inside it, or drag its corner dot.
+class SelectionBar extends StatelessWidget {
+  const SelectionBar({
+    super.key,
+    required this.count,
+    required this.onOneWord,
+    required this.onConvert,
+    required this.onColour,
+    required this.onCopy,
+    required this.onDelete,
+    required this.onNotWriting,
+    required this.onClose,
+  });
+
+  final int count;
+  final VoidCallback onOneWord,
+      onConvert,
+      onColour,
+      onCopy,
+      onDelete,
+      onNotWriting,
+      onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget action(IconData icon, String label, String tip, VoidCallback on) =>
+        Tooltip(
+          message: tip,
+          child: TextButton.icon(
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            icon: Icon(icon, size: 18),
+            label: Text(label),
+            onPressed: on,
+          ),
+        );
+    final width = MediaQuery.sizeOf(context).width - 16;
+    return Material(
+      elevation: 3,
+      borderRadius: BorderRadius.circular(24),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        // Scrolls sideways on a narrow screen rather than running off it.
+        constraints: BoxConstraints(maxWidth: width < 200 ? 200 : width),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              action(
+                Icons.join_full,
+                'One word',
+                'Read these strokes as one word',
+                onOneWord,
+              ),
+              action(
+                Icons.keyboard,
+                'Convert',
+                'Convert to typed text',
+                onConvert,
+              ),
+              action(
+                Icons.palette_outlined,
+                'Colour',
+                'Change colour',
+                onColour,
+              ),
+              action(Icons.copy, 'Copy', 'Copy, to paste on any page', onCopy),
+              action(
+                Icons.delete_outline,
+                'Delete',
+                'Delete these strokes',
+                onDelete,
+              ),
+              action(
+                Icons.do_not_disturb_on_outlined,
+                'Not writing',
+                "This isn't writing: don't read it",
+                onNotWriting,
+              ),
+              IconButton(
+                tooltip:
+                    'Done (drag inside to move, drag the corner dot to '
+                    'resize)',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: onClose,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

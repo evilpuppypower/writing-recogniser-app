@@ -181,23 +181,28 @@ class _PenDot extends StatelessWidget {
   }
 }
 
+/// Plain-language name of a colour, for tooltips.
+String colourName(int argb) => _colourNames[argb] ?? 'colour';
+
+const _colourNames = {
+  0xFF1A1A1A: 'black',
+  0xFF5F6368: 'grey',
+  0xFF1565C0: 'blue',
+  0xFF0097A7: 'teal',
+  0xFF2E7D32: 'green',
+  0xFFC62828: 'red',
+  0xFFEF6C00: 'orange',
+  0xFF6A1B9A: 'purple',
+  0xFFFFEB3B: 'yellow',
+  0xFF76FF03: 'green',
+  0xFF40C4FF: 'blue',
+  0xFFFF80AB: 'pink',
+  0xFFFFAB40: 'orange',
+};
+
 /// Plain-language name of a pen, for tooltips.
 String describePen(PenStyle s) {
-  final colours = {
-    0xFF1A1A1A: 'black',
-    0xFF5F6368: 'grey',
-    0xFF1565C0: 'blue',
-    0xFF0097A7: 'teal',
-    0xFF2E7D32: 'green',
-    0xFFC62828: 'red',
-    0xFFEF6C00: 'orange',
-    0xFF6A1B9A: 'purple',
-    0xFFFFEB3B: 'yellow',
-    0xFF76FF03: 'green',
-    0xFF40C4FF: 'blue',
-    0xFFFF80AB: 'pink',
-    0xFFFFAB40: 'orange',
-  };
+  final colours = _colourNames;
   final tool = s.tool == InkTool.pen ? 'Pen' : 'Highlighter';
   return '$tool, ${colours[s.colorArgb] ?? 'custom colour'}, '
       '${s.width.toStringAsFixed(1)} pt${s.arrow ? ', arrow' : ''}';

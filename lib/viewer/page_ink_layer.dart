@@ -12,6 +12,8 @@ import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/pen_tap.dart';
 import '../core/pen_tools.dart';
+import '../core/selection.dart';
+import '../core/stroke_grouping.dart' show InkBox;
 import '../core/typed_text.dart' show convertedGroups;
 import '../core/writing_guide.dart';
 import '../settings/settings_controller.dart';
@@ -120,6 +122,54 @@ class DocumentInkController extends ChangeNotifier {
     notifyListeners();
     onChanged?.call(page);
     return true;
+  }
+
+  /// Moves and resizes the selected strokes (see [DocumentInk.moveScale]);
+  /// a drag's many small moves make one undo step inside
+  /// [beginGesture]/[endGesture].
+  void moveScale(
+    int page,
+    Set<String> ids, {
+    double dx = 0,
+    double dy = 0,
+    double scale = 1,
+    double originX = 0,
+    double originY = 0,
+  }) => _edit(
+    page,
+    () => ink.moveScale(
+      page,
+      ids,
+      dx: dx,
+      dy: dy,
+      scale: scale,
+      originX: originX,
+      originY: originY,
+    ),
+  );
+
+  void recolour(int page, Set<String> ids, int argb) =>
+      _edit(page, () => ink.recolour(page, ids, argb));
+
+  void removeStrokes(int page, Set<String> ids) =>
+      _edit(page, () => ink.remove(page, ids).isNotEmpty);
+
+  void addStrokes(int page, List<PageStroke> strokes) => _edit(page, () {
+    ink.addAll(page, strokes);
+    return strokes.isNotEmpty;
+  });
+
+  void markOneWord(int page, Set<String> ids) =>
+      _edit(page, () => ink.markOneWord(page, ids));
+
+  /// Runs [change] on [page] as one undo step (or part of the gesture
+  /// under way), telling listeners if it changed anything.
+  void _edit(int page, bool Function() change) {
+    final before = ink.strokesOn(page);
+    if (!change()) return;
+    if (_gesture == null) _record(page, before);
+    notifyListeners();
+    onChanged?.call(page);
   }
 
   /// The user edited converted word [group]'s typed text (and that of the
@@ -245,7 +295,14 @@ class PageInkLayer extends StatefulWidget {
     this.showTyped,
     this.tapActionAt,
     this.onPenHover,
+    this.selection,
+    this.onClearSelection,
   });
+
+  /// The Select tool's selection (any page; this layer shows and moves it
+  /// when it's on [pageNumber]), and what to call to drop it.
+  final ValueListenable<InkSelection?>? selection;
+  final VoidCallback? onClearSelection;
 
   /// Called as the pen hovers over the page (not touching), with where.
   final void Function(Offset at)? onPenHover;
@@ -457,11 +514,56 @@ class _PageInkLayerState extends State<PageInkLayer> {
     }
   }
 
+  /// The selection on this page, as a box in this layer's pixels.
+  Rect? _selectionRect() {
+    final sel = widget.selection?.value;
+    if (sel == null || sel.page != widget.pageNumber) return null;
+    return selectionRect(
+      widget.controller.ink.strokesOn(widget.pageNumber),
+      sel.ids,
+      widget.geometry,
+      widget.viewWidth,
+    );
+  }
+
+  /// Dragging the selection (move) or its corner handle (resize).
+  bool _dragging = false, _resizing = false;
+  Offset _dragLast = Offset.zero;
+  double _scaleSoFar = 1;
+  PdfPagePoint? _scaleOrigin;
+  double _scaleStartDistance = 1;
+
+  static const handleRadius = 14.0;
+
   void _down(PointerEvent e) {
     _lastErase = null;
     _downAt = e.localPosition;
     _downMs = DateTime.now().millisecondsSinceEpoch;
     _moved = 0;
+    if (_tools.mode == PenMode.lasso && !_isEraser(e)) {
+      final rect = _selectionRect();
+      final at = e.localPosition;
+      if (rect != null && (at - rect.bottomRight).distance <= handleRadius) {
+        // The corner handle: resize, keeping the top-left corner in place.
+        _resizing = true;
+        _scaleSoFar = 1;
+        _scaleStartDistance = math.max((at - rect.topLeft).distance, 1);
+        _scaleOrigin = widget.geometry.toPdf(
+          ViewPoint(rect.left, rect.top),
+          widget.viewWidth,
+        );
+        widget.controller.beginGesture(widget.pageNumber);
+        return;
+      }
+      if (rect != null && rect.inflate(12).contains(at)) {
+        _dragging = true;
+        _dragLast = at;
+        widget.controller.beginGesture(widget.pageNumber);
+        return;
+      }
+      // Elsewhere: the selection goes and a new loop starts.
+      if (widget.selection?.value != null) widget.onClearSelection?.call();
+    }
     if (_tools.mode == PenMode.lasso && !_isEraser(e)) {
       _lassoing = true;
       _erasing = false;
@@ -486,6 +588,43 @@ class _PageInkLayerState extends State<PageInkLayer> {
 
   void _move(PointerEvent e) {
     _moved = math.max(_moved, (e.localPosition - _downAt).distance);
+    final sel = widget.selection?.value;
+    if ((_dragging || _resizing) && sel != null) {
+      if (_dragging) {
+        final from = widget.geometry.toPdf(
+          ViewPoint(_dragLast.dx, _dragLast.dy),
+          widget.viewWidth,
+        );
+        final to = widget.geometry.toPdf(
+          ViewPoint(e.localPosition.dx, e.localPosition.dy),
+          widget.viewWidth,
+        );
+        _dragLast = e.localPosition;
+        widget.controller.moveScale(
+          widget.pageNumber,
+          sel.ids,
+          dx: to.x - from.x,
+          dy: to.y - from.y,
+        );
+      } else {
+        final origin = _scaleOrigin!;
+        final o = widget.geometry.toView(origin, widget.viewWidth);
+        final wanted =
+            ((e.localPosition - Offset(o.x, o.y)).distance /
+                    _scaleStartDistance)
+                .clamp(0.2, 8.0);
+        final step = wanted / _scaleSoFar;
+        _scaleSoFar = wanted;
+        widget.controller.moveScale(
+          widget.pageNumber,
+          sel.ids,
+          scale: step,
+          originX: origin.x,
+          originY: origin.y,
+        );
+      }
+      return;
+    }
     if (_lassoing) {
       _active.value = [..._active.value, _pointOf(e)];
       return;
@@ -514,8 +653,18 @@ class _PageInkLayerState extends State<PageInkLayer> {
   }
 
   void _up(PointerEvent e) {
+    if (_endSelectionDrag()) return;
     _finishStroke(e);
     _fadeGuideLater();
+  }
+
+  /// Ends moving or resizing the selection (one undo step); false if the
+  /// pen wasn't doing that.
+  bool _endSelectionDrag() {
+    if (!_dragging && !_resizing) return false;
+    _dragging = _resizing = false;
+    widget.controller.endGesture();
+    return true;
   }
 
   /// However the pen lifted (a stroke, a tap, the lasso, the highlighter),
@@ -629,6 +778,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   }
 
   void _cancel() {
+    if (_endSelectionDrag()) return;
     _fadeGuideLater();
     _snapTimer?.cancel();
     _snapped = false;
@@ -736,6 +886,18 @@ class _PageInkLayerState extends State<PageInkLayer> {
               ),
             ),
           ),
+          if (widget.selection != null)
+            RepaintBoundary(
+              child: CustomPaint(
+                painter: _SelectionPainter(
+                  controller: widget.controller,
+                  selection: widget.selection!,
+                  pageNumber: widget.pageNumber,
+                  geometry: widget.geometry,
+                  viewWidth: widget.viewWidth,
+                ),
+              ),
+            ),
           RepaintBoundary(
             child: CustomPaint(
               painter: _ActiveInkPainter(
@@ -1025,6 +1187,98 @@ class _ActiveInkPainter extends CustomPainter {
   @override
   bool shouldRepaint(_ActiveInkPainter old) =>
       old.viewWidth != viewWidth || old.pressure != pressure;
+}
+
+/// The selection's box in a page laid out [viewWidth] wide, from the
+/// strokes [ids] (with a little room); null when none of them are left.
+Rect? selectionRect(
+  List<PageStroke> strokes,
+  Set<String> ids,
+  PageGeometry geometry,
+  double viewWidth,
+) {
+  InkBox? box;
+  for (final s in strokes) {
+    if (s.points.isEmpty || !ids.contains(s.id)) continue;
+    final b = InkBox.of(s);
+    box = box == null ? b : box.union(b);
+  }
+  if (box == null) return null;
+  final r = geometry.rectToView(
+    PdfPageRect(
+      left: box.left,
+      bottom: box.bottom,
+      right: box.right,
+      top: box.top,
+    ),
+    viewWidth,
+  );
+  return Rect.fromLTWH(r.left, r.top, r.width, r.height).inflate(6);
+}
+
+/// The selection: a dotted box round it and a handle at its bottom-right
+/// corner to resize it.
+class _SelectionPainter extends CustomPainter {
+  _SelectionPainter({
+    required this.controller,
+    required this.selection,
+    required this.pageNumber,
+    required this.geometry,
+    required this.viewWidth,
+  }) : super(repaint: Listenable.merge([controller, selection]));
+
+  final DocumentInkController controller;
+  final ValueListenable<InkSelection?> selection;
+  final int pageNumber;
+  final PageGeometry geometry;
+  final double viewWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final sel = selection.value;
+    if (sel == null || sel.page != pageNumber) return;
+    final rect = selectionRect(
+      controller.ink.strokesOn(pageNumber),
+      sel.ids,
+      geometry,
+      viewWidth,
+    );
+    if (rect == null) return;
+    canvas.drawRect(rect, Paint()..color = const Color(0x141E88E5));
+    final path = [
+      rect.topLeft,
+      rect.topRight,
+      rect.bottomRight,
+      rect.bottomLeft,
+      rect.topLeft,
+    ];
+    final line = Paint()
+      ..color = const Color(0xFF1E88E5)
+      ..strokeWidth = 1.4;
+    for (final (a, b) in dashes(path)) {
+      canvas.drawLine(a, b, line);
+    }
+    canvas.drawCircle(
+      rect.bottomRight,
+      _PageInkLayerState.handleRadius * 0.6,
+      Paint()..color = const Color(0xFF1E88E5),
+    );
+    canvas.drawCircle(
+      rect.bottomRight,
+      _PageInkLayerState.handleRadius * 0.6,
+      Paint()
+        ..color = const Color(0xFFFFFFFF)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+  }
+
+  @override
+  bool hitTest(Offset position) => false;
+
+  @override
+  bool shouldRepaint(_SelectionPainter old) =>
+      old.viewWidth != viewWidth || old.pageNumber != pageNumber;
 }
 
 /// The writing guide line (see [guideFor]).

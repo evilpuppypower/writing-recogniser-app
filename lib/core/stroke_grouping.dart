@@ -227,10 +227,65 @@ List<InkLine> groupStrokes(
     words.sort((a, c) => a.box.left.compareTo(c.box.left));
     result.add(InkLine(words, letterHeight: lineLetter));
   }
+  _joinManualWords(strokes, boxes, result);
   // Top of the page first (PDF y grows upward).
   result.sort((a, c) => c.box.centerY.compareTo(a.box.centerY));
   return result;
 }
+
+/// Strokes the user said are one word ([PageStroke.manualWord]) end up in
+/// one word: the one holding most of them; the others give theirs up.
+void _joinManualWords(
+  List<PageStroke> strokes,
+  Map<int, InkBox> boxes,
+  List<InkLine> lines,
+) {
+  final groups = <String, List<InkWord>>{};
+  for (final line in lines) {
+    for (final w in line.words) {
+      for (final i in w.strokes) {
+        final g = strokes[i].manualWord;
+        if (g != null) groups.putIfAbsent(g, () => []).add(w);
+      }
+    }
+  }
+  for (final e in groups.entries) {
+    final words = e.value.toSet();
+    if (words.length < 2) continue;
+    int count(InkWord w) =>
+        w.strokes.where((i) => strokes[i].manualWord == e.key).length;
+    final target = words.reduce((a, b) => count(b) > count(a) ? b : a);
+    for (final w in words) {
+      if (identical(w, target)) continue;
+      final moving = [
+        for (final i in w.strokes)
+          if (strokes[i].manualWord == e.key) i,
+      ];
+      w.strokes.removeWhere(moving.contains);
+      target.strokes.addAll(moving);
+      if (w.strokes.isNotEmpty) w.box = _boxOf(w.strokes, boxes);
+    }
+    target
+      ..box = _boxOf(target.strokes, boxes)
+      ..strokes.sort(
+        (a, c) =>
+            strokes[a].points.first.t.compareTo(strokes[c].points.first.t),
+      )
+      ..start = target.strokes
+          .map((i) => strokes[i].points.first.t)
+          .reduce(math.min)
+      ..end = target.strokes
+          .map((i) => strokes[i].points.last.t)
+          .reduce(math.max);
+  }
+  for (final line in lines) {
+    line.words.removeWhere((w) => w.strokes.isEmpty);
+  }
+  lines.removeWhere((l) => l.words.isEmpty);
+}
+
+InkBox _boxOf(List<int> idx, Map<int, InkBox> boxes) =>
+    idx.map((i) => boxes[i]!).reduce((a, b) => a.union(b));
 
 /// The typical height of a letter in this writing: the median height of the
 /// strokes, ignoring dots and stray marks. At least 4 pt.
