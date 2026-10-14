@@ -162,7 +162,7 @@ void main() {
         exportedAt: DateTime.utc(2026, 1, 7),
       ),
     );
-    expect(doc['version'], 2);
+    expect(doc['version'], 3);
     final words = (doc['words'] as List).cast<Map<String, dynamic>>();
     expect(words.map((x) => x['text']), ['car', 'cat', 'dog']);
     // The engine's own list: the corrected word is in it.

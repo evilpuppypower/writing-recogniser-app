@@ -46,11 +46,23 @@ class SampleWord:
 
 
 @dataclass
+class WordPair:
+    """Two neighbouring strokes next to a "One word" mark (file version 3):
+    numbers describing them, and whether the user said they're one word."""
+
+    features: list[float]
+    same_word: bool
+    document: int | None = None
+
+
+@dataclass
 class TrainingData:
     version: int
     words: list[Word] = field(default_factory=list)
     corrections: list[Correction] = field(default_factory=list)
     sample_words: list[SampleWord] = field(default_factory=list)
+    word_pairs: list[WordPair] = field(default_factory=list)
+    word_pair_features: list[str] = field(default_factory=list)
 
 
 class DataError(Exception):
@@ -108,6 +120,18 @@ def parse(doc: dict) -> TrainingData:
                     text=s.get("text", ""),
                     previous=s.get("previousWord", ""),
                     strokes=s["strokes"],
+                )
+            )
+    data.word_pair_features = [str(f) for f in doc.get("wordPairFeatures", [])]
+    n = len(data.word_pair_features)
+    for p in doc.get("wordPairs", []):
+        f = p.get("features")
+        if isinstance(f, list) and n and len(f) == n:
+            data.word_pairs.append(
+                WordPair(
+                    features=[float(x) for x in f],
+                    same_word=bool(p.get("sameWord")),
+                    document=p.get("document"),
                 )
             )
     return data
