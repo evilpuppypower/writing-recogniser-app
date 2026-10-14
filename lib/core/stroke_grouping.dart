@@ -18,7 +18,12 @@ class GroupingParams {
     this.lineOverlap = 0.4,
     this.lineReach = 8,
     this.newSessionMs = 60000,
+    this.lineDrift = 0.75,
   });
+
+  /// Writing that carries on to the right of a line's end joins it when its
+  /// middle is within this (x letter height) of the line's middle.
+  final double lineDrift;
 
   /// A horizontal gap wider than this (x letter height) starts a new word.
   final double wordGap;
@@ -155,6 +160,23 @@ List<InkLine> groupStrokes(
       if (o >= bestOverlap) {
         bestOverlap = o;
         best = line;
+      }
+    }
+    // Carrying on a line after scrolling (owner's report): writing just to
+    // the right of where a line ends joins it even if it drifts a little up
+    // or down, as long as it stays within most of a letter of the line.
+    if (best == null) {
+      var bestGap = double.infinity;
+      for (final line in lines) {
+        final h = line.letter ?? letter;
+        final l = line.box;
+        final gap = b.left - l.right;
+        if (gap < -h || gap > params.lineReach * h) continue;
+        if ((b.centerY - l.centerY).abs() > h * params.lineDrift) continue;
+        if (gap < bestGap) {
+          bestGap = gap;
+          best = line;
+        }
       }
     }
     if (best == null) {

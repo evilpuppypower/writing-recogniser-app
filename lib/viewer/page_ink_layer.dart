@@ -330,6 +330,20 @@ class _PageInkLayerState extends State<PageInkLayer> {
     // circle already shows where the pen is), so hovering hides it.
     if (_eraserAt.value != null) _hideEraser();
     widget.onPenHover?.call(e.localPosition);
+    // Back at the end of the line just written (e.g. after scrolling to
+    // see more of the page): its guide shows again.
+    final guide = _guide.value;
+    if (guide != null && !_guideShown.value) {
+      final p = widget.geometry.toPdf(
+        ViewPoint(e.localPosition.dx, e.localPosition.dy),
+        widget.viewWidth,
+      );
+      if (nearLineEnd(guide, p.x, p.y)) {
+        _guideShown.value = true;
+        _guideHide?.cancel();
+        _guideHide = Timer(_guideFor, () => _guideShown.value = false);
+      }
+    }
   }
 
   /// Where and when the pen touched down, and how far it has moved since

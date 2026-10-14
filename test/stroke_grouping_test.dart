@@ -159,6 +159,20 @@ void main() {
     expect(groupStrokes(strokes).single.words.last.strokes, contains(3));
   });
 
+  test('carrying on a line after scrolling joins it, even a bit lower', () {
+    final strokes = [
+      ...word(100, 700, 4, 0),
+      // Minutes later, 20 pt to the right of the line's end, 7 pt lower
+      // (only 30% of its height overlaps the line).
+      ...word(147, 693, 3, 300000),
+      // The next line down is still its own line.
+      ...word(100, 682, 3, 400000),
+    ];
+    final lines = groupStrokes(strokes);
+    expect(lines, hasLength(2));
+    expect(lines.first.words.expand((w) => w.strokes), hasLength(7));
+  });
+
   test('letter height ignores dots', () {
     final boxes = [
       for (var i = 0; i < 5; i++) const InkBox(0, 0, 6, 10),
