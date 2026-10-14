@@ -461,6 +461,34 @@ void main() {
       lib.FPDF_CloseDocument(doc);
     });
 
+    test('every export records its steps for the diagnostic log', () {
+      final src = blankPdf(lib, dir, 3);
+      final steps = <String>[];
+      writeInkIntoPdf(
+        lib,
+        src,
+        {
+          2: exportLines([
+            pen([(10, 10, 0.5), (20, 20, 0.5)]),
+          ]),
+        },
+        onlyPages: {2, 3},
+        trace: steps,
+      );
+      expect(steps.first, contains('source file'));
+      expect(steps, contains(matches(r'opened: 3 pages, PDF version')));
+      expect(steps, contains(matches(r'page 2: 1 lines, 0 words')));
+      expect(steps, contains(matches(r'kept 2 of 3 pages')));
+      expect(steps.last, matches(r'saved \(flags 0\)'));
+      // A failure carries its steps too.
+      try {
+        writeInkIntoPdf(lib, src, const {}, onlyPages: {9});
+        fail('should fail');
+      } on PdfExportException catch (e) {
+        expect(e.trace.last, contains('none of the chosen pages'));
+      }
+    });
+
     test('a file that is not a PDF gives a plain error', () {
       final bad = File('${dir.path}/bad.pdf')..writeAsStringSync('hello');
       expect(

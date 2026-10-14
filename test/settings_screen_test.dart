@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/app_settings.dart';
+import 'package:writing_recogniser/core/event_log.dart';
 import 'package:writing_recogniser/core/pen_tools.dart';
 import 'package:writing_recogniser/recognition/myscript_keys.dart';
 import 'package:writing_recogniser/settings/settings_controller.dart';
@@ -18,6 +21,7 @@ void main() {
   late PenToolsController pens;
   late Set<String> inkIds;
   late int inkDeletes;
+  late List<(String, String)> savedFiles;
 
   Future<void> pumpScreen(WidgetTester tester) async {
     // Tablet-sized screen so the whole settings list is visible.
@@ -36,6 +40,20 @@ void main() {
             loadPenTools: () async => pens,
             inkDocuments: () async => inkIds,
             deleteAllInk: () async => inkDeletes++,
+            loadDiagnostics: () async => (
+              [
+                LoggedEvent(
+                  type: 'diagnostic',
+                  at: DateTime.utc(2026, 1, 2),
+                  data: const {'area': 'export', 'result': 'failed'},
+                ),
+              ],
+              null,
+            ),
+            saveFile: (name, mime, bytes) async {
+              savedFiles.add((name, utf8.decode(bytes)));
+              return true;
+            },
           ),
         ),
       ),
@@ -51,6 +69,7 @@ void main() {
     pens = PenToolsController();
     inkIds = {};
     inkDeletes = 0;
+    savedFiles = [];
     settings = SettingsController(
       const AppSettings(),
       onSave: (s) async => saved.add(s),
@@ -85,6 +104,21 @@ void main() {
     await tester.pumpAndSettle();
     expect(settings.showSmoothnessGraphs, isTrue);
     expect(saved, isEmpty);
+  });
+
+  testWidgets('saves a diagnostic report to send Claude', (tester) async {
+    await pumpScreen(tester);
+    final tile = find.text('Save diagnostic report');
+    await tester.scrollUntilVisible(
+      tile,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    expect(savedFiles.single.$1, startsWith('diagnostics-'));
+    expect(savedFiles.single.$2, contains('export  {"result":"failed"}'));
+    expect(find.textContaining('Saved the diagnostic report'), findsOneWidget);
   });
 
   testWidgets('the pen toolbar position is chosen in Settings', (tester) async {
