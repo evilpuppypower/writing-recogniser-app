@@ -567,6 +567,30 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   Future<void> _shareSelection(InkSelection sel, PageGeometry geometry) async {
     final messenger = ScaffoldMessenger.of(context);
     final pressure = SettingsScope.valueOf(context).pressureResponse;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    // A big selection can take a moment to draw: say so (never freeze
+    // without feedback).
+    var waiting = true;
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('Making the picture…'),
+            ],
+          ),
+        ),
+      ).whenComplete(() => waiting = false),
+    );
+    void closeWaiting() {
+      if (waiting) navigator.pop();
+      waiting = false;
+    }
+
     try {
       final png = await inkImage(
         [
@@ -576,9 +600,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         geometry,
         pressure: pressure,
       );
+      closeWaiting();
       if (png == null || !mounted) return;
       await widget.shareFile('handwriting.png', 'image/png', png);
     } catch (e) {
+      closeWaiting();
       messenger.showSnackBar(SnackBar(content: Text("Couldn't share: $e")));
     }
   }
