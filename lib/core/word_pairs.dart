@@ -73,6 +73,19 @@ List<WordPair> wordPairs(List<PageStroke> strokes) {
   final lines = groupStrokes(plain);
   final out = <WordPair>[];
   for (final line in lines) {
+    // A line at a slant is measured turned level, as the rules see it.
+    final slant = line.words.first.slant;
+    final level = slant == null
+        ? strokes
+        : [
+            for (final s in strokes)
+              s.copyWith(
+                points: [
+                  for (final p in s.points)
+                    levelPoint(p, slant.angle, slant.cx, slant.cy),
+                ],
+              ),
+          ];
     final wordOf = <int, int>{};
     for (var w = 0; w < line.words.length; w++) {
       for (final i in line.words[w].strokes) {
@@ -81,8 +94,7 @@ List<WordPair> wordPairs(List<PageStroke> strokes) {
     }
     final order = wordOf.keys.toList()
       ..sort(
-        (x, y) =>
-            InkBox.of(strokes[x]).left.compareTo(InkBox.of(strokes[y]).left),
+        (x, y) => InkBox.of(level[x]).left.compareTo(InkBox.of(level[y]).left),
       );
     for (var k = 0; k + 1 < order.length; k++) {
       final a = strokes[order[k]], b = strokes[order[k + 1]];
@@ -90,8 +102,8 @@ List<WordPair> wordPairs(List<PageStroke> strokes) {
       out.add(
         WordPair(
           pairFeatures(
-            a,
-            b,
+            level[order[k]],
+            level[order[k + 1]],
             line.letterHeight,
             rulesJoin: wordOf[order[k]] == wordOf[order[k + 1]],
           ),

@@ -3,9 +3,11 @@ import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/ink_export_plan.dart';
 import 'package:writing_recogniser/core/page_coordinates.dart';
+import 'package:writing_recogniser/core/page_recognition.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/core/stroke_grouping.dart';
 import 'package:writing_recogniser/core/typed_text.dart';
+import 'package:writing_recogniser/core/word_pairs.dart';
 import 'package:writing_recogniser/core/writing_guide.dart';
 import 'package:writing_recogniser/viewer/ink_text_controller.dart';
 import 'package:writing_recogniser/viewer/page_text_labels.dart';
@@ -210,5 +212,113 @@ void main() {
         at(100 + i * 7.0, 700, h, i * 200),
     ];
     expect(groupStrokes(small).single.angle, 0);
+  });
+
+  /// Level letters at [xs] (and an optional [extra] stroke), all turned
+  /// [degrees] about (100, 700); letter i written at t = t0 + i * 200.
+  List<PageStroke> turned(
+    double degrees,
+    List<double> xs, {
+    int t0 = 0,
+    String? mark,
+  }) {
+    final a = degrees * math.pi / 180;
+    return [
+      for (var i = 0; i < xs.length; i++)
+        PageStroke(
+          points: [
+            for (final p in letter(100 + xs[i], 700, t0 + i * 200))
+              levelPoint(p, -a, 100, 700),
+          ],
+          manualWord: mark,
+        ),
+    ];
+  }
+
+  List<double> spaced(int n, [double from = 0]) => [
+    for (var i = 0; i < n; i++) from + i * 7,
+  ];
+
+  test('a dot added after a slanted word joins it', () {
+    final a = 30 * math.pi / 180;
+    final word = turned(30, spaced(8));
+    // The dot of an i over the third letter, a little later.
+    final dot = PageStroke(
+      points: [
+        for (final p in [
+          const PageInkPoint(117, 714, 2000),
+          const PageInkPoint(118, 714.5, 2010),
+        ])
+          levelPoint(p, -a, 100, 700),
+      ],
+    );
+    final lines = groupStrokes([...word, dot]);
+    expect(lines, hasLength(1));
+    expect(lines.single.words.single.strokes, contains(8));
+  });
+
+  test('carrying on a slanted line after a pause stays on it', () {
+    final first = turned(30, spaced(8));
+    final later = turned(30, spaced(3, 70), t0: 20000);
+    final lines = groupStrokes([...first, ...later]);
+    expect(lines, hasLength(1));
+    expect(degreesOf(lines.single.angle), closeTo(30, 2));
+    expect(lines.single.words, hasLength(2));
+  });
+
+  test(
+    'a level word followed straight away by slanted writing stays level',
+    () {
+      final level = [
+        for (var i = 0; i < 4; i++)
+          PageStroke(points: letter(40.0 + i * 7, 700, i * 200)),
+      ];
+      // Starts right after the level word (turned about its end).
+      final a = 30 * math.pi / 180;
+      final slanted = [
+        for (var i = 0; i < 8; i++)
+          PageStroke(
+            points: [
+              for (final p in letter(76.0 + i * 7, 700, 800 + i * 200))
+                levelPoint(p, -a, 76, 700),
+            ],
+          ),
+      ];
+      final lines = groupStrokes([...level, ...slanted]);
+      final levelLine = lines.firstWhere(
+        (l) => l.words.any((w) => w.strokes.contains(0)),
+      );
+      expect(levelLine.angle, 0);
+      final slantLine = lines.firstWhere(
+        (l) => l.words.any((w) => w.strokes.contains(6)),
+      );
+      expect(degreesOf(slantLine.angle), closeTo(30, 2));
+    },
+  );
+
+  test('a word read before its slant was noticed can be read again', () {
+    final strokes = turned(30, [0, 7, 14, 32, 39, 46, 53]);
+    final first = groupStrokes(strokes).single.words.first;
+    final key = wordKey(strokes, first);
+    final plan = planRecognition(strokes, {
+      key: 'tbe',
+    }, reread: (k, w) => k == key && w.slant != null);
+    expect(plan.jobs.map((j) => j.key), contains(key));
+    expect(
+      planRecognition(strokes, {key: 'the'}).jobs.map((j) => j.key),
+      isNot(contains(key)),
+    );
+  });
+
+  test('training numbers for a slanted line are measured level', () {
+    // One marked word, then a gap of 2 letter heights, at 45 degrees.
+    final strokes = [
+      ...turned(45, spaced(4), mark: 'm'),
+      ...turned(45, spaced(3, 47), t0: 1000),
+    ];
+    final pairs = wordPairs(strokes);
+    final edge = pairs.firstWhere((p) => !p.sameWord);
+    final gap = edge.features[wordPairFeatures.indexOf('gap')];
+    expect(gap, closeTo(2, 0.3));
   });
 }

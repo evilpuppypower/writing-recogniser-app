@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -311,6 +312,10 @@ class InkTextController extends ChangeNotifier {
             a.cy == b.cy &&
             _sameBox(a.box, b.box);
 
+  static bool _slantChanged(Slant? a, Slant? b) => a == null || b == null
+      ? (a == null) != (b == null)
+      : (a.angle - b.angle).abs() > 3 * math.pi / 180;
+
   static String _lastWord(String text) {
     final parts = text.trim().split(RegExp(r'\s+'));
     return parts.isEmpty ? '' : parts.last;
@@ -520,6 +525,14 @@ class InkTextController extends ChangeNotifier {
             !strokes[i].notWriting &&
             (i >= kinds.length || kinds[i] == InkKind.writing) &&
             (flipped.isEmpty || !flipped.contains(strokes[i].id)),
+        // Read tilted before its slant was noticed (or at another slant):
+        // read again level, unless the user corrected it.
+        reread: (key, w) {
+          final old = words[key];
+          return old != null &&
+              !old.corrected &&
+              _slantChanged(old.slant, w.slant);
+        },
       );
       final before = words.length;
       words.removeWhere((key, _) => !plan.keys.contains(key));
