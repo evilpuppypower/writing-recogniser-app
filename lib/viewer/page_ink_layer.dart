@@ -1470,6 +1470,68 @@ class _GuidePainter extends CustomPainter {
       old.geometry != geometry;
 }
 
+/// A picture of [strokes] (PNG bytes) on white, [pxPerPt] pixels per PDF
+/// point with a little margin, upright as the page shows ([geometry]), for
+/// the Select tool's "Share as image"; at most [maxSide] pixels across.
+/// Null if there's no ink.
+Future<Uint8List?> inkImage(
+  List<PageStroke> strokes,
+  PageGeometry geometry, {
+  PressureResponse pressure = const PressureResponse(),
+  double pxPerPt = 4,
+  double maxSide = 4096,
+}) async {
+  final ink = [
+    for (final s in strokes)
+      if (s.points.isNotEmpty) s,
+  ];
+  if (ink.isEmpty) return null;
+  var box = InkBox.of(ink.first);
+  for (final s in ink.skip(1)) {
+    box = box.union(InkBox.of(s));
+  }
+  final widest = ink.map((s) => s.width).reduce(math.max);
+  final margin = widest + 6;
+  final r = geometry.rectToView(
+    PdfPageRect(
+      left: box.left - margin,
+      bottom: box.bottom - margin,
+      right: box.right + margin,
+      top: box.top + margin,
+    ),
+    geometry.displayWidth,
+  );
+  final scale = math.min(pxPerPt, maxSide / math.max(r.width, r.height));
+  final w = (r.width * scale).ceil(), h = (r.height * scale).ceil();
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder)
+    ..drawRect(
+      Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+      Paint()..color = const Color(0xFFFFFFFF),
+    )
+    ..translate(-r.left * scale, -r.top * scale);
+  final drawer = _InkDrawer(geometry, geometry.displayWidth * scale, pressure);
+  for (final s in ink) {
+    drawer.draw(
+      canvas,
+      s.points,
+      PenStyle(
+        tool: s.tool,
+        colorArgb: s.colorArgb,
+        width: s.width,
+        arrow: s.arrow,
+      ),
+    );
+  }
+  final image = await recorder.endRecording().toImage(w, h);
+  try {
+    final png = await image.toByteData(format: ui.ImageByteFormat.png);
+    return png?.buffer.asUint8List();
+  } finally {
+    image.dispose();
+  }
+}
+
 /// Draws strokes on a page laid out [viewWidth] pixels wide.
 class _InkDrawer {
   _InkDrawer(this.geometry, this.viewWidth, this.pressure)

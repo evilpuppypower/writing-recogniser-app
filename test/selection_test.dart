@@ -310,6 +310,7 @@ void main() {
             onThickness: () => done.add('thickness'),
             onStraighten: () => done.add('straighten'),
             onCopyText: () => done.add('text'),
+            onShare: () => done.add('share'),
           ),
         ),
       ),
@@ -324,6 +325,7 @@ void main() {
       'Duplicate',
       'Cut',
       'Copy',
+      'Share',
       'Delete',
       'Not writing',
     ]) {
@@ -345,6 +347,7 @@ void main() {
       'duplicate',
       'cut',
       'copy',
+      'share',
       'delete',
       'not',
       'close',
@@ -441,5 +444,24 @@ void main() {
     );
     expect(text, 'the cat\nsat');
     expect(selectionText(const [], {'a'}), '');
+  });
+
+  testWidgets('Share: a picture of just the selected ink, on white', (
+    tester,
+  ) async {
+    final png = await tester.runAsync(
+      () => inkImage([a, b], PageGeometry(width: 612, height: 792)),
+    );
+    expect(png, isNotNull);
+    // A PNG file, about (13 pt + margins) x 4 px wide.
+    expect(png!.sublist(1, 4), 'PNG'.codeUnits);
+    final w = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19];
+    expect(w, inInclusiveRange(60, 120));
+    expect(
+      await tester.runAsync(
+        () => inkImage(const [], PageGeometry(width: 612, height: 792)),
+      ),
+      isNull,
+    );
   });
 }

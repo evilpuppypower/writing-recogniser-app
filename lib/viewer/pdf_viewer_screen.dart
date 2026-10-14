@@ -562,6 +562,27 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     messenger.showSnackBar(SnackBar(content: Text('Copied the text: "$text"')));
   }
 
+  /// "Share": a picture of the selected ink, through Android's share
+  /// menu (nothing is sent until the user picks an app).
+  Future<void> _shareSelection(InkSelection sel, PageGeometry geometry) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final pressure = SettingsScope.valueOf(context).pressureResponse;
+    try {
+      final png = await inkImage(
+        [
+          for (final s in _ink.ink.strokesOn(sel.page))
+            if (sel.ids.contains(s.id)) s,
+        ],
+        geometry,
+        pressure: pressure,
+      );
+      if (png == null || !mounted) return;
+      await widget.shareFile('handwriting.png', 'image/png', png);
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text("Couldn't share: $e")));
+    }
+  }
+
   void _deleteSelection(InkSelection sel) {
     _selection.value = null;
     _ink.removeStrokes(sel.page, sel.ids);
@@ -1176,6 +1197,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   onThickness: () => _thicknessSelection(sel),
                   onStraighten: () => _straightenSelection(sel),
                   onCopyText: () => _copySelectionText(sel),
+                  onShare: () => _shareSelection(sel, _geometryOf(page)),
                   onDelete: () => _deleteSelection(sel),
                   onNotWriting: () => _selectionNotWriting(sel),
                   onClose: () => _selection.value = null,
@@ -2129,6 +2151,7 @@ class SelectionBar extends StatelessWidget {
     required this.onThickness,
     required this.onStraighten,
     required this.onCopyText,
+    required this.onShare,
   });
 
   final int count;
@@ -2143,7 +2166,8 @@ class SelectionBar extends StatelessWidget {
       onDuplicate,
       onThickness,
       onStraighten,
-      onCopyText;
+      onCopyText,
+      onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -2223,6 +2247,12 @@ class SelectionBar extends StatelessWidget {
                 onCut,
               ),
               action(Icons.copy, 'Copy', 'Copy, to paste on any page', onCopy),
+              action(
+                Icons.share_outlined,
+                'Share',
+                'Share a picture of it with another app',
+                onShare,
+              ),
               action(
                 Icons.delete_outline,
                 'Delete',

@@ -488,3 +488,7 @@ Rotate and Share as image come in their own changes. The bar scrolls sideways wh
 ## 2026-10-14 — Turning a selection (owner's choice: Rotate)
 
 The selection's box now has a second handle, at its bottom-left corner, marked with a turning arrow. Dragging it turns the selection about the middle of its box. Each turn is worked out from the strokes as they were when the drag started, so many small steps don't add up errors. It snaps to no turn or an exact quarter turn when within 4 degrees of one, so it's easy to put back or turn exactly. The whole drag is one undo step. Stroke ids don't change, so recognised words stay with the ink. Writing turned to a slant is then read as slanted writing. Touching the handle without turning changes nothing (no empty undo step). On a small selection (under three handle widths across), both handles sit just outside the box's corners, so the box itself can still be dragged.
+
+## 2026-10-14 — Sharing a selection as a picture (owner's choice)
+
+"Share" on the selection bar makes a picture of the selected ink: white background, 4 pixels per point (at most 4096 pixels across), upright as the page shows. It opens Android's share menu, using share_plus, which the app already uses for exports, so no new package is added. Nothing is sent until the user picks an app. The picture holds only the ink: no typed text, page content or names (the file is called "handwriting.png").
