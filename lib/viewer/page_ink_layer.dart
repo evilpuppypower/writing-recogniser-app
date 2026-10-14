@@ -297,7 +297,18 @@ class PageInkLayer extends StatefulWidget {
     this.onPenHover,
     this.selection,
     this.onClearSelection,
+    this.wordsRead,
+    this.isRead,
   });
+
+  /// When the writing guide shows (owner, 2026-10-14: not straight away,
+  /// so drawing or circling doesn't bring it up): [guideDelay] after the
+  /// stroke just written is read as part of a word ([isRead], checked
+  /// whenever [wordsRead] changes). Without them, it shows as each stroke
+  /// is written.
+  final Listenable? wordsRead;
+  final bool Function(String strokeId)? isRead;
+  static const guideDelay = Duration(milliseconds: 1500);
 
   /// The Select tool's selection (any page; this layer shows and moves it
   /// when it's on [pageNumber]), and what to call to drop it.
@@ -747,7 +758,28 @@ class _PageInkLayerState extends State<PageInkLayer> {
     }
     _drawHeld(); // keep the order the strokes were written in
     widget.controller.add(widget.pageNumber, stroke);
-    _showGuide(stroke);
+    if (widget.isRead == null) {
+      _showGuide(stroke);
+    } else if (stroke.tool == InkTool.pen) {
+      _waitingToRead = stroke;
+    }
+  }
+
+  /// The last pen stroke written, until it's read as part of a word.
+  PageStroke? _waitingToRead;
+  Timer? _guideLater;
+
+  void _wordsRead() {
+    final stroke = _waitingToRead;
+    if (stroke == null || !(widget.isRead?.call(stroke.id) ?? false)) return;
+    _waitingToRead = null;
+    _guideLater?.cancel();
+    _guideLater = Timer(PageInkLayer.guideDelay, () {
+      if (!mounted) return;
+      // Still on the page (not erased or moved away).
+      final ink = widget.controller.ink.strokesOn(widget.pageNumber);
+      if (ink.any((s) => s.id == stroke.id)) _showGuide(stroke);
+    });
   }
 
   /// The writing guide (owner's choice F2): under the line [stroke] is on,
@@ -774,7 +806,10 @@ class _PageInkLayerState extends State<PageInkLayer> {
     _guide.value = guide;
     _guideShown.value = true;
     _guideHide?.cancel();
-    _guideHide = Timer(_guideFor, () => _guideShown.value = false);
+    // While the pen is writing it stays; it fades after the pen lifts.
+    if (_active.value.isEmpty) {
+      _guideHide = Timer(_guideFor, () => _guideShown.value = false);
+    }
   }
 
   void _cancel() {
@@ -793,6 +828,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   void initState() {
     super.initState();
     widget.controller.addFlusher(_drawHeld);
+    widget.wordsRead?.addListener(_wordsRead);
   }
 
   @override
@@ -802,11 +838,17 @@ class _PageInkLayerState extends State<PageInkLayer> {
       old.controller.removeFlusher(_drawHeld);
       widget.controller.addFlusher(_drawHeld);
     }
+    if (old.wordsRead != widget.wordsRead) {
+      old.wordsRead?.removeListener(_wordsRead);
+      widget.wordsRead?.addListener(_wordsRead);
+    }
   }
 
   @override
   void dispose() {
     widget.controller.removeFlusher(_drawHeld);
+    widget.wordsRead?.removeListener(_wordsRead);
+    _guideLater?.cancel();
     // A held tap is drawn now rather than lost (the page scrolled away or
     // the PDF is closing). Done just after this frame, as other widgets
     // can't be told about it while the page is being taken down.
