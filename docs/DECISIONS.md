@@ -473,3 +473,14 @@ The owner saw the engine fail on words written at an angle (for example 45 degre
 ## 2026-10-14 — The guide line waits until writing is read (owner's request)
 
 The guide line popped up while the owner was drawing or circling something. It now shows only once the stroke just written has been read as part of a word, and then 1.5 seconds later (owner: "1-2 secs after a word is detected"). Drawings and circles are never read as words, so they never bring it up. As before, it stays while writing and fades 3 seconds after the pen lifts; hovering where the line carries on brings it back; and for writing at a slant it runs along the slant (previous entry).
+
+## 2026-10-14 — More actions on the Select tool's bar (owner's choices)
+
+The owner chose more actions for the selection bar. This change adds:
+- **Copy text:** copies the words read in the selection (each counts when at least half its strokes are selected), line by line, to paste in another app. It waits for any unread writing to be read first.
+- **Thickness:** a slider for the line width. Every selected stroke changes by the same amount, within each tool's limits.
+- **Straighten:** each line of writing in the selection is turned level about its middle. The ink itself moves. Stroke ids don't change, so the words read stay with it. Lines within half a degree of level are left alone.
+- **Duplicate:** a copy just beside the selection, which is then selected.
+- **Cut:** Copy, then Delete.
+
+Rotate and Share as image come in their own changes. The bar scrolls sideways when it doesn't fit.

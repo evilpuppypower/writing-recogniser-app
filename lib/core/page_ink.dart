@@ -417,6 +417,50 @@ class DocumentInk {
     return changed;
   }
 
+  /// Line widths of strokes [ids] on [page] times [factor], each kept
+  /// within [limits] for its tool (Select tool, "Thickness"). Returns
+  /// whether anything changed.
+  bool scaleWidth(
+    int page,
+    Set<String> ids,
+    double factor,
+    (double, double) Function(InkTool tool) limits,
+  ) {
+    var changed = false;
+    _pages[page] = [
+      for (final s in strokesOn(page))
+        if (ids.contains(s.id))
+          () {
+            final (lo, hi) = limits(s.tool);
+            final w = (s.width * factor).clamp(lo, hi);
+            if (w == s.width) return s;
+            changed = true;
+            return s.copyWith(width: w);
+          }()
+        else
+          s,
+    ];
+    return changed;
+  }
+
+  /// Strokes on [page] replaced by those in [moved] with the same id (e.g.
+  /// straightened by the Select tool). Returns whether anything changed.
+  bool replace(int page, List<PageStroke> moved) {
+    final byId = {for (final s in moved) s.id: s};
+    var changed = false;
+    _pages[page] = [
+      for (final s in strokesOn(page))
+        if (byId[s.id] case final m?)
+          () {
+            changed = true;
+            return m;
+          }()
+        else
+          s,
+    ];
+    return changed;
+  }
+
   /// Removes strokes [ids] from [page]; returns them.
   List<PageStroke> remove(int page, Set<String> ids) {
     final gone = [

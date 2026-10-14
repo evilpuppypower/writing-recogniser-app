@@ -255,6 +255,26 @@ _Fit _fit(List<int> idx, Map<int, InkBox> boxes) {
   );
 }
 
+/// The direction one line of writing runs in (radians, anticlockwise from
+/// left-to-right) and a point on it, from the middles of its letters
+/// [idx] (dots and small marks left out); null if there are fewer than
+/// two letters or it's steeper than 60 degrees.
+({double angle, double cx, double cy})? lineDirection(
+  List<PageStroke> strokes,
+  List<int> idx,
+) {
+  final boxes = {for (final i in idx) i: InkBox.of(strokes[i])};
+  final letter = typicalLetterHeight(boxes.values);
+  final big = [
+    for (final i in idx)
+      if (math.max(boxes[i]!.width, boxes[i]!.height) >= letter * 0.4) i,
+  ];
+  if (big.length < 2) return null;
+  final f = _fit(big, boxes);
+  if (f.angle.abs() > _maxSlant) return null;
+  return (angle: f.angle, cx: f.cx, cy: f.cy);
+}
+
 /// The difference between two line directions (radians, 0..pi/2).
 double _turn(double a, double b) {
   final d = (a - b).abs() % math.pi;

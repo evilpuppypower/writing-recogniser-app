@@ -237,6 +237,11 @@ void main() {
             onDelete: () => done.add('delete'),
             onNotWriting: () => done.add('not'),
             onClose: () => done.add('close'),
+            onCut: () => done.add('cut'),
+            onDuplicate: () => done.add('duplicate'),
+            onThickness: () => done.add('thickness'),
+            onStraighten: () => done.add('straighten'),
+            onCopyText: () => done.add('text'),
           ),
         ),
       ),
@@ -244,23 +249,87 @@ void main() {
     for (final label in [
       'One word',
       'Convert',
+      'Copy text',
       'Colour',
+      'Thickness',
+      'Straighten',
+      'Duplicate',
+      'Cut',
       'Copy',
       'Delete',
       'Not writing',
     ]) {
+      // The bar scrolls sideways when it doesn't fit.
+      await tester.ensureVisible(find.text(label));
+      await tester.pumpAndSettle();
       await tester.tap(find.text(label));
     }
+    await tester.ensureVisible(find.byIcon(Icons.close));
+    await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.close));
     expect(done, [
       'word',
       'convert',
+      'text',
       'colour',
+      'thickness',
+      'straighten',
+      'duplicate',
+      'cut',
       'copy',
       'delete',
       'not',
       'close',
     ]);
     expect(find.byTooltip('Read these strokes as one word'), findsOneWidget);
+  });
+
+  test('Thickness: widths scale, within each tool\'s limits', () {
+    (double, double) limits(InkTool t) => t == InkTool.pen
+        ? (PenStyle.minPenWidth, PenStyle.maxPenWidth)
+        : (PenStyle.minHighlighterWidth, PenStyle.maxHighlighterWidth);
+    expect(ink.scaleWidth(1, {a.id, b.id}, 2, limits), isTrue);
+    expect(ink.strokesOn(1).map((s) => s.width), [2.4, 2.4, 1.2]);
+    ink.scaleWidth(1, {a.id}, 100, limits);
+    expect(ink.strokesOn(1).first.width, PenStyle.maxPenWidth);
+    expect(ink.scaleWidth(1, {'nope'}, 2, limits), isFalse);
+  });
+
+  test('Straighten: a slanted line comes out level, keeping its ids', () {
+    final angle = 20 * math.pi / 180;
+    final slanted = [
+      for (var i = 0; i < 8; i++)
+        PageStroke(
+          points: [
+            for (final p in letter(100.0 + i * 7, 700, i * 200).points)
+              levelPoint(p, -angle, 100, 700),
+          ],
+        ),
+    ];
+    final level = straightened(slanted);
+    expect(level.map((s) => s.id), slanted.map((s) => s.id));
+    final bottoms = [for (final s in level) InkBox.of(s).bottom];
+    expect(bottoms.reduce(math.max) - bottoms.reduce(math.min), lessThan(0.5));
+    // Level writing is left as it is.
+    expect(
+      straightened([
+        for (var i = 0; i < 4; i++) letter(100.0 + i * 7, 700, i * 200),
+      ]),
+      isEmpty,
+    );
+  });
+
+  test('Copy as text: the words mostly inside, line by line', () {
+    final text = selectionText(
+      [
+        (line: 0, strokeIds: ['a', 'b'], text: 'the'),
+        (line: 0, strokeIds: ['c'], text: 'cat'),
+        (line: 1, strokeIds: ['d', 'e', 'f'], text: 'sat'),
+        (line: 1, strokeIds: ['g'], text: 'down'),
+      ],
+      {'a', 'b', 'c', 'd', 'e'},
+    );
+    expect(text, 'the cat\nsat');
+    expect(selectionText(const [], {'a'}), '');
   });
 }
