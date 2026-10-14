@@ -918,6 +918,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           onLasso: (loop) => _lassoDrawn(page.pageNumber, loop),
           selection: _selection,
           onClearSelection: () => _selection.value = null,
+          // The guide shows once the writing is read as a word.
+          wordsRead: _text,
+          isRead: (id) => _text
+              .wordsOn(page.pageNumber)
+              .any((w) => w.key.split(',').contains(id)),
           onPenHover: (at) =>
               _penHover(page.pageNumber, at, _geometryOf(page), pageRect.width),
           // Pen tap on typed text: edit it (task 2.3c).

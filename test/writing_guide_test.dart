@@ -126,6 +126,67 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('waits until the writing is read as a word, then 1.5 s', (
+    tester,
+  ) async {
+    final ink = DocumentInkController();
+    final read = <String>{};
+    final words = ValueNotifier(0);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 612,
+            height: 792,
+            child: PageInkLayer(
+              pageNumber: 1,
+              geometry: PageGeometry(width: 612, height: 792),
+              viewWidth: 612,
+              controller: ink,
+              wordsRead: words,
+              isRead: read.contains,
+            ),
+          ),
+        ),
+      ),
+    );
+    double opacity() => tester
+        .widget<AnimatedOpacity>(
+          find.descendant(
+            of: find.byType(PageInkLayer),
+            matching: find.byType(AnimatedOpacity),
+          ),
+        )
+        .opacity;
+    final pen = await tester.createGesture(kind: PointerDeviceKind.stylus);
+    Future<void> stroke(double x) async {
+      await pen.down(Offset(x, 100));
+      for (final p in [Offset(x + 3, 90), Offset(x + 6, 100)]) {
+        await pen.moveTo(p);
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      await pen.up();
+      await tester.pump();
+    }
+
+    // A circle or drawing: never read as a word, so no guide.
+    await stroke(100);
+    await tester.pump(const Duration(seconds: 5));
+    expect(opacity(), 0);
+    // Writing: once it's read, the guide comes 1.5 s later.
+    await stroke(120);
+    read.add(ink.ink.strokesOn(1).last.id);
+    words.value++;
+    await tester.pump(const Duration(milliseconds: 1000));
+    expect(opacity(), 0);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(opacity(), 1);
+    await tester.pump(const Duration(seconds: 3));
+    expect(opacity(), 0);
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('no guide on a page turned sideways', (tester) async {
     final ink = DocumentInkController();
     await tester.pumpWidget(
