@@ -1,6 +1,15 @@
 import 'package:flutter/material.dart';
 
+import 'dart:convert';
+
 import '../core/app_settings.dart';
+import '../core/diagnostics_report.dart';
+import '../core/event_log.dart';
+import '../library/home_screen.dart' show buildStamp;
+import '../platform/diagnostics.dart';
+import '../platform/file_transfer.dart';
+import '../storage/app_database.dart';
+import '../storage/sqlite_event_log.dart';
 import '../core/pen_tools.dart';
 import '../core/transfer_estimate.dart';
 import '../import/pdf_import_channel.dart';
@@ -24,7 +33,19 @@ class SettingsScreen extends StatefulWidget {
     this.loadPenTools = PenToolsController.load,
     this.inkDocuments = _inkDocuments,
     this.deleteAllInk = _deleteAllInk,
+    this.loadDiagnostics = _loadDiagnostics,
+    this.saveFile = saveFileAs,
   });
+
+  /// The diagnostic log and the last crash, for "Save diagnostic report".
+  final Future<(List<LoggedEvent>, String?)> Function() loadDiagnostics;
+  final Future<bool> Function(String name, String mime, List<int> bytes)
+  saveFile;
+
+  static Future<(List<LoggedEvent>, String?)> _loadDiagnostics() async => (
+    await SqliteEventLog(await AppDatabase.open()).ofType('diagnostic'),
+    await lastCrashReport(),
+  );
 
   static Future<Set<String>> _inkDocuments() async =>
       (await SqliteInkStore.open()).documentsWithInk();
@@ -93,6 +114,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _applyLimit(int limit) async {
     await widget.trimCache(limit);
     _refreshCache();
+  }
+
+  /// Saves the diagnostic report where the user picks (owner's request).
+  Future<void> _saveDiagnostics() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final (entries, crash) = await widget.loadDiagnostics();
+      final now = DateTime.now();
+      final text = diagnosticReport(
+        entries,
+        build: buildStamp,
+        now: now,
+        lastCrash: crash,
+      );
+      final saved = await widget.saveFile(
+        diagnosticReportFileName(now),
+        'text/plain',
+        utf8.encode(text),
+      );
+      if (saved && mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Saved the diagnostic report (${entries.length} entries). '
+              'Open it and paste its text to Claude.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text("Couldn't save the diagnostic report: $e")),
+      );
+    }
   }
 
   Future<void> _confirmClearAll() async {
@@ -695,6 +750,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             value: settings.showSmoothnessGraphs,
             onChanged: (v) => settings.showSmoothnessGraphs = v,
+          ),
+          ListTile(
+            leading: const Icon(Icons.bug_report_outlined),
+            title: const Text('Save diagnostic report'),
+            subtitle: const Text(
+              'A text file to send Claude when something goes wrong: what '
+              'happened in exports (step by step), how long the screen took '
+              'to draw, and the last crash. No document names, words or '
+              'handwriting.',
+            ),
+            onTap: _saveDiagnostics,
           ),
           const Divider(),
           const _Header('About'),

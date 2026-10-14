@@ -20,7 +20,8 @@ Future<Uint8List> exportPdfWithInk({
   PressureResponse pressure = const PressureResponse(),
   Map<int, List<ExportWord>> text = const {},
   Set<int>? onlyPages,
-}) {
+  List<String>? trace,
+}) async {
   final pages = <int, List<List<Object>>>{
     for (final page in ink.pagesWithInk)
       page: [
@@ -32,17 +33,31 @@ Future<Uint8List> exportPdfWithInk({
     for (final e in text.entries)
       e.key: [for (final w in e.value) w.toMessage()],
   };
-  return PdfrxEntryFunctions.instance.compute(_exportOnWorker, <Object?>[
-    sourcePath,
-    pages,
-    Pdfrx.pdfiumModulePath,
-    words,
-    onlyPages?.toList(),
-  ]);
+  // The worker sends back the bytes, or what went wrong, with its steps
+  // for the diagnostic log.
+  final result = await PdfrxEntryFunctions.instance.compute(
+    _exportOnWorker,
+    <Object?>[
+      sourcePath,
+      pages,
+      Pdfrx.pdfiumModulePath,
+      words,
+      onlyPages?.toList(),
+    ],
+  );
+  trace?.addAll((result[2] as List).cast<String>());
+  if (result[0] == 'failed') {
+    throw PdfExportException(
+      result[1]! as String,
+      trace: (result[2] as List).cast<String>(),
+    );
+  }
+  return result[1]! as Uint8List;
 }
 
-/// Runs inside the PDFium worker isolate (where PDFium is set up).
-Uint8List _exportOnWorker(List<Object?> m) {
+/// Runs inside the PDFium worker isolate (where PDFium is set up). Returns
+/// ['ok', bytes, steps] or ['failed', message, steps].
+List<Object?> _exportOnWorker(List<Object?> m) {
   final lib = pdfium.getPdfium(modulePath: m[2] as String?);
   final pages = {
     for (final e in (m[1]! as Map).entries)
@@ -59,13 +74,23 @@ Uint8List _exportOnWorker(List<Object?> m) {
       ],
   };
   final only = m[4] as List?;
-  return writeInkIntoPdf(
-    lib,
-    m[0]! as String,
-    pages,
-    text: text,
-    onlyPages: only == null ? null : {for (final n in only) n as int},
-  );
+  final steps = <String>[];
+  try {
+    final bytes = writeInkIntoPdf(
+      lib,
+      m[0]! as String,
+      pages,
+      text: text,
+      onlyPages: only == null ? null : {for (final n in only) n as int},
+      trace: steps,
+    );
+    return ['ok', bytes, steps];
+  } on PdfExportException catch (e) {
+    return ['failed', e.message, steps];
+  } catch (e) {
+    steps.add('unexpected ${e.runtimeType}');
+    return ['failed', "Couldn't export the PDF (${e.runtimeType}).", steps];
+  }
 }
 
 /// "Lecture 3.pdf" -> "Lecture 3 (with ink).pdf".

@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
@@ -8,8 +9,12 @@ import '../core/ink_export_plan.dart';
 import '../core/typed_text.dart' show typedPlacement, typedSizeOnPage;
 
 class PdfExportException implements Exception {
-  const PdfExportException(this.message);
+  const PdfExportException(this.message, {this.trace = const []});
   final String message;
+
+  /// What happened, step by step, for the diagnostic log (no names, text
+  /// or ink: only sizes, counts and PDFium's answers).
+  final List<String> trace;
 
   @override
   String toString() => message;
@@ -34,18 +39,40 @@ Uint8List writeInkIntoPdf(
   Map<int, List<ExportLine>> pages, {
   Map<int, List<ExportWord>> text = const {},
   Set<int>? onlyPages,
+  List<String>? trace,
 }) {
+  final steps = trace ?? <String>[];
+  final watch = Stopwatch()..start();
+  void step(String s) => steps.add('${watch.elapsedMilliseconds} ms: $s');
+  try {
+    step(
+      'source file ${(File(sourcePath).lengthSync() / 1e6).toStringAsFixed(1)} MB',
+    );
+  } catch (e) {
+    step('source file unreadable (${e.runtimeType})');
+  }
   final path = sourcePath.toNativeUtf8();
   final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
   malloc.free(path);
   if (doc == nullptr) {
+    final error = lib.FPDF_GetLastError();
+    step('open failed, PDFium error $error');
     throw PdfExportException(
-      "Couldn't open the PDF to export (PDFium error "
-      '${lib.FPDF_GetLastError()}).',
+      "Couldn't open the PDF to export (PDFium error $error).",
+      trace: steps,
     );
   }
   try {
     final pageCount = lib.FPDF_GetPageCount(doc);
+    final version = calloc<Int>();
+    final hasVersion = lib.FPDF_GetFileVersion(doc, version) != 0;
+    step(
+      'opened: $pageCount pages, PDF version '
+      '${hasVersion ? version.value : '?'}, security '
+      '${lib.FPDF_GetSecurityHandlerRevision(doc)}, permissions '
+      '0x${lib.FPDF_GetDocPermissions(doc).toRadixString(16)}',
+    );
+    calloc.free(version);
     final box = calloc<pdfium.FS_RECTF>();
     final blend = 'Multiply'.toNativeUtf8();
     final font = 'Helvetica'.toNativeUtf8();
@@ -96,8 +123,12 @@ Uint8List writeInkIntoPdf(
         for (final w in words) {
           _addWord(lib, doc, page, font, bounds, w, dx, dy);
         }
-        lib.FPDFPage_GenerateContent(page);
+        final generated = lib.FPDFPage_GenerateContent(page) != 0;
         lib.FPDF_ClosePage(page);
+        step(
+          'page $n: ${lines.length} lines, ${words.length} words'
+          '${generated ? '' : ', content NOT generated'}',
+        );
       }
     } finally {
       calloc.free(box);
@@ -107,16 +138,19 @@ Uint8List writeInkIntoPdf(
     }
     if (onlyPages != null) {
       if (!onlyPages.any((n) => n >= 1 && n <= pageCount)) {
-        throw const PdfExportException(
+        step('none of the chosen pages exist');
+        throw PdfExportException(
           'None of the chosen pages are in this PDF.',
+          trace: steps,
         );
       }
       // From the end, so the earlier pages keep their positions.
       for (var n = pageCount; n >= 1; n--) {
         if (!onlyPages.contains(n)) lib.FPDFPage_Delete(doc, n - 1);
       }
+      step('kept ${lib.FPDF_GetPageCount(doc)} of $pageCount pages');
     }
-    return _save(lib, doc);
+    return _save(lib, doc, step, steps);
   } finally {
     lib.FPDF_CloseDocument(doc);
   }
@@ -229,7 +263,12 @@ int _writeBlock(
 /// non-incremental file (some PDFs only save that way); if that fails too,
 /// says why as far as it can be told (owner's test: "couldn't save" came
 /// back with no reason).
-Uint8List _save(pdfium.PDFium lib, pdfium.FPDF_DOCUMENT doc) {
+Uint8List _save(
+  pdfium.PDFium lib,
+  pdfium.FPDF_DOCUMENT doc,
+  void Function(String) step,
+  List<String> steps,
+) {
   final callback =
       NativeCallable<
         Int Function(
@@ -246,9 +285,18 @@ Uint8List _save(pdfium.PDFium lib, pdfium.FPDF_DOCUMENT doc) {
     for (final flags in const [0, pdfium.FPDF_NO_INCREMENTAL]) {
       _saving = BytesBuilder(copy: true);
       _writeError = null;
-      if (lib.FPDF_SaveAsCopy(doc, writer, flags) != 0 && _writeError == null) {
+      final ok = lib.FPDF_SaveAsCopy(doc, writer, flags) != 0;
+      final written = _saving!.length;
+      if (ok && _writeError == null) {
+        step('saved (flags $flags): ${(written / 1e6).toStringAsFixed(1)} MB');
         return _saving!.takeBytes();
       }
+      step(
+        'save (flags $flags) failed after '
+        '${(written / 1e6).toStringAsFixed(1)} MB'
+        '${_writeError == null ? '' : ', write error ${_writeError.runtimeType}'}'
+        ', memory in use ${(ProcessInfo.currentRss / 1e6).round()} MB',
+      );
       writeError ??= _writeError;
       _saving = null; // let a failed attempt's bytes go before retrying
     }
@@ -259,6 +307,7 @@ Uint8List _save(pdfium.PDFium lib, pdfium.FPDF_DOCUMENT doc) {
         writeError: writeError,
         pages: lib.FPDF_GetPageCount(doc),
       ),
+      trace: steps,
     );
   } finally {
     _saving = null;

@@ -25,6 +25,7 @@ import '../core/pen_tools.dart';
 import '../core/recognition/recognizer.dart';
 import '../core/transfer_estimate.dart' show formatBytes, formatRemaining;
 import '../export/pdf_exporter.dart';
+import '../export/pdf_ink_writer.dart' show PdfExportException;
 import '../platform/file_transfer.dart';
 import '../platform/share_file.dart';
 import '../recognition/engines.dart';
@@ -36,6 +37,7 @@ import '../storage/sqlite_document_store.dart';
 import '../storage/sqlite_event_log.dart';
 import '../storage/sqlite_ink_store.dart';
 import 'ink_text_controller.dart';
+import 'frame_recorder.dart';
 import 'label_fade.dart';
 import 'page_ink_layer.dart';
 import 'correct_word_sheet.dart';
@@ -136,6 +138,7 @@ class PdfViewerScreen extends StatefulWidget {
     PressureResponse pressure,
     Map<int, List<ExportWord>> text,
     Set<int>? onlyPages,
+    List<String>? trace,
   })
   exportPdf;
   final Future<bool> Function(String name, String mime, List<int> bytes)
@@ -536,6 +539,59 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// all again.
   TextAutosaver? _textSaver;
 
+  /// Screen drawing times, every 30 s with what was on screen (owner's
+  /// request, for finding what makes it stutter).
+  late final _frames = FrameRecorder(
+    onScreen: _onScreenCounts,
+    onSummary: (s) => _logDiagnostic('frames', s),
+  );
+
+  /// Counts of what's on the pages around the one showing (no content).
+  Map<String, Object?> _onScreenCounts() {
+    final current = _pageNumber.value ?? 1;
+    final pages = [current - 1, current, current + 1];
+    var strokes = 0, labels = 0, typed = 0;
+    for (final p in pages) {
+      final s = _ink.ink.strokesOn(p);
+      strokes += s.length;
+      typed += typedLines(s).length;
+      labels += _text.wordsOn(p).length;
+    }
+    double? zoom;
+    try {
+      zoom = _controller.isReady ? _controller.currentZoom : null;
+    } catch (_) {}
+    return {
+      'pagesInPdf': _pageCount,
+      'strokesNearby': strokes,
+      'labelsNearby': labels,
+      'typedLinesNearby': typed,
+      'strokesInPdf': _ink.ink.pagesWithInk.fold<int>(
+        0,
+        (n, p) => n + _ink.ink.strokesOn(p).length,
+      ),
+      if (zoom != null) 'zoom': (zoom * 100).round() / 100,
+    };
+  }
+
+  /// Records what happened for Settings → Testing → "Save diagnostic
+  /// report" (owner's request: logs to send when something fails). Stays on
+  /// the tablet like the rest of the event log.
+  void _logDiagnostic(String area, Map<String, Object?> data) {
+    unawaited(
+      _text.eventLog
+              ?.log(
+                LoggedEvent(
+                  type: 'diagnostic',
+                  at: DateTime.now(),
+                  data: {'area': area, ...data},
+                ),
+              )
+              .catchError((_) {}) ??
+          Future<void>.value(),
+    );
+  }
+
   void _flushSaves() {
     _autosaver?.flush();
     _textSaver?.flush();
@@ -935,6 +991,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   @override
   void initState() {
     super.initState();
+    _frames.start();
     _tappedAt = widget.tappedAt ?? DateTime.now();
     _slowOpenTimer = Timer(const Duration(seconds: 5), () {
       if (mounted && !_timingShown) _slowOpen.value = true;
@@ -1252,17 +1309,43 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
     Object? error;
     List<int>? bytes;
+    final trace = <String>[];
+    final exportInkNow = inkForExport(exportInk, mode);
+    // For the diagnostic log: sizes and choices only, no names or text.
+    final details = <String, Object?>{
+      'share': share,
+      'handwriting': mode.name,
+      'searchable': choice.searchable,
+      'convertRest': choice.convertRest,
+      'pagesInPdf': _pageCount,
+      'pagesChosen': choice.pages?.length,
+      'pagesWithInk': exportInkNow.pagesWithInk.length,
+      'strokes': exportInkNow.pagesWithInk.fold<int>(
+        0,
+        (n, p) => n + exportInkNow.strokesOn(p).length,
+      ),
+      'words': text.values.fold<int>(0, (n, w) => n + w.length),
+    };
     try {
       bytes = await widget.exportPdf(
         sourcePath: source,
-        ink: inkForExport(exportInk, mode),
+        ink: exportInkNow,
         pressure: pressure,
         text: text,
         onlyPages: choice.pages,
+        trace: trace,
       );
     } catch (e) {
       error = e;
+      if (e is PdfExportException && trace.isEmpty) trace.addAll(e.trace);
     }
+    _logDiagnostic('export', {
+      ...details,
+      'result': bytes == null ? 'failed' : 'made',
+      if (bytes == null) 'error': '$error',
+      'ms': watch.elapsedMilliseconds,
+      'steps': trace,
+    });
     if (!mounted) return;
     Navigator.of(context, rootNavigator: true).pop(); // the progress dialog
     if (bytes == null) {
@@ -1284,6 +1367,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         bytes,
       );
     } catch (e) {
+      _logDiagnostic('export', {
+        ...details,
+        'result': share ? 'share failed' : 'saving the file failed',
+        'error': '${e.runtimeType}: $e',
+      });
       messenger.showSnackBar(
         SnackBar(
           content: Text(
@@ -1340,6 +1428,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   @override
   void dispose() {
+    _frames.stop();
     _textSaver?.flush(); // takes the text now, before it's thrown away
     _textSaver?.dispose();
     _text.dispose();

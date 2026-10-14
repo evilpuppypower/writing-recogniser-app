@@ -33,6 +33,14 @@ void main() {
     expect(guideFor(page, other.id)!.baseline, lessThan(600));
   });
 
+  test('the pen near the end of the line counts as carrying it on', () {
+    const g = (left: 100.0, right: 200.0, baseline: 700.0, letter: 10.0);
+    expect(nearLineEnd(g, 230, 705), isTrue);
+    expect(nearLineEnd(g, 150, 705), isFalse, reason: 'mid-line');
+    expect(nearLineEnd(g, 230, 650), isFalse, reason: 'a line further down');
+    expect(nearLineEnd(g, 400, 705), isFalse, reason: 'far to the side');
+  });
+
   test('no guide for highlighter or unknown strokes', () {
     const marker = PageStroke(
       tool: InkTool.highlighter,
