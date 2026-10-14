@@ -310,7 +310,49 @@ void main() {
     expect(level.map((s) => s.id), slanted.map((s) => s.id));
     final bottoms = [for (final s in level) InkBox.of(s).bottom];
     expect(bottoms.reduce(math.max) - bottoms.reduce(math.min), lessThan(0.5));
-    // Level writing is left as it is.
+    // A small tilt (6 degrees, too little to read as slanted) too.
+    final tilt = 6 * math.pi / 180;
+    final tilted = [
+      for (var i = 0; i < 8; i++)
+        PageStroke(
+          points: [
+            for (final p in letter(100.0 + i * 7, 700, i * 200).points)
+              levelPoint(p, -tilt, 100, 700),
+          ],
+        ),
+    ];
+    final fixed = straightened(tilted);
+    expect(fixed, hasLength(8));
+    final feet = [for (final s in fixed) InkBox.of(s).bottom];
+    expect(feet.reduce(math.max) - feet.reduce(math.min), lessThan(0.5));
+    // Level writing is left as it is, even with tall letters and tails
+    // ("d o g" and "small"), and so is ink that isn't writing.
+    PageStroke at(double x, double bottom, double h, int t) => PageStroke(
+      points: [
+        PageInkPoint(x, bottom, t),
+        PageInkPoint(x + 3, bottom + h, t + 40),
+        PageInkPoint(x + 6, bottom, t + 80),
+      ],
+    );
+    expect(
+      straightened([
+        at(100, 700, 15, 0),
+        at(107, 700, 10, 200),
+        at(114, 695, 15, 400),
+      ]),
+      isEmpty,
+    );
+    expect(
+      straightened([
+        for (final (i, h) in [10.0, 10.0, 10.0, 15.0, 15.0, 10.0].indexed)
+          at(100 + i * 7.0, 700, h, i * 200),
+      ]),
+      isEmpty,
+    );
+    expect(
+      straightened([for (final s in slanted) s.copyWith(notWriting: true)]),
+      isEmpty,
+    );
     expect(
       straightened([
         for (var i = 0; i < 4; i++) letter(100.0 + i * 7, 700, i * 200),

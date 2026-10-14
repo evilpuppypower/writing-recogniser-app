@@ -49,16 +49,20 @@ List<PageStroke> pastedCopies(
 
 /// [strokes] (a selection) with each line of writing in them turned level
 /// about its middle ("Straighten"): same ids, so recognised words stay
-/// with them. Lines already level (within half a degree) are left out.
+/// with them. Lines already level (within 2 degrees, along their
+/// baseline) and ink marked "This isn't writing" are left out.
 List<PageStroke> straightened(List<PageStroke> strokes) {
   final out = <PageStroke>[];
-  for (final line in groupStrokes(strokes)) {
+  for (final line in groupStrokes(
+    strokes,
+    include: (i) => !strokes[i].notWriting,
+  )) {
     final idx = [for (final w in line.words) ...w.strokes];
     final slant = line.words.first.slant;
     final dir = slant == null
         ? lineDirection(strokes, idx)
         : (angle: slant.angle, cx: slant.cx, cy: slant.cy);
-    if (dir == null || dir.angle.abs() < 0.5 * math.pi / 180) {
+    if (dir == null || dir.angle.abs() < 2 * math.pi / 180) {
       continue;
     }
     for (final i in idx) {

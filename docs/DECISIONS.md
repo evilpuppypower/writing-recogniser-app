@@ -477,9 +477,9 @@ The guide line popped up while the owner was drawing or circling something. It n
 ## 2026-10-14 — More actions on the Select tool's bar (owner's choices)
 
 The owner chose more actions for the selection bar. This change adds:
-- **Copy text:** copies the words read in the selection (each counts when at least half its strokes are selected), line by line, to paste in another app. It waits for any unread writing to be read first.
-- **Thickness:** a slider for the line width. Every selected stroke changes by the same amount, within each tool's limits.
-- **Straighten:** each line of writing in the selection is turned level about its middle. The ink itself moves. Stroke ids don't change, so the words read stay with it. Lines within half a degree of level are left alone.
+- **Copy text:** copies the words read in the selection (each counts when at least half its strokes are selected), line by line, to paste in another app. Converted writing gives its typed text, as edited. It waits for any unread writing to be read first.
+- **Thickness:** a slider for the line width, starting at the selection's typical pen width (or highlighter width, if only highlighter is selected) with that tool's range. Every selected stroke changes by the same amount, within each tool's limits. Apply without moving the slider changes nothing.
+- **Straighten:** each line of writing in the selection is turned level about its middle. The ink itself moves. Stroke ids don't change, so the words read stay with it. The tilt is measured along the line's baseline, fitted twice so tails (g, p, y) and tall letters don't tilt it. It needs at least 4 letters and 4 letters' length. Lines within 2 degrees of level, and ink marked "This isn't writing", are left alone.
 - **Duplicate:** a copy just beside the selection, which is then selected.
 - **Cut:** Copy, then Delete.
 

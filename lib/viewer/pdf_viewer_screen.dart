@@ -444,12 +444,24 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// "Thickness": thinner or thicker lines for the selection.
   Future<void> _thicknessSelection(InkSelection sel) async {
-    final widths = [
+    final picked = [
       for (final s in _ink.ink.strokesOn(sel.page))
-        if (sel.ids.contains(s.id) && s.tool == InkTool.pen) s.width,
+        if (sel.ids.contains(s.id)) s,
+    ];
+    // Measured on the pen strokes, or the highlighter if that's all there
+    // is, with that tool's range.
+    final pen = picked.any((s) => s.tool == InkTool.pen);
+    final (lo, hi) = pen
+        ? (PenStyle.minPenWidth, PenStyle.maxPenWidth)
+        : (PenStyle.minHighlighterWidth, PenStyle.maxHighlighterWidth);
+    final widths = [
+      for (final s in picked)
+        if ((s.tool == InkTool.pen) == pen) s.width,
     ]..sort();
-    final now = widths.isEmpty ? 1.2 : widths[widths.length ~/ 2];
-    var chosen = now.clamp(PenStyle.minPenWidth, PenStyle.maxPenWidth);
+    if (widths.isEmpty) return;
+    final now = widths[widths.length ~/ 2];
+    final start = now.clamp(lo, hi);
+    var chosen = start;
     final width = await showDialog<double>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -461,10 +473,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               Text('${chosen.toStringAsFixed(1)} pt'),
               Slider(
                 value: chosen,
-                min: PenStyle.minPenWidth,
-                max: PenStyle.maxPenWidth,
-                divisions: ((PenStyle.maxPenWidth - PenStyle.minPenWidth) * 10)
-                    .round(),
+                min: lo,
+                max: hi,
+                divisions: ((hi - lo) * 10).round(),
                 label: '${chosen.toStringAsFixed(1)} pt',
                 onChanged: (w) => setDialog(() => chosen = w),
               ),
@@ -483,7 +494,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         ),
       ),
     );
-    if (width == null || now <= 0) return;
+    // Unchanged (Apply without moving the slider): nothing to do.
+    if (width == null || width == start || now <= 0) return;
     // Everything selected changes by the same amount, so a highlighter
     // stroke in the selection stays as much wider as it was.
     _ink.scaleWidth(
@@ -517,9 +529,28 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final messenger = ScaffoldMessenger.of(context);
     final words = await _readPage(sel.page);
     if (words == null || !mounted) return;
-    final text = selectionText([
+    // Converted writing: its typed text (perhaps edited since); the rest:
+    // the words read.
+    final strokes = _ink.ink.strokesOn(sel.page);
+    final converted = convertedStrokeIds(strokes);
+    final lineOf = {
       for (final w in words)
-        (line: w.line, strokeIds: w.key.split(','), text: w.text),
+        for (final id in w.key.split(',')) id: w.line,
+    };
+    final text = selectionText([
+      for (final t in typedLines(strokes))
+        (
+          line: t.words
+              .expand((w) => w.strokeIds)
+              .map((id) => lineOf[id])
+              .whereType<int>()
+              .fold(1 << 20, math.min),
+          strokeIds: [for (final w in t.words) ...w.strokeIds],
+          text: t.text,
+        ),
+      for (final w in words)
+        if (!w.key.split(',').any(converted.contains))
+          (line: w.line, strokeIds: w.key.split(','), text: w.text),
     ], sel.ids);
     if (text.isEmpty) {
       messenger.showSnackBar(
