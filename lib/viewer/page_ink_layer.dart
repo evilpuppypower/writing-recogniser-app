@@ -552,7 +552,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   bool _dragging = false, _resizing = false, _rotating = false;
   List<PageStroke> _rotateFrom = const [];
   PdfPagePoint _rotateAbout = const PdfPagePoint(0, 0);
-  double _rotateStart = 0;
+  double _rotateStart = 0, _rotateApplied = 0;
   Offset _dragLast = Offset.zero;
   double _scaleSoFar = 1;
   PdfPagePoint? _scaleOrigin;
@@ -568,7 +568,10 @@ class _PageInkLayerState extends State<PageInkLayer> {
     if (_tools.mode == PenMode.lasso && !_isEraser(e)) {
       final rect = _selectionRect();
       final at = e.localPosition;
-      if (rect != null && (at - rect.bottomRight).distance <= handleRadius) {
+      final handles = rect == null ? null : selectionHandles(rect);
+      if (rect != null &&
+          handles != null &&
+          (at - handles.resize).distance <= handleRadius) {
         // The corner handle: resize, keeping the top-left corner in place.
         _resizing = true;
         _scaleSoFar = 1;
@@ -580,7 +583,9 @@ class _PageInkLayerState extends State<PageInkLayer> {
         widget.controller.beginGesture(widget.pageNumber);
         return;
       }
-      if (rect != null && (at - rect.bottomLeft).distance <= handleRadius) {
+      if (rect != null &&
+          handles != null &&
+          (at - handles.rotate).distance <= handleRadius) {
         // The rotate handle: turn about the middle, from the strokes as
         // they were (so many small steps don't add up errors).
         final sel = widget.selection!.value!;
@@ -595,6 +600,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
           widget.viewWidth,
         );
         _rotateStart = math.atan2(at.dy - c.dy, at.dx - c.dx);
+        _rotateApplied = 0;
         widget.controller.beginGesture(widget.pageNumber);
         return;
       }
@@ -641,14 +647,20 @@ class _PageInkLayerState extends State<PageInkLayer> {
       final turned = snapTurn(
         math.atan2(at.dy - c.y, at.dx - c.x) - _rotateStart,
       );
+      // Only when the turn changes (a tap that jitters a pixel isn't an
+      // edit); back to none: the strokes as they were.
+      if (turned == _rotateApplied) return;
+      _rotateApplied = turned;
       widget.controller.replaceStrokes(widget.pageNumber, [
         for (final s in _rotateFrom)
-          s.copyWith(
-            points: [
-              for (final p in s.points)
-                levelPoint(p, turned, _rotateAbout.x, _rotateAbout.y),
-            ],
-          ),
+          turned == 0
+              ? s
+              : s.copyWith(
+                  points: [
+                    for (final p in s.points)
+                      levelPoint(p, turned, _rotateAbout.x, _rotateAbout.y),
+                  ],
+                ),
       ]);
       return;
     }
@@ -1311,6 +1323,20 @@ Rect? selectionRect(
   return Rect.fromLTWH(r.left, r.top, r.width, r.height).inflate(6);
 }
 
+/// Where the selection's handles go: resize at the bottom-right corner,
+/// turn at the bottom-left; just outside the corners when the box is
+/// small, so the box itself can still be dragged.
+({Offset resize, Offset rotate}) selectionHandles(Rect rect) {
+  const r = _PageInkLayerState.handleRadius;
+  if (rect.shortestSide >= r * 3) {
+    return (resize: rect.bottomRight, rotate: rect.bottomLeft);
+  }
+  return (
+    resize: rect.bottomRight + const Offset(r, r),
+    rotate: rect.bottomLeft + const Offset(-r, r),
+  );
+}
+
 /// A turn of the selection (radians, clockwise on screen), snapped to
 /// none or a quarter turn when within 4 degrees of one, so it's easy to
 /// put back or turn exactly.
@@ -1362,13 +1388,14 @@ class _SelectionPainter extends CustomPainter {
     for (final (a, b) in dashes(path)) {
       canvas.drawLine(a, b, line);
     }
+    final handles = selectionHandles(rect);
     canvas.drawCircle(
-      rect.bottomRight,
+      handles.resize,
       _PageInkLayerState.handleRadius * 0.6,
       Paint()..color = const Color(0xFF1E88E5),
     );
     canvas.drawCircle(
-      rect.bottomRight,
+      handles.resize,
       _PageInkLayerState.handleRadius * 0.6,
       Paint()
         ..color = const Color(0xFFFFFFFF)
@@ -1378,7 +1405,7 @@ class _SelectionPainter extends CustomPainter {
     // The rotate handle: a ring with an arrow round it.
     final r = _PageInkLayerState.handleRadius * 0.6;
     canvas.drawCircle(
-      rect.bottomLeft,
+      handles.rotate,
       r,
       Paint()..color = const Color(0xFF1E88E5),
     );
@@ -1387,9 +1414,9 @@ class _SelectionPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.6
       ..strokeCap = StrokeCap.round;
-    final inner = Rect.fromCircle(center: rect.bottomLeft, radius: r * 0.55);
+    final inner = Rect.fromCircle(center: handles.rotate, radius: r * 0.55);
     canvas.drawArc(inner, -math.pi / 2, math.pi * 1.5, false, arrow);
-    final tip = rect.bottomLeft + Offset(0, -r * 0.55);
+    final tip = handles.rotate + Offset(0, -r * 0.55);
     canvas.drawLine(tip, tip + Offset(-r * 0.35, -r * 0.3), arrow);
     canvas.drawLine(tip, tip + Offset(-r * 0.35, r * 0.3), arrow);
   }
