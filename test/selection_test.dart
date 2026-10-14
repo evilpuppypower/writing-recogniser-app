@@ -212,6 +212,38 @@ void main() {
       expect(s[0].width, greaterThan(a.width));
     });
 
+    testWidgets('dragging the bottom-left dot turns it, in one undo step', (
+      tester,
+    ) async {
+      await pump(tester);
+      final geometry = PageGeometry(width: 612, height: 792);
+      final rect = selectionRect(
+        ctl.ink.strokesOn(1),
+        sel.value!.ids,
+        geometry,
+        612,
+      )!;
+      final c = rect.center;
+      // A quarter turn clockwise on screen: (x, y) -> (-y, x) about c.
+      final v = rect.bottomLeft - c;
+      await drag(tester, rect.bottomLeft, c + Offset(-v.dy, v.dx));
+      final mid = geometry.toPdf(ViewPoint(c.dx, c.dy), 612);
+      final turned = ctl.ink.strokesOn(1);
+      final want = levelPoint(a.points.first, math.pi / 2, mid.x, mid.y);
+      expect(turned[0].points.first.x, closeTo(want.x, 0.01));
+      expect(turned[0].points.first.y, closeTo(want.y, 0.01));
+      expect(turned[0].id, a.id, reason: 'same strokes, same words');
+      expect(turned[2].points.first.x, 300, reason: 'not selected');
+      ctl.undo();
+      expect(ctl.ink.strokesOn(1)[0].points.first.x, 100);
+    });
+
+    test('turns snap to none or a quarter turn when close', () {
+      expect(snapTurn(0.05), 0);
+      expect(snapTurn(math.pi / 2 + 0.03), math.pi / 2);
+      expect(snapTurn(0.5), 0.5);
+    });
+
     testWidgets('a loop elsewhere drops the selection', (tester) async {
       await pump(tester);
       await drag(tester, const Offset(400, 400), const Offset(450, 450));

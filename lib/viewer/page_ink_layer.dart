@@ -13,7 +13,7 @@ import '../core/page_ink.dart';
 import '../core/pen_tap.dart';
 import '../core/pen_tools.dart';
 import '../core/selection.dart';
-import '../core/stroke_grouping.dart' show InkBox;
+import '../core/stroke_grouping.dart' show InkBox, levelPoint;
 import '../core/typed_text.dart' show convertedGroups;
 import '../core/writing_guide.dart';
 import '../settings/settings_controller.dart';
@@ -547,8 +547,12 @@ class _PageInkLayerState extends State<PageInkLayer> {
     );
   }
 
-  /// Dragging the selection (move) or its corner handle (resize).
-  bool _dragging = false, _resizing = false;
+  /// Dragging the selection (move), its bottom-right handle (resize) or
+  /// its bottom-left handle (rotate, about its middle).
+  bool _dragging = false, _resizing = false, _rotating = false;
+  List<PageStroke> _rotateFrom = const [];
+  PdfPagePoint _rotateAbout = const PdfPagePoint(0, 0);
+  double _rotateStart = 0;
   Offset _dragLast = Offset.zero;
   double _scaleSoFar = 1;
   PdfPagePoint? _scaleOrigin;
@@ -573,6 +577,24 @@ class _PageInkLayerState extends State<PageInkLayer> {
           ViewPoint(rect.left, rect.top),
           widget.viewWidth,
         );
+        widget.controller.beginGesture(widget.pageNumber);
+        return;
+      }
+      if (rect != null && (at - rect.bottomLeft).distance <= handleRadius) {
+        // The rotate handle: turn about the middle, from the strokes as
+        // they were (so many small steps don't add up errors).
+        final sel = widget.selection!.value!;
+        _rotating = true;
+        _rotateFrom = [
+          for (final s in widget.controller.ink.strokesOn(widget.pageNumber))
+            if (sel.ids.contains(s.id)) s,
+        ];
+        final c = rect.center;
+        _rotateAbout = widget.geometry.toPdf(
+          ViewPoint(c.dx, c.dy),
+          widget.viewWidth,
+        );
+        _rotateStart = math.atan2(at.dy - c.dy, at.dx - c.dx);
         widget.controller.beginGesture(widget.pageNumber);
         return;
       }
@@ -610,6 +632,26 @@ class _PageInkLayerState extends State<PageInkLayer> {
   void _move(PointerEvent e) {
     _moved = math.max(_moved, (e.localPosition - _downAt).distance);
     final sel = widget.selection?.value;
+    if (_rotating && sel != null) {
+      final c = widget.geometry.toView(_rotateAbout, widget.viewWidth);
+      final at = e.localPosition;
+      // The pen's turn about the middle, clockwise on screen (y down); a
+      // clockwise turn on the page (y up) is what levelPoint does with a
+      // positive angle, and a page shown turned doesn't change that.
+      final turned = snapTurn(
+        math.atan2(at.dy - c.y, at.dx - c.x) - _rotateStart,
+      );
+      widget.controller.replaceStrokes(widget.pageNumber, [
+        for (final s in _rotateFrom)
+          s.copyWith(
+            points: [
+              for (final p in s.points)
+                levelPoint(p, turned, _rotateAbout.x, _rotateAbout.y),
+            ],
+          ),
+      ]);
+      return;
+    }
     if ((_dragging || _resizing) && sel != null) {
       if (_dragging) {
         final from = widget.geometry.toPdf(
@@ -682,8 +724,9 @@ class _PageInkLayerState extends State<PageInkLayer> {
   /// Ends moving or resizing the selection (one undo step); false if the
   /// pen wasn't doing that.
   bool _endSelectionDrag() {
-    if (!_dragging && !_resizing) return false;
-    _dragging = _resizing = false;
+    if (!_dragging && !_resizing && !_rotating) return false;
+    _dragging = _resizing = _rotating = false;
+    _rotateFrom = const [];
     widget.controller.endGesture();
     return true;
   }
@@ -1268,8 +1311,17 @@ Rect? selectionRect(
   return Rect.fromLTWH(r.left, r.top, r.width, r.height).inflate(6);
 }
 
-/// The selection: a dotted box round it and a handle at its bottom-right
-/// corner to resize it.
+/// A turn of the selection (radians, clockwise on screen), snapped to
+/// none or a quarter turn when within 4 degrees of one, so it's easy to
+/// put back or turn exactly.
+double snapTurn(double turned) {
+  const quarter = math.pi / 2, near = 4 * math.pi / 180;
+  final nearest = (turned / quarter).round() * quarter;
+  return (turned - nearest).abs() <= near ? nearest : turned;
+}
+
+/// The selection: a dotted box round it, a handle at its bottom-right
+/// corner to resize it and one at its bottom-left to turn it.
 class _SelectionPainter extends CustomPainter {
   _SelectionPainter({
     required this.controller,
@@ -1323,6 +1375,23 @@ class _SelectionPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2,
     );
+    // The rotate handle: a ring with an arrow round it.
+    final r = _PageInkLayerState.handleRadius * 0.6;
+    canvas.drawCircle(
+      rect.bottomLeft,
+      r,
+      Paint()..color = const Color(0xFF1E88E5),
+    );
+    final arrow = Paint()
+      ..color = const Color(0xFFFFFFFF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    final inner = Rect.fromCircle(center: rect.bottomLeft, radius: r * 0.55);
+    canvas.drawArc(inner, -math.pi / 2, math.pi * 1.5, false, arrow);
+    final tip = rect.bottomLeft + Offset(0, -r * 0.55);
+    canvas.drawLine(tip, tip + Offset(-r * 0.35, -r * 0.3), arrow);
+    canvas.drawLine(tip, tip + Offset(-r * 0.35, r * 0.3), arrow);
   }
 
   @override
