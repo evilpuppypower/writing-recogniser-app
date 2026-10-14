@@ -10,7 +10,43 @@ import sys
 from pathlib import Path
 
 from .data import DataError, load
+from . import words as word_finding
 from .model import Memory, cross_validate, examples, model_file, train, verdict
+
+
+def _word_finding(data, out: Path) -> list[str]:
+    """Trains the word finder from the "One word" marks (file version 3)
+    and returns its part of the report."""
+    if data.version < 3:
+        return [
+            "Word finding: this file is from before the app saved "
+            '"One word" marks. Save the training data again to include them.'
+        ]
+    if data.word_pairs and data.word_pair_features != word_finding.FEATURES:
+        return [
+            "Word finding: this file's numbers don't match this program. "
+            "Update the training folder from the same version as the app."
+        ]
+    pairs = data.word_pairs
+    report = word_finding.cross_validate(pairs)
+    w, b = word_finding.train(pairs)
+    (out / "word-model.json").write_text(
+        json.dumps(word_finding.model_file(w, b, report), indent=2),
+        encoding="utf-8",
+    )
+    lines = [f"Word finding: {report.pairs} stroke pairs next to your marks."]
+    if report.pairs >= 5:
+        lines.append(
+            f"  Today's rules get {report.rules_right} right; the model "
+            f"gets {report.model_right} right."
+        )
+    lines += [
+        "",
+        word_finding.verdict(report),
+        "",
+        f"Saved: {out / 'word-model.json'} (weights only).",
+    ]
+    return lines
 
 
 def _ask_for_file() -> str | None:
@@ -72,6 +108,8 @@ def main(argv: list[str]) -> int:
         verdict(report),
         "",
         f"Saved: {out / 'model.json'} (weights only: no handwriting or text).",
+        "",
+        *_word_finding(data, out),
     ]
     text = "\n".join(lines)
     (out / "report.txt").write_text(text + "\n", encoding="utf-8")

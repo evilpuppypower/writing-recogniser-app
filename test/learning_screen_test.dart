@@ -51,8 +51,12 @@ void main() {
             saved?.add((name, bytes));
             return true;
           },
-          loadTrainingData: () async =>
-              (corrections, const <LabeledSample>[], const <SavedPageText>[]),
+          loadTrainingData: () async => (
+            corrections: corrections,
+            samples: const <LabeledSample>[],
+            pageTexts: const <SavedPageText>[],
+            pageInk: const <SavedPageInk>[],
+          ),
         ),
       ),
     );

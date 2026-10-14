@@ -16,6 +16,14 @@ import '../storage/sqlite_event_log.dart';
 import '../storage/sqlite_ink_store.dart';
 import '../storage/sqlite_sample_store.dart';
 
+/// What "Save training data" packs (see [encodeTrainingData]).
+typedef TrainingSources = ({
+  List<CorrectionRecord> corrections,
+  List<LabeledSample> samples,
+  List<SavedPageText> pageTexts,
+  List<SavedPageInk> pageInk,
+});
+
 /// "How well is it learning?" (task 3.1): whether corrections make
 /// recognition better, from real use on PDFs. Everything is worked out on
 /// the tablet from its own log.
@@ -29,23 +37,17 @@ class LearningScreen extends StatefulWidget {
 
   final Future<EventLog> Function() openEventLog;
 
-  /// The corrections, samples and words read on PDF pages for "Save
-  /// training data" (tasks 4.1, 4.1b).
-  final Future<
-    (List<CorrectionRecord>, List<LabeledSample>, List<SavedPageText>)
-  >
-  Function()
-  loadTrainingData;
+  /// The corrections, samples, words read on PDF pages and the pages' ink
+  /// for "Save training data" (tasks 4.1, 4.1b, 4.5).
+  final Future<TrainingSources> Function() loadTrainingData;
 
-  static Future<
-    (List<CorrectionRecord>, List<LabeledSample>, List<SavedPageText>)
-  >
-  _loadTrainingData() async {
+  static Future<TrainingSources> _loadTrainingData() async {
     final db = await AppDatabase.open();
     return (
-      await SqliteCorrectionStore(db).all(),
-      await SqliteSampleStore(db).all(),
-      await SqliteInkStore(db).allText(),
+      corrections: await SqliteCorrectionStore(db).all(),
+      samples: await SqliteSampleStore(db).all(),
+      pageTexts: await SqliteInkStore(db).allText(),
+      pageInk: await SqliteInkStore(db).allInk(),
     );
   }
 
@@ -154,8 +156,12 @@ class _LearningScreenState extends State<LearningScreen> {
     }
 
     try {
-      final (corrections, samples, pageTexts) = await widget.loadTrainingData();
-      if (corrections.isEmpty && samples.isEmpty && pageTexts.isEmpty) {
+      final data = await widget.loadTrainingData();
+      final corrections = data.corrections, samples = data.samples;
+      if (corrections.isEmpty &&
+          samples.isEmpty &&
+          data.pageTexts.isEmpty &&
+          data.pageInk.isEmpty) {
         closeDialog();
         messenger.showSnackBar(
           const SnackBar(
@@ -166,7 +172,7 @@ class _LearningScreenState extends State<LearningScreen> {
       }
       final now = DateTime.now();
       final name = trainingDataFileName(now);
-      final bytes = await _pack(corrections, samples, pageTexts, now);
+      final bytes = await _pack(data, now);
       closeDialog();
       final saved = await widget.saveFile(name, 'application/zip', bytes);
       if (saved) {
@@ -187,19 +193,16 @@ class _LearningScreenState extends State<LearningScreen> {
 
   /// Packs the file on a background isolate, so the screen never freezes.
   /// (Static, so the work sent to the isolate carries only the data.)
-  static Future<List<int>> _pack(
-    List<CorrectionRecord> corrections,
-    List<LabeledSample> samples,
-    List<SavedPageText> pageTexts,
-    DateTime now,
-  ) => Isolate.run(
-    () => encodeTrainingData(
-      corrections: corrections,
-      samples: samples,
-      pageTexts: pageTexts,
-      exportedAt: now,
-    ),
-  );
+  static Future<List<int>> _pack(TrainingSources data, DateTime now) =>
+      Isolate.run(
+        () => encodeTrainingData(
+          corrections: data.corrections,
+          samples: data.samples,
+          pageTexts: data.pageTexts,
+          pageInk: data.pageInk,
+          exportedAt: now,
+        ),
+      );
 
   static String _pct(double? v) =>
       v == null ? '–' : '${(v * 100).toStringAsFixed(v < 0.1 ? 1 : 0)}%';

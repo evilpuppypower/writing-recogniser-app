@@ -87,6 +87,13 @@ class SqliteInkStore implements InkStore {
       (document: r['document_id']! as String, json: r['words']! as String),
   ];
 
+  /// Every page's ink, of every PDF, as saved (for the training file's
+  /// word pairs, task 4.5).
+  Future<List<({String document, String json})>> allInk() async => [
+    for (final r in await _db.query('page_ink', orderBy: 'document_id, page'))
+      (document: r['document_id']! as String, json: r['strokes']! as String),
+  ];
+
   @override
   Future<void> saveText(String documentId, int page, String? json) async {
     if (json == null) {

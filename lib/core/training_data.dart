@@ -14,10 +14,12 @@ import 'package:archive/archive.dart';
 import 'feedback/correction.dart';
 import 'ink.dart';
 import 'labeled_sample.dart';
+import 'page_ink.dart';
 import 'replay_cases.dart';
+import 'word_pairs.dart';
 
 const trainingDataFormat = 'writing-recogniser-training-data';
-const trainingDataVersion = 2;
+const trainingDataVersion = 3;
 const trainingDataEntry = 'training-data.json';
 
 /// "training-data-20260131.zip" (the date only).
@@ -31,15 +33,22 @@ String trainingDataFileName(DateTime now) {
 /// word was read as, with its ink), for [encodeTrainingData].
 typedef SavedPageText = ({String document, String json});
 
+/// A PDF page's ink as saved (the app's `page_ink` rows: a JSON list of
+/// strokes), for [encodeTrainingData].
+typedef SavedPageInk = ({String document, String json});
+
 /// The zip file's bytes. Version 2 (task 4.1b) adds every word read on PDF
 /// pages ([pageTexts]: right or corrected, with the engine's other
 /// readings) and the samples split into words, so a model can learn to
-/// pick the right reading, not only from mistakes.
+/// pick the right reading, not only from mistakes. Version 3 (task 4.5)
+/// adds "wordPairs" from the pages' ink ([pageInk]), for learning which
+/// strokes make one word.
 List<int> encodeTrainingData({
   required List<CorrectionRecord> corrections,
   required List<LabeledSample> samples,
   required DateTime exportedAt,
   List<SavedPageText> pageTexts = const [],
+  List<SavedPageInk> pageInk = const [],
 }) {
   final documents = <String, int>{};
   int? documentNumber(String? id) =>
@@ -81,7 +90,13 @@ List<int> encodeTrainingData({
           'The samples split into words the way PDF pages are, with the '
           'word written; samples whose ink split into a different number '
           'of words are left out. x, y as for samples.',
+      'wordPairs':
+          'Neighbouring strokes on a line next to a "One word" mark the '
+          'user made: "features" are numbers describing the pair (named '
+          'in "wordPairFeatures"), "sameWord" whether the user said they '
+          'are one word. No ink.',
     },
+    'wordPairFeatures': wordPairFeatures,
     'corrections': [
       for (final c in corrections)
         {
@@ -114,6 +129,11 @@ List<int> encodeTrainingData({
           'previousWord': c.previousWord,
           'strokes': strokes(c.strokes),
         },
+    ],
+    'wordPairs': [
+      for (final p in pageInk)
+        for (final pair in _pagePairs(p))
+          {...pair.toJson(), 'document': ?documentNumber(p.document)},
     ],
   };
   // Not indented: with every ink point on its own line the file would be
@@ -156,6 +176,19 @@ List<Map<String, Object?>> _pageWords(SavedPageText page, int? document) {
             };
           }(),
     ];
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// The labelled word pairs of one page's ink. A page whose ink can't be
+/// read is left out.
+List<WordPair> _pagePairs(SavedPageInk page) {
+  try {
+    return wordPairs([
+      for (final s in jsonDecode(page.json) as List)
+        PageStroke.fromJson((s as Map).cast<String, Object?>()),
+    ]);
   } catch (_) {
     return const [];
   }

@@ -36,6 +36,10 @@ No graphics-card software is needed: this model trains in seconds on the process
 
 If it says **"Not enough data yet"**, keep using the app and correcting misread words (about 200 words read and 20 corrected are needed), then try again. Only words read by app versions from this one on count (older ones didn't keep the engine's full list of readings).
 
+## Word finding
+
+The same run also trains a **word finder**: it learns, from your "One word" marks, which strokes next to each other belong to one word (for example, if you leave wide gaps inside words). Each time you select a word that was split or joined wrongly and tap "One word", you add examples. The report's second part says how often today's rules and the model are right on your marks, and how many pairs the model fixes or breaks. It's saved as `output\word-model.json` (a few numbers only). About 30 pairs next to marks, with at least 5 that today's rules get wrong, are needed. The app doesn't use it yet.
+
 ## If something goes wrong
 
 - **"Python isn't installed"**: install it (step 1 above, with "Add python.exe to PATH" ticked), then run `setup.bat` again.
