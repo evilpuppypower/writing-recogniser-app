@@ -204,12 +204,80 @@ void main() {
         PageGeometry(width: 612, height: 792),
         612,
       )!;
-      final grow = rect.bottomRight + (rect.bottomRight - rect.topLeft);
-      await drag(tester, rect.bottomRight, grow);
+      final handle = selectionHandles(rect).resize;
+      await drag(tester, handle, handle + (rect.bottomRight - rect.topLeft));
       final s = ctl.ink.strokesOn(1);
       final width = s[1].points.last.x - s[0].points.first.x;
       expect(width, greaterThan(19), reason: 'about twice 13 pt');
       expect(s[0].width, greaterThan(a.width));
+    });
+
+    testWidgets('dragging the bottom-left dot turns it, in one undo step', (
+      tester,
+    ) async {
+      await pump(tester);
+      final geometry = PageGeometry(width: 612, height: 792);
+      final rect = selectionRect(
+        ctl.ink.strokesOn(1),
+        sel.value!.ids,
+        geometry,
+        612,
+      )!;
+      final c = rect.center;
+      // A quarter turn clockwise on screen: (x, y) -> (-y, x) about c.
+      final handle = selectionHandles(rect).rotate;
+      final v = handle - c;
+      await drag(tester, handle, c + Offset(-v.dy, v.dx));
+      final mid = geometry.toPdf(ViewPoint(c.dx, c.dy), 612);
+      final turned = ctl.ink.strokesOn(1);
+      final want = levelPoint(a.points.first, math.pi / 2, mid.x, mid.y);
+      expect(turned[0].points.first.x, closeTo(want.x, 0.01));
+      expect(turned[0].points.first.y, closeTo(want.y, 0.01));
+      expect(turned[0].id, a.id, reason: 'same strokes, same words');
+      expect(turned[2].points.first.x, 300, reason: 'not selected');
+      ctl.undo();
+      expect(ctl.ink.strokesOn(1)[0].points.first.x, 100);
+    });
+
+    testWidgets('touching the turn handle without turning changes nothing', (
+      tester,
+    ) async {
+      await pump(tester);
+      final rect = selectionRect(
+        ctl.ink.strokesOn(1),
+        sel.value!.ids,
+        PageGeometry(width: 612, height: 792),
+        612,
+      )!;
+      final h = selectionHandles(rect).rotate;
+      await drag(tester, h, h + const Offset(1, 1));
+      expect(ctl.canUndo, isFalse);
+      expect(ctl.ink.strokesOn(1)[0].points.first.x, 100);
+    });
+
+    testWidgets('a tiny selection can still be dragged from its middle', (
+      tester,
+    ) async {
+      await pump(tester);
+      // Just a: 6 x 10 pt, so its box is small.
+      sel.value = InkSelection(1, {a.id});
+      await tester.pump();
+      final rect = selectionRect(
+        ctl.ink.strokesOn(1),
+        {a.id},
+        PageGeometry(width: 612, height: 792),
+        612,
+      )!;
+      expect(rect.shortestSide, lessThan(3 * 14));
+      await drag(tester, rect.center, rect.center + const Offset(30, 0));
+      expect(ctl.ink.strokesOn(1)[0].points.first.x, closeTo(130, 0.01));
+      expect(ctl.ink.strokesOn(1)[0].width, a.width, reason: 'not resized');
+    });
+
+    test('turns snap to none or a quarter turn when close', () {
+      expect(snapTurn(0.05), 0);
+      expect(snapTurn(math.pi / 2 + 0.03), math.pi / 2);
+      expect(snapTurn(0.5), 0.5);
     });
 
     testWidgets('a loop elsewhere drops the selection', (tester) async {
