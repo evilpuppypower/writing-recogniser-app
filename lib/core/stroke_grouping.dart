@@ -85,23 +85,38 @@ class InkBox {
   String toString() => 'InkBox($left, $bottom, $right, $top)';
 }
 
+/// Writing at a slant (owner's report: words written at an angle confused
+/// the engine): its line runs at [angle] (radians, anticlockwise from
+/// left-to-right, PDF y up) through ([cx], [cy]). [box] is the word's box
+/// with its strokes turned level about that point (see [levelPoint]).
+typedef Slant = ({double angle, double cx, double cy, InkBox box});
+
 /// One handwritten word: indexes into the page's stroke list, in writing
 /// order.
 class InkWord {
-  InkWord(this.strokes, this.box, this.start, this.end);
+  InkWord(this.strokes, this.box, this.start, this.end, {this.slant});
 
   final List<int> strokes;
+
+  /// The word's box on the page.
   InkBox box;
+
+  /// Set when the word's line is written at a slant.
+  Slant? slant;
 
   /// First pen-down and last pen-up, ms since epoch.
   int start, end;
 }
 
-/// One line of handwriting, words left to right.
+/// One line of handwriting, words left to right (along the line, when it's
+/// written at a slant).
 class InkLine {
-  InkLine(this.words, {this.letterHeight = 4});
+  InkLine(this.words, {this.letterHeight = 4, this.angle = 0});
 
   final List<InkWord> words;
+
+  /// The line's slant in radians (0: level; see [Slant]).
+  final double angle;
 
   /// Typical letter height of this line's writing, in PDF points.
   final double letterHeight;
@@ -129,7 +144,153 @@ List<InkLine> groupStrokes(
   if (idx.isEmpty) return const [];
   final boxes = {for (final i in idx) i: InkBox.of(strokes[i])};
   final letter = typicalLetterHeight(boxes.values);
+  final slanted = _slantedRuns(strokes, idx, boxes, letter, params);
+  final inRun = {for (final r in slanted) ...r.strokes};
+  final result = _group(
+    strokes,
+    [
+      for (final i in idx)
+        if (!inRun.contains(i)) i,
+    ],
+    boxes,
+    letter,
+    params,
+  );
+  // Writing at a slant: grouped turned level, so its words and lines are
+  // found the usual way, and the engine is sent it level.
+  for (final run in slanted) {
+    final level = [...strokes];
+    for (final i in run.strokes) {
+      level[i] = strokes[i].copyWith(
+        points: [
+          for (final p in strokes[i].points)
+            levelPoint(p, run.angle, run.cx, run.cy),
+        ],
+      );
+    }
+    final levelBoxes = {for (final i in run.strokes) i: InkBox.of(level[i])};
+    for (final line in _group(
+      level,
+      run.strokes,
+      levelBoxes,
+      typicalLetterHeight(levelBoxes.values),
+      params,
+    )) {
+      for (final w in line.words) {
+        w.slant = (angle: run.angle, cx: run.cx, cy: run.cy, box: w.box);
+        w.box = _boxOf(w.strokes, boxes);
+      }
+      result.add(
+        InkLine(line.words, letterHeight: line.letterHeight, angle: run.angle),
+      );
+    }
+  }
+  // Top of the page first (PDF y grows upward).
+  result.sort((a, c) => c.box.centerY.compareTo(a.box.centerY));
+  return result;
+}
 
+/// [p] turned by -[angle] about ([cx], [cy]): writing at that slant comes
+/// out level.
+PageInkPoint levelPoint(PageInkPoint p, double angle, double cx, double cy) {
+  final c = math.cos(angle), s = math.sin(angle);
+  final dx = p.x - cx, dy = p.y - cy;
+  return PageInkPoint(
+    cx + dx * c + dy * s,
+    cy - dx * s + dy * c,
+    p.t,
+    p.pressure,
+  );
+}
+
+/// The smallest slant that counts (owner: "> 10 deg"); below it writing is
+/// taken as level, as before.
+const minSlant = 10 * math.pi / 180;
+const _maxSlant = 60 * math.pi / 180;
+
+typedef _Run = ({List<int> strokes, double angle, double cx, double cy});
+
+/// Runs of writing at a slant: strokes written one after another, each
+/// near the one before, whose letters' middles lie along a straight line
+/// between [minSlant] and 60 degrees from level, at least 4 letters long.
+List<_Run> _slantedRuns(
+  List<PageStroke> strokes,
+  List<int> idx,
+  Map<int, InkBox> boxes,
+  double letter,
+  GroupingParams params,
+) {
+  final order = [...idx]
+    ..sort(
+      (a, c) => strokes[a].points.first.t.compareTo(strokes[c].points.first.t),
+    );
+  final chains = <List<int>>[];
+  for (final i in order) {
+    final b = boxes[i]!;
+    final last = chains.isEmpty ? null : chains.last.last;
+    if (last != null) {
+      final l = boxes[last]!;
+      final dx = math.max(0.0, b.horizontalGap(l));
+      final dy = math.max(
+        0.0,
+        math.max(b.bottom, l.bottom) - math.min(b.top, l.top),
+      );
+      final apart = strokes[i].points.first.t - strokes[last].points.last.t;
+      if (math.sqrt(dx * dx + dy * dy) < letter * 2.5 &&
+          apart < params.newSessionMs ~/ 6) {
+        chains.last.add(i);
+        continue;
+      }
+    }
+    chains.add([i]);
+  }
+  final runs = <_Run>[];
+  for (final chain in chains) {
+    final big = [
+      for (final i in chain)
+        if (math.max(boxes[i]!.width, boxes[i]!.height) >= letter * 0.4) i,
+    ];
+    if (big.length < 4) continue;
+    double cxOf(int i) => (boxes[i]!.left + boxes[i]!.right) / 2;
+    double cyOf(int i) => boxes[i]!.centerY;
+    final mx = big.map(cxOf).reduce((a, b) => a + b) / big.length;
+    final my = big.map(cyOf).reduce((a, b) => a + b) / big.length;
+    var sxx = 0.0, syy = 0.0, sxy = 0.0;
+    for (final i in big) {
+      final dx = cxOf(i) - mx, dy = cyOf(i) - my;
+      sxx += dx * dx;
+      syy += dy * dy;
+      sxy += dx * dy;
+    }
+    // The direction the middles spread along most.
+    final angle = 0.5 * math.atan2(2 * sxy, sxx - syy);
+    if (angle.abs() < minSlant || angle.abs() > _maxSlant) continue;
+    final c = math.cos(angle), s = math.sin(angle);
+    final along = [
+      for (final i in big) (cxOf(i) - mx) * c + (cyOf(i) - my) * s,
+    ];
+    final across = [
+      for (final i in big) -(cxOf(i) - mx) * s + (cyOf(i) - my) * c,
+    ];
+    final length = along.reduce(math.max) - along.reduce(math.min);
+    final spread = math.sqrt(
+      across.map((v) => v * v).reduce((a, b) => a + b) / big.length,
+    );
+    if (length < letter * 4 || spread > letter * 0.6) continue;
+    runs.add((strokes: chain, angle: angle, cx: mx, cy: my));
+  }
+  return runs;
+}
+
+/// Lines and words among the strokes [idx] (see [groupStrokes]), in the
+/// order found.
+List<InkLine> _group(
+  List<PageStroke> strokes,
+  List<int> idx,
+  Map<int, InkBox> boxes,
+  double letter,
+  GroupingParams params,
+) {
   // Lines: each stroke joins the line it overlaps most in height (and is
   // near enough to sideways), in writing order. Sizes are measured against
   // each line's own letters, so big writing next to small writing works.
@@ -228,8 +389,6 @@ List<InkLine> groupStrokes(
     result.add(InkLine(words, letterHeight: lineLetter));
   }
   _joinManualWords(strokes, boxes, result);
-  // Top of the page first (PDF y grows upward).
-  result.sort((a, c) => c.box.centerY.compareTo(a.box.centerY));
   return result;
 }
 
@@ -305,22 +464,29 @@ double? _medianLetter(Iterable<InkBox> boxes) {
 /// on screen) so engines see the writing the right way up, positions start
 /// near the origin, and sizes are multiplied by [scale] (engines expect
 /// writing about the size it is on screen, not in PDF points).
+/// Writing at a slant is turned level first.
 List<InkStroke> wordInk(
   List<PageStroke> strokes,
   InkWord word, {
   double scale = 1,
-}) => [
-  for (final i in word.strokes)
-    InkStroke([
-      for (final p in strokes[i].points)
-        InkPoint(
-          (p.x - word.box.left) * scale,
-          (word.box.top - p.y) * scale,
-          p.t,
-          p.pressure,
-        ),
-    ]),
-];
+}) {
+  final slant = word.slant;
+  final box = slant?.box ?? word.box;
+  return [
+    for (final i in word.strokes)
+      InkStroke([
+        for (final p in strokes[i].points)
+          if (slant == null ? p : levelPoint(p, slant.angle, slant.cx, slant.cy)
+              case final q)
+            InkPoint(
+              (q.x - box.left) * scale,
+              (box.top - q.y) * scale,
+              q.t,
+              q.pressure,
+            ),
+      ]),
+  ];
+}
 
 class _Line {
   _Line(int i, InkBox b) : strokes = [i], box = b, _boxes = [b] {

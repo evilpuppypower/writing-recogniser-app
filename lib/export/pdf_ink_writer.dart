@@ -6,7 +6,7 @@ import 'package:ffi/ffi.dart';
 import 'package:pdfium_dart/pdfium_dart.dart' as pdfium;
 
 import '../core/ink_export_plan.dart';
-import '../core/typed_text.dart' show typedPlacement, typedSizeOnPage;
+import '../core/typed_text.dart' show atSlant, typedPlacement, typedSizeOnPage;
 
 class PdfExportException implements Exception {
   const PdfExportException(this.message, {this.trace = const []});
@@ -202,9 +202,10 @@ void _addWord(
       (color >> 24) & 0xFF,
     );
     // Upright as the page is shown, even on pages turned sideways.
-    final turns = lib.FPDFPage_GetRotation(page);
+    // Writing at a slant: placed level, then turned to follow it.
+    final turns = w.angle == 0 ? lib.FPDFPage_GetRotation(page) : 0;
     final size = typedSizeOnPage(w, turns);
-    final m = typedPlacement(w, turns, size);
+    final m = atSlant(typedPlacement(w, turns, size), w.angle, w.cx, w.cy);
     lib.FPDFPageObj_Transform(obj, m.a, m.b, m.c, m.d, m.e + dx, m.f + dy);
     lib.FPDFPage_InsertObject(page, obj);
     return;
@@ -226,15 +227,20 @@ void _addWord(
     final measured = bounds[2] - bounds[0];
     if (measured > 0) textWidth = measured;
   }
-  lib.FPDFPageObj_Transform(
-    obj,
-    width / textWidth,
-    0,
-    0,
-    height * 0.9,
-    w.left + dx,
-    w.bottom + dy + height * 0.15,
+  final m = atSlant(
+    (
+      a: width / textWidth,
+      b: 0.0,
+      c: 0.0,
+      d: height * 0.9,
+      e: w.left,
+      f: w.bottom + height * 0.15,
+    ),
+    w.angle,
+    w.cx,
+    w.cy,
   );
+  lib.FPDFPageObj_Transform(obj, m.a, m.b, m.c, m.d, m.e + dx, m.f + dy);
   lib.FPDFPage_InsertObject(page, obj);
 }
 

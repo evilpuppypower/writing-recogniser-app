@@ -34,7 +34,15 @@ void main() {
   });
 
   test('the pen near the end of the line counts as carrying it on', () {
-    const g = (left: 100.0, right: 200.0, baseline: 700.0, letter: 10.0);
+    const g = (
+      left: 100.0,
+      right: 200.0,
+      baseline: 700.0,
+      letter: 10.0,
+      angle: 0.0,
+      cx: 0.0,
+      cy: 0.0,
+    );
     expect(nearLineEnd(g, 230, 705), isTrue);
     expect(nearLineEnd(g, 150, 705), isFalse, reason: 'mid-line');
     expect(nearLineEnd(g, 230, 650), isFalse, reason: 'a line further down');

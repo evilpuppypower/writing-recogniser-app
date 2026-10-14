@@ -1299,8 +1299,9 @@ class _GuidePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final g = guide.value;
     if (g == null || colorArgb == 0) return;
-    final a = geometry.toView(PdfPagePoint(g.left, g.baseline), viewWidth);
-    final b = geometry.toView(PdfPagePoint(g.right, g.baseline), viewWidth);
+    final (start, end) = ends(g);
+    final a = geometry.toView(PdfPagePoint(start.x, start.y), viewWidth);
+    final b = geometry.toView(PdfPagePoint(end.x, end.y), viewWidth);
     canvas.drawLine(
       Offset(a.x, a.y),
       Offset(b.x, b.y),

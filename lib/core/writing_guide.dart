@@ -8,22 +8,36 @@ import 'page_ink.dart';
 import 'stroke_grouping.dart';
 
 /// Where the guide goes, in PDF page coordinates: along [baseline] from
-/// [left] to [right].
+/// [left] to [right]. For a line written at a slant, those are measured
+/// with the line turned level ([angle] radians about ([cx], [cy]), see
+/// [levelPoint]); [ends] gives the guide's two ends on the page.
 typedef GuideLine = ({
   double left,
   double right,
   double baseline,
   double letter,
+  double angle,
+  double cx,
+  double cy,
 });
+
+/// The guide's start and end on the page (PDF page coordinates).
+(PageInkPoint, PageInkPoint) ends(GuideLine g) {
+  PageInkPoint onPage(double x) =>
+      levelPoint(PageInkPoint(x, g.baseline, 0), -g.angle, g.cx, g.cy);
+  return (onPage(g.left), onPage(g.right));
+}
 
 /// Whether the pen at ([x], [y]) (PDF page coordinates) is where the line
 /// of [guide] would carry on: past its end, about at its height (owner's
 /// report: carrying on a sentence after scrolling right).
-bool nearLineEnd(GuideLine guide, double x, double y) =>
-    x >= guide.right - guide.letter * 4 &&
-    x <= guide.right + guide.letter * 12 &&
-    y >= guide.baseline - guide.letter * 0.5 &&
-    y <= guide.baseline + guide.letter * 2;
+bool nearLineEnd(GuideLine guide, double x, double y) {
+  final p = levelPoint(PageInkPoint(x, y, 0), guide.angle, guide.cx, guide.cy);
+  return p.x >= guide.right - guide.letter * 4 &&
+      p.x <= guide.right + guide.letter * 12 &&
+      p.y >= guide.baseline - guide.letter * 0.5 &&
+      p.y <= guide.baseline + guide.letter * 2;
+}
 
 /// The guide for the line that stroke [strokeId] is on, among the page's
 /// [strokes]: under the letters (the middle of their bottoms, so tails of
@@ -50,13 +64,24 @@ GuideLine? guideFor(List<PageStroke> page, String strokeId) {
         for (final i in w.strokes) i,
     ];
     if (!ids.any((i) => strokes[i].id == strokeId)) continue;
+    // Measured level: a line written at a slant gets a guide at that slant.
+    final slant = line.words.first.slant;
+    InkBox levelBox(PageStroke s) => slant == null
+        ? InkBox.of(s)
+        : InkBox.of(
+            s.copyWith(
+              points: [
+                for (final p in s.points)
+                  levelPoint(p, slant.angle, slant.cx, slant.cy),
+              ],
+            ),
+          );
+    final levelBoxes = [for (final i in ids) levelBox(strokes[i])];
     final bottoms = [
-      for (final i in ids)
-        if (InkBox.of(strokes[i]) case final b
-            when math.max(b.width, b.height) > line.letterHeight * 0.4)
-          b.bottom,
+      for (final b in levelBoxes)
+        if (math.max(b.width, b.height) > line.letterHeight * 0.4) b.bottom,
     ]..sort();
-    final box = line.box;
+    final box = levelBoxes.reduce((a, b) => a.union(b));
     final baseline = bottoms.isEmpty
         ? box.bottom
         : bottoms[bottoms.length ~/ 2];
@@ -65,6 +90,9 @@ GuideLine? guideFor(List<PageStroke> page, String strokeId) {
       right: box.right + line.letterHeight * 4,
       baseline: baseline - line.letterHeight * 0.1,
       letter: line.letterHeight,
+      angle: slant?.angle ?? 0.0,
+      cx: slant?.cx ?? 0.0,
+      cy: slant?.cy ?? 0.0,
     );
   }
   return null;

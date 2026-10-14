@@ -1274,13 +1274,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         words[page] = [
           for (final w in read)
             if (w.text.trim().isNotEmpty && !(skip?.call(page, w) ?? false))
-              ExportWord(
-                w.text,
-                w.box.left,
-                w.box.bottom,
-                w.box.right,
-                w.box.top,
-              ),
+              if (w.slant?.box ?? w.box case final b)
+                ExportWord(
+                  w.text,
+                  b.left,
+                  b.bottom,
+                  b.right,
+                  b.top,
+                  angle: w.slant?.angle ?? 0,
+                  cx: w.slant?.cx ?? 0,
+                  cy: w.slant?.cy ?? 0,
+                ),
         ];
       }
     } catch (e) {
