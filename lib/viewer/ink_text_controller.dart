@@ -111,12 +111,13 @@ class RecognizedWord {
     String? text,
     List<String>? alternatives,
     int? line,
+    InkBox? box,
     bool? autoReplaced,
     bool? corrected,
   }) => RecognizedWord(
     text: text ?? this.text,
     alternatives: alternatives ?? this.alternatives,
-    box: box,
+    box: box ?? this.box,
     line: line ?? this.line,
     key: key,
     engineText: engineText,
@@ -266,6 +267,12 @@ class InkTextController extends ChangeNotifier {
     );
     _notify();
   }
+
+  static bool _sameBox(InkBox a, InkBox b) =>
+      a.left == b.left &&
+      a.bottom == b.bottom &&
+      a.right == b.right &&
+      a.top == b.top;
 
   static String _lastWord(String text) {
     final parts = text.trim().split(RegExp(r'\s+'));
@@ -466,7 +473,7 @@ class InkTextController extends ChangeNotifier {
     try {
       final words = _words.putIfAbsent(page, () => {});
       final known = {for (final e in words.entries) e.key: e.value.text};
-      final kinds = await classifier.classify(strokes);
+      final kinds = reconcileKinds(strokes, await classifier.classify(strokes));
       if (_disposed) return;
       final flipped = _notWriting[page] ?? const <String>{};
       final plan = planRecognition(
@@ -484,13 +491,15 @@ class InkTextController extends ChangeNotifier {
         for (final w in plan.lines[l].words) {
           final key = wordKey(strokes, w);
           final old = words[key];
-          if (old != null && old.line != l) {
-            words[key] = old.copyWith(line: l);
+          // Lines renumbered, or the word moved (Select tool): same
+          // strokes, so the same text, in its new place.
+          if (old != null && (old.line != l || !_sameBox(old.box, w.box))) {
+            words[key] = old.copyWith(line: l, box: w.box);
             dirty = true;
           }
         }
       }
-      if (words.length != before) {
+      if (words.length != before || dirty) {
         dirty = true;
         _notify();
       }

@@ -447,3 +447,17 @@ Settings → Testing → "Save diagnostic report" saves it as a text file to sen
 ## 2026-10-14 — Carrying on a line after scrolling (owner's report)
 
 Writing to the right edge, scrolling right and carrying on started a new line, so the guide line restarted and converting gave two typed boxes. Writing that starts just to the right of a line's end (no further than the usual reach of 8 letters) now joins that line when its middle is within 3/4 of a letter of the line's middle, even if it doesn't overlap the line's height enough to join the usual way. A line below is still its own line. When the pen hovers where the line just written would carry on, its guide shows again, so it's easy to keep to the same height.
+
+## 2026-10-14 — The Select tool selects; a bar of actions (owner's choices)
+
+The Select tool's loop now selects the strokes inside it instead of only offering to convert them (owner: "Select + action bar"). The selection shows as a dotted box with a dot at its bottom-right corner.
+- **With the pen:** drag inside the box to move the strokes, or drag the corner dot to resize them (line widths scale too). Each drag is one undo step. Drawing a loop elsewhere drops the selection, and so does switching to another tool.
+- **The bar** above the selection: **One word** (read these strokes as one word), **Convert** (as before), **Colour**, **Copy** (Paste then appears in the title bar, for any page), **Delete**, **Not writing**, and Done.
+- Moved strokes keep their recognised words (a stroke's id comes from when it was written, not where), and the labels follow them.
+- Copies get new ids, are plain ink (not converted), and get their own "one word" mark.
+
+## 2026-10-14 — Which strokes make a word: better rules now, a learned model later (owner's choice: option 1, then option 2)
+
+The owner saw the crossbar of a "t" read on its own as a dash while the rest of the word went unread. The likely cause: the writing/drawing sorting took the letters for a drawing and only the crossbar for writing. Now:
+- A pen stroke sorted as a drawing counts as writing when the shape check says it looks like writing and it touches writing. So a word is taken back whole, while a circle or bracket round writing stays a drawing.
+- **"Read as one word"** marks strokes (saved with the ink, `manualWord`). They are always read together, as writing, and are no longer "not writing". These marks are also the examples a learned word-finding model will need. The owner asked for that model (option 2) to be started once this build ships.

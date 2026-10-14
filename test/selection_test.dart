@@ -1,0 +1,266 @@
+import 'dart:math' as math;
+
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:writing_recogniser/core/page_coordinates.dart';
+import 'package:writing_recogniser/core/pen_tools.dart';
+import 'package:writing_recogniser/core/selection.dart';
+import 'package:writing_recogniser/viewer/pdf_viewer_screen.dart'
+    show SelectionBar;
+import 'package:writing_recogniser/core/ink_classifier.dart';
+import 'package:writing_recogniser/core/page_ink.dart';
+import 'package:writing_recogniser/core/stroke_grouping.dart';
+import 'package:writing_recogniser/viewer/page_ink_layer.dart';
+
+import 'typed_text_test.dart' show letter;
+
+void main() {
+  late DocumentInk ink;
+  late PageStroke a, b, c;
+
+  setUp(() {
+    a = letter(100, 700, 0);
+    b = letter(107, 700, 200, color: 0xFFD32F2F);
+    c = letter(300, 500, 9000);
+    ink = DocumentInk();
+    for (final s in [a, b, c]) {
+      ink.add(1, s);
+    }
+  });
+
+  test('moving and resizing keeps the strokes (and their ids)', () {
+    expect(ink.moveScale(1, {a.id, b.id}, dx: 10, dy: -5), isTrue);
+    final moved = ink.strokesOn(1);
+    expect(moved[0].id, a.id);
+    expect(moved[0].points.first.x, 110);
+    expect(moved[0].points.first.y, 695);
+    expect(moved[2].points.first.x, 300, reason: 'not selected');
+    // Twice the size around (100, 700): widths double too.
+    ink.moveScale(1, {c.id}, scale: 2, originX: 300, originY: 500);
+    final big = ink.strokesOn(1)[2];
+    expect(big.points[1].x, 306);
+    expect(big.points[1].y, 520);
+    expect(big.width, c.width * 2);
+  });
+
+  test('recolour, delete and paste copies', () {
+    expect(ink.recolour(1, {a.id}, 0xFF1565C0), isTrue);
+    expect(ink.strokesOn(1).first.colorArgb, 0xFF1565C0);
+    final gone = ink.remove(1, {b.id});
+    expect(gone.single.id, b.id);
+    expect(ink.strokesOn(1), hasLength(2));
+    ink.addAll(2, gone);
+    expect(ink.strokesOn(2).single.colorArgb, 0xFFD32F2F);
+  });
+
+  test('"Read as one word" is saved and makes one word', () {
+    // Two strokes far enough apart to be read as two words.
+    final far = letter(140, 700, 400);
+    ink.add(1, far);
+    expect(groupStrokes(ink.strokesOn(1)).first.words, hasLength(2));
+    expect(ink.markOneWord(1, {a.id, b.id, far.id}), isTrue);
+    final back = DocumentInk.fromJson(ink.toJson());
+    final words = groupStrokes(back.strokesOn(1)).first.words;
+    expect(words, hasLength(1));
+    expect(words.single.strokes, hasLength(3));
+    expect(words.single.box.right, 146);
+  });
+
+  test('undo takes a whole drag back in one step', () {
+    final c2 = DocumentInkController(ink);
+    c2.beginGesture(1);
+    for (var i = 0; i < 5; i++) {
+      c2.moveScale(1, {a.id}, dx: 2);
+    }
+    c2.endGesture();
+    expect(c2.ink.strokesOn(1).first.points.first.x, 110);
+    c2.undo();
+    expect(c2.ink.strokesOn(1).first.points.first.x, 100);
+  });
+
+  group('a second look at writing vs drawing', () {
+    PageStroke line(double x1, double y1, double x2, double y2, int t) =>
+        PageStroke(
+          points: [PageInkPoint(x1, y1, t), PageInkPoint(x2, y2, t + 50)],
+        );
+
+    test('letters taken for a drawing that touch writing are writing', () {
+      // "the": the engine called the letters a drawing but the crossbar
+      // of the t writing.
+      final letters = [letter(100, 700, 0), letter(106, 700, 200)];
+      final crossbar = line(98, 707, 106, 707, 400);
+      final strokes = [...letters, crossbar];
+      final kinds = reconcileKinds(strokes, [
+        InkKind.drawing,
+        InkKind.drawing,
+        InkKind.writing,
+      ]);
+      expect(kinds, everyElement(InkKind.writing));
+    });
+
+    test('a circle round writing stays a drawing', () {
+      final letters = [
+        for (var i = 0; i < 6; i++) letter(100 + i * 8.0, 700, i),
+      ];
+      final circle = PageStroke(
+        points: [
+          for (var k = 0; k <= 32; k++)
+            PageInkPoint(
+              124 + 35 * math.cos(k * math.pi / 16),
+              705 + 18 * math.sin(k * math.pi / 16),
+              1000 + k,
+            ),
+        ],
+      );
+      final kinds = reconcileKinds(
+        [...letters, circle],
+        [for (var i = 0; i < 6; i++) InkKind.writing, InkKind.drawing],
+      );
+      expect(kinds.last, InkKind.drawing);
+    });
+
+    test('strokes the user said are a word are writing', () {
+      final s = letter(100, 700, 0).copyWith(manualWord: 'x');
+      expect(reconcileKinds([s], [InkKind.drawing]), [InkKind.writing]);
+    });
+  });
+
+  test('pasted copies: new ids, moved, plain ink, own "one word" mark', () {
+    final marked = a.copyWith(manualWord: 'w');
+    final copies = pastedCopies([marked, b], 50000);
+    expect(copies.map((x) => x.id).toSet().intersection({a.id, b.id}), isEmpty);
+    expect(copies.first.points.first.x, a.points.first.x + 12);
+    expect(copies.first.points.first.y, a.points.first.y - 12);
+    expect(copies.first.manualWord, isNot('w'));
+    expect(copies.last.colorArgb, b.colorArgb);
+  });
+
+  group('the Select tool on the page', () {
+    late DocumentInkController ctl;
+    late ValueNotifier<InkSelection?> sel;
+    var cleared = 0;
+
+    Future<void> pump(WidgetTester tester) async {
+      ctl = DocumentInkController(ink);
+      sel = ValueNotifier(InkSelection(1, {a.id, b.id}));
+      cleared = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 612,
+              height: 792,
+              child: PageInkLayer(
+                pageNumber: 1,
+                geometry: PageGeometry(width: 612, height: 792),
+                viewWidth: 612,
+                controller: ctl,
+                tools: ValueNotifier(const PenToolsState(mode: PenMode.lasso)),
+                selection: sel,
+                onClearSelection: () {
+                  cleared++;
+                  sel.value = null;
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Future<void> drag(WidgetTester tester, Offset from, Offset to) async {
+      final pen = await tester.createGesture(kind: PointerDeviceKind.stylus);
+      await pen.down(from);
+      for (var k = 1; k <= 4; k++) {
+        await pen.moveTo(Offset.lerp(from, to, k / 4)!);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await pen.up();
+      await tester.pump();
+    }
+
+    testWidgets('dragging inside moves the strokes, in one undo step', (
+      tester,
+    ) async {
+      await pump(tester);
+      // a is at PDF (100..106, 700..710): screen y 82..92 at 1 px/pt.
+      await drag(tester, const Offset(105, 87), const Offset(145, 67));
+      final moved = ctl.ink.strokesOn(1);
+      expect(moved[0].points.first.x, closeTo(140, 0.01));
+      expect(moved[0].points.first.y, closeTo(720, 0.01), reason: 'up');
+      expect(moved[2].points.first.x, 300, reason: 'not selected');
+      ctl.undo();
+      expect(ctl.ink.strokesOn(1)[0].points.first.x, 100);
+      expect(cleared, 0);
+    });
+
+    testWidgets('dragging the corner dot resizes', (tester) async {
+      await pump(tester);
+      final rect = selectionRect(
+        ctl.ink.strokesOn(1),
+        sel.value!.ids,
+        PageGeometry(width: 612, height: 792),
+        612,
+      )!;
+      final grow = rect.bottomRight + (rect.bottomRight - rect.topLeft);
+      await drag(tester, rect.bottomRight, grow);
+      final s = ctl.ink.strokesOn(1);
+      final width = s[1].points.last.x - s[0].points.first.x;
+      expect(width, greaterThan(19), reason: 'about twice 13 pt');
+      expect(s[0].width, greaterThan(a.width));
+    });
+
+    testWidgets('a loop elsewhere drops the selection', (tester) async {
+      await pump(tester);
+      await drag(tester, const Offset(400, 400), const Offset(450, 450));
+      expect(cleared, 1);
+      expect(ctl.ink.strokesOn(1)[0].points.first.x, 100, reason: 'unmoved');
+    });
+  });
+
+  testWidgets('the selection bar\'s buttons say what they do', (tester) async {
+    tester.view.physicalSize = const Size(1600, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final done = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SelectionBar(
+            count: 2,
+            onOneWord: () => done.add('word'),
+            onConvert: () => done.add('convert'),
+            onColour: () => done.add('colour'),
+            onCopy: () => done.add('copy'),
+            onDelete: () => done.add('delete'),
+            onNotWriting: () => done.add('not'),
+            onClose: () => done.add('close'),
+          ),
+        ),
+      ),
+    );
+    for (final label in [
+      'One word',
+      'Convert',
+      'Colour',
+      'Copy',
+      'Delete',
+      'Not writing',
+    ]) {
+      await tester.tap(find.text(label));
+    }
+    await tester.tap(find.byIcon(Icons.close));
+    expect(done, [
+      'word',
+      'convert',
+      'colour',
+      'copy',
+      'delete',
+      'not',
+      'close',
+    ]);
+    expect(find.byTooltip('Read these strokes as one word'), findsOneWidget);
+  });
+}

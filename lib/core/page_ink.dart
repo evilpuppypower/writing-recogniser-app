@@ -45,6 +45,7 @@ class PageStroke {
     this.notWriting = false,
     this.typedGroup,
     this.typedText,
+    this.manualWord,
   });
 
   final List<PageInkPoint> points;
@@ -68,20 +69,36 @@ class PageStroke {
   final String? typedGroup;
   final String? typedText;
 
+  /// The user said these strokes are one word ("Read as one word" in the
+  /// selection bar): strokes sharing it are always read together, as
+  /// writing. Also a lesson for a future word-finding model.
+  final String? manualWord;
+
   /// Identifies the stroke on its page: when it started and how many
   /// points it has (stable across saving and reopening).
   String get id => '${points.first.t}/${points.length}';
 
-  PageStroke copyWith({bool? notWriting}) => PageStroke(
-    points: points,
-    colorArgb: colorArgb,
-    width: width,
+  PageStroke copyWith({
+    bool? notWriting,
+    List<PageInkPoint>? points,
+    int? colorArgb,
+    double? width,
+    Object? manualWord = _keep,
+  }) => PageStroke(
+    points: points ?? this.points,
+    colorArgb: colorArgb ?? this.colorArgb,
+    width: width ?? this.width,
     tool: tool,
     arrow: arrow,
     notWriting: notWriting ?? this.notWriting,
     typedGroup: typedGroup,
     typedText: typedText,
+    manualWord: identical(manualWord, _keep)
+        ? this.manualWord
+        : manualWord as String?,
   );
+
+  static const _keep = Object();
 
   /// This stroke as part of converted word [group] (null: not converted),
   /// carrying [text] if it's the word's first stroke.
@@ -94,6 +111,7 @@ class PageStroke {
     notWriting: notWriting,
     typedGroup: group,
     typedText: group == null ? null : text,
+    manualWord: manualWord,
   );
 
   Map<String, Object?> toJson() => {
@@ -104,6 +122,7 @@ class PageStroke {
     if (notWriting) 'notWriting': true,
     'typedGroup': ?typedGroup,
     'typedText': ?typedText,
+    'manualWord': ?manualWord,
     'points': [for (final p in points) p.toJson()],
   };
 
@@ -115,6 +134,7 @@ class PageStroke {
     notWriting: j['notWriting'] == true,
     typedGroup: j['typedGroup'] as String?,
     typedText: j['typedText'] as String?,
+    manualWord: j['manualWord'] as String?,
     points: [
       for (final p in (j['points'] as List? ?? const []))
         PageInkPoint.fromJson(p as List<dynamic>),
@@ -343,6 +363,100 @@ class DocumentInk {
     return changed;
   }
 
+  /// Moves and resizes strokes [ids] on [page] (the selection tool): each
+  /// point goes to origin + (point - origin) x [scale] + ([dx], [dy]), and
+  /// line widths are scaled too. Returns whether anything changed.
+  bool moveScale(
+    int page,
+    Set<String> ids, {
+    double dx = 0,
+    double dy = 0,
+    double scale = 1,
+    double originX = 0,
+    double originY = 0,
+  }) {
+    if (ids.isEmpty || (dx == 0 && dy == 0 && scale == 1)) return false;
+    var changed = false;
+    _pages[page] = [
+      for (final s in strokesOn(page))
+        if (ids.contains(s.id))
+          () {
+            changed = true;
+            return s.copyWith(
+              width: s.width * scale,
+              points: [
+                for (final p in s.points)
+                  PageInkPoint(
+                    originX + (p.x - originX) * scale + dx,
+                    originY + (p.y - originY) * scale + dy,
+                    p.t,
+                    p.pressure,
+                  ),
+              ],
+            );
+          }()
+        else
+          s,
+    ];
+    return changed;
+  }
+
+  /// Gives strokes [ids] on [page] the colour [argb].
+  bool recolour(int page, Set<String> ids, int argb) {
+    var changed = false;
+    _pages[page] = [
+      for (final s in strokesOn(page))
+        if (ids.contains(s.id) && s.colorArgb != argb)
+          () {
+            changed = true;
+            return s.copyWith(colorArgb: argb);
+          }()
+        else
+          s,
+    ];
+    return changed;
+  }
+
+  /// Removes strokes [ids] from [page]; returns them.
+  List<PageStroke> remove(int page, Set<String> ids) {
+    final gone = [
+      for (final s in strokesOn(page))
+        if (ids.contains(s.id)) s,
+    ];
+    if (gone.isNotEmpty) {
+      _pages[page] = [
+        for (final s in strokesOn(page))
+          if (!ids.contains(s.id)) s,
+      ];
+    }
+    return gone;
+  }
+
+  /// Adds [strokes] to [page] (e.g. pasted), keeping their order.
+  void addAll(int page, List<PageStroke> strokes) {
+    if (strokes.isEmpty) return;
+    _pages[page] = [...strokesOn(page), ...strokes];
+  }
+
+  /// The user says strokes [ids] on [page] are one word: they're always
+  /// read together, as writing (no longer "not writing").
+  bool markOneWord(int page, Set<String> ids) {
+    if (ids.isEmpty) return false;
+    final word = (ids.toList()..sort()).join(',');
+    var changed = false;
+    _pages[page] = [
+      for (final s in strokesOn(page))
+        if (ids.contains(s.id) && (s.manualWord != word || s.notWriting))
+          () {
+            changed = true;
+            return s.copyWith(manualWord: word, notWriting: false);
+          }()
+        else
+          s,
+    ];
+    return changed;
+  }
+
   /// Replaces all of [page]'s strokes (used by undo and redo).
   void setPage(int page, List<PageStroke> strokes) {
     _pages[page] = strokes;
@@ -447,6 +561,7 @@ class DocumentInk {
             typedGroup: s.typedGroup,
             // Only one piece keeps the text, so it isn't shown twice.
             typedText: pieces.isEmpty ? s.typedText : null,
+            manualWord: s.manualWord,
           ),
         );
       }

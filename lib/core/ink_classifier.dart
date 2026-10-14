@@ -105,6 +105,61 @@ class ShapeInkClassifier implements InkClassifier {
       math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
 }
 
+/// A second look at how strokes were sorted (owner's report: the crossbar
+/// of a "t" was read on its own as a dash, the rest of the word having been
+/// taken for a drawing). A pen stroke sorted as a drawing counts as writing
+/// when the user said it is part of a word ([PageStroke.manualWord]), or
+/// when the shape check says it looks like writing and it touches writing.
+List<InkKind> reconcileKinds(List<PageStroke> strokes, List<InkKind> kinds) {
+  if (kinds.length != strokes.length) return kinds;
+  final out = [...kinds];
+  final boxes = [
+    for (final s in strokes) s.points.isEmpty ? null : InkBox.of(s),
+  ];
+  final shape = const ShapeInkClassifier().classifySync(strokes);
+  final index = _BoxIndex(boxes);
+  // Boxes have no equality of their own, so this map goes by identity.
+  final indexOf = <InkBox, int>{
+    for (var i = 0; i < boxes.length; i++)
+      if (boxes[i] != null) boxes[i]!: i,
+  };
+  final page = typicalLetterHeight(boxes.nonNulls);
+  bool candidate(int i) =>
+      out[i] == InkKind.drawing &&
+      strokes[i].tool == InkTool.pen &&
+      !strokes[i].arrow &&
+      !strokes[i].notWriting &&
+      boxes[i] != null;
+  for (var i = 0; i < strokes.length; i++) {
+    if (candidate(i) && strokes[i].manualWord != null) out[i] = InkKind.writing;
+  }
+  // A few rounds, so a word whose strokes touch one after another is
+  // taken back whole.
+  for (var round = 0; round < 3; round++) {
+    var changed = false;
+    for (var i = 0; i < strokes.length; i++) {
+      if (!candidate(i) || shape[i] != InkKind.writing) continue;
+      final b = boxes[i]!;
+      final margin = page * 0.1;
+      final touches = index
+          .within(b.left - margin, b.right + margin)
+          .any(
+            (o) =>
+                !identical(o, b) &&
+                o.bottom <= b.top + margin &&
+                o.top >= b.bottom - margin &&
+                out[indexOf[o]!] == InkKind.writing,
+          );
+      if (touches) {
+        out[i] = InkKind.writing;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return out;
+}
+
 /// The boxes of a page's strokes sorted by their left edge, to find those
 /// overlapping a stretch of the page sideways without checking them all.
 class _BoxIndex {
