@@ -151,6 +151,16 @@ class DocumentInkController extends ChangeNotifier {
   void recolour(int page, Set<String> ids, int argb) =>
       _edit(page, () => ink.recolour(page, ids, argb));
 
+  void scaleWidth(
+    int page,
+    Set<String> ids,
+    double factor,
+    (double, double) Function(InkTool tool) limits,
+  ) => _edit(page, () => ink.scaleWidth(page, ids, factor, limits));
+
+  void replaceStrokes(int page, List<PageStroke> moved) =>
+      _edit(page, () => ink.replace(page, moved));
+
   void removeStrokes(int page, Set<String> ids) =>
       _edit(page, () => ink.remove(page, ids).isNotEmpty);
 

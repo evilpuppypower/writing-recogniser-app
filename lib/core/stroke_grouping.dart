@@ -255,6 +255,59 @@ _Fit _fit(List<int> idx, Map<int, InkBox> boxes) {
   );
 }
 
+/// The direction one line of writing runs in (radians, anticlockwise from
+/// left-to-right) and a point on it, along its baseline: the bottoms of
+/// its letters [idx] (dots and small marks left out), fitted twice so the
+/// tails of g, p and y (well below the line) don't tilt it, and tall
+/// letters don't either. Null if fewer than 4 letters sit on the line,
+/// the line is shorter than 4 letters, or it's steeper than 60 degrees.
+({double angle, double cx, double cy})? lineDirection(
+  List<PageStroke> strokes,
+  List<int> idx,
+) {
+  final boxes = {for (final i in idx) i: InkBox.of(strokes[i])};
+  final letter = typicalLetterHeight(boxes.values);
+  var feet = [
+    for (final i in idx)
+      if (math.max(boxes[i]!.width, boxes[i]!.height) >= letter * 0.4)
+        ((boxes[i]!.left + boxes[i]!.right) / 2, boxes[i]!.bottom),
+  ];
+  ({double angle, double cx, double cy, double length})? fit() {
+    if (feet.length < 4) return null;
+    final mx = feet.map((p) => p.$1).reduce((a, b) => a + b) / feet.length;
+    final my = feet.map((p) => p.$2).reduce((a, b) => a + b) / feet.length;
+    var sxx = 0.0, syy = 0.0, sxy = 0.0;
+    for (final (x, y) in feet) {
+      sxx += (x - mx) * (x - mx);
+      syy += (y - my) * (y - my);
+      sxy += (x - mx) * (y - my);
+    }
+    final angle = 0.5 * math.atan2(2 * sxy, sxx - syy);
+    final c = math.cos(angle), s = math.sin(angle);
+    final along = [for (final (x, y) in feet) (x - mx) * c + (y - my) * s];
+    return (
+      angle: angle,
+      cx: mx,
+      cy: my,
+      length: along.reduce(math.max) - along.reduce(math.min),
+    );
+  }
+
+  final first = fit();
+  if (first == null) return null;
+  // Drop the feet well below the first line (tails), then fit again.
+  final c = math.cos(first.angle), s = math.sin(first.angle);
+  feet = [
+    for (final (x, y) in feet)
+      if (-(x - first.cx) * s + (y - first.cy) * c > -letter * 0.3) (x, y),
+  ];
+  final f = fit();
+  if (f == null || f.length < letter * 4 || f.angle.abs() > _maxSlant) {
+    return null;
+  }
+  return (angle: f.angle, cx: f.cx, cy: f.cy);
+}
+
 /// The difference between two line directions (radians, 0..pi/2).
 double _turn(double a, double b) {
   final d = (a - b).abs() % math.pi;

@@ -414,17 +414,152 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     if (argb != null) _ink.recolour(sel.page, sel.ids, argb);
   }
 
-  void _copySelection(InkSelection sel) {
+  void _copySelection(
+    InkSelection sel, {
+    String said = 'Copied. Use Paste in the title bar on any page.',
+  }) {
     _clipboard = [
       for (final s in _ink.ink.strokesOn(sel.page))
         if (sel.ids.contains(s.id)) s,
     ];
     setState(() {}); // shows Paste in the title bar
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Copied. Use Paste in the title bar on any page.'),
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(said)));
+  }
+
+  /// "Cut": Copy, then Delete.
+  void _cutSelection(InkSelection sel) {
+    _copySelection(sel, said: 'Cut. Use Paste in the title bar on any page.');
+    _deleteSelection(sel);
+  }
+
+  /// "Duplicate": a copy just beside the selection, selected.
+  void _duplicateSelection(InkSelection sel) {
+    final copies = pastedCopies([
+      for (final s in _ink.ink.strokesOn(sel.page))
+        if (sel.ids.contains(s.id)) s,
+    ], DateTime.now().millisecondsSinceEpoch);
+    _ink.addStrokes(sel.page, copies);
+    _selection.value = InkSelection(sel.page, {for (final s in copies) s.id});
+  }
+
+  /// "Thickness": thinner or thicker lines for the selection.
+  Future<void> _thicknessSelection(InkSelection sel) async {
+    final picked = [
+      for (final s in _ink.ink.strokesOn(sel.page))
+        if (sel.ids.contains(s.id)) s,
+    ];
+    // Measured on the pen strokes, or the highlighter if that's all there
+    // is, with that tool's range.
+    final pen = picked.any((s) => s.tool == InkTool.pen);
+    final (lo, hi) = pen
+        ? (PenStyle.minPenWidth, PenStyle.maxPenWidth)
+        : (PenStyle.minHighlighterWidth, PenStyle.maxHighlighterWidth);
+    final widths = [
+      for (final s in picked)
+        if ((s.tool == InkTool.pen) == pen) s.width,
+    ]..sort();
+    if (widths.isEmpty) return;
+    final now = widths[widths.length ~/ 2];
+    final start = now.clamp(lo, hi);
+    var chosen = start;
+    final width = await showDialog<double>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialog) => AlertDialog(
+          title: const Text('Thickness'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('${chosen.toStringAsFixed(1)} pt'),
+              Slider(
+                value: chosen,
+                min: lo,
+                max: hi,
+                divisions: ((hi - lo) * 10).round(),
+                label: '${chosen.toStringAsFixed(1)} pt',
+                onChanged: (w) => setDialog(() => chosen = w),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(chosen),
+              child: const Text('Apply'),
+            ),
+          ],
+        ),
       ),
     );
+    // Unchanged (Apply without moving the slider): nothing to do.
+    if (width == null || width == start || now <= 0) return;
+    // Everything selected changes by the same amount, so a highlighter
+    // stroke in the selection stays as much wider as it was.
+    _ink.scaleWidth(
+      sel.page,
+      sel.ids,
+      width / now,
+      (tool) => tool == InkTool.pen
+          ? (PenStyle.minPenWidth, PenStyle.maxPenWidth)
+          : (PenStyle.minHighlighterWidth, PenStyle.maxHighlighterWidth),
+    );
+  }
+
+  /// "Straighten": slanted lines of writing in the selection turned level.
+  void _straightenSelection(InkSelection sel) {
+    final level = straightened([
+      for (final s in _ink.ink.strokesOn(sel.page))
+        if (sel.ids.contains(s.id)) s,
+    ]);
+    if (level.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This writing is level already.')),
+      );
+      return;
+    }
+    _ink.replaceStrokes(sel.page, level);
+  }
+
+  /// "Copy as text": the words read in the selection, to paste in another
+  /// app.
+  Future<void> _copySelectionText(InkSelection sel) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final words = await _readPage(sel.page);
+    if (words == null || !mounted) return;
+    // Converted writing: its typed text (perhaps edited since); the rest:
+    // the words read.
+    final strokes = _ink.ink.strokesOn(sel.page);
+    final converted = convertedStrokeIds(strokes);
+    final lineOf = {
+      for (final w in words)
+        for (final id in w.key.split(',')) id: w.line,
+    };
+    final text = selectionText([
+      for (final t in typedLines(strokes))
+        (
+          line: t.words
+              .expand((w) => w.strokeIds)
+              .map((id) => lineOf[id])
+              .whereType<int>()
+              .fold(1 << 20, math.min),
+          strokeIds: [for (final w in t.words) ...w.strokeIds],
+          text: t.text,
+        ),
+      for (final w in words)
+        if (!w.key.split(',').any(converted.contains))
+          (line: w.line, strokeIds: w.key.split(','), text: w.text),
+    ], sel.ids);
+    if (text.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('No words were read in the selection.')),
+      );
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: text));
+    messenger.showSnackBar(SnackBar(content: Text('Copied the text: "$text"')));
   }
 
   void _deleteSelection(InkSelection sel) {
@@ -1036,6 +1171,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   onConvert: () => _convertSelection(sel),
                   onColour: () => _recolourSelection(sel),
                   onCopy: () => _copySelection(sel),
+                  onCut: () => _cutSelection(sel),
+                  onDuplicate: () => _duplicateSelection(sel),
+                  onThickness: () => _thicknessSelection(sel),
+                  onStraighten: () => _straightenSelection(sel),
+                  onCopyText: () => _copySelectionText(sel),
                   onDelete: () => _deleteSelection(sel),
                   onNotWriting: () => _selectionNotWriting(sel),
                   onClose: () => _selection.value = null,
@@ -1984,6 +2124,11 @@ class SelectionBar extends StatelessWidget {
     required this.onDelete,
     required this.onNotWriting,
     required this.onClose,
+    required this.onCut,
+    required this.onDuplicate,
+    required this.onThickness,
+    required this.onStraighten,
+    required this.onCopyText,
   });
 
   final int count;
@@ -1993,7 +2138,12 @@ class SelectionBar extends StatelessWidget {
       onCopy,
       onDelete,
       onNotWriting,
-      onClose;
+      onClose,
+      onCut,
+      onDuplicate,
+      onThickness,
+      onStraighten,
+      onCopyText;
 
   @override
   Widget build(BuildContext context) {
@@ -2037,10 +2187,40 @@ class SelectionBar extends StatelessWidget {
                 onConvert,
               ),
               action(
+                Icons.text_snippet_outlined,
+                'Copy text',
+                'Copy the words read here, to paste in another app',
+                onCopyText,
+              ),
+              action(
                 Icons.palette_outlined,
                 'Colour',
                 'Change colour',
                 onColour,
+              ),
+              action(
+                Icons.line_weight,
+                'Thickness',
+                'Make the lines thinner or thicker',
+                onThickness,
+              ),
+              action(
+                Icons.straighten,
+                'Straighten',
+                'Turn slanted writing level',
+                onStraighten,
+              ),
+              action(
+                Icons.control_point_duplicate,
+                'Duplicate',
+                'Make a copy just beside it',
+                onDuplicate,
+              ),
+              action(
+                Icons.content_cut,
+                'Cut',
+                'Cut, to paste on any page',
+                onCut,
               ),
               action(Icons.copy, 'Copy', 'Copy, to paste on any page', onCopy),
               action(
