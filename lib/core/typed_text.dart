@@ -86,11 +86,41 @@ class TypedLine {
 /// is (see [groupStrokes]: words far apart at the same height are separate
 /// lines), top first.
 List<TypedLine> typedLines(List<PageStroke> strokes) =>
-    _linesCache[strokes] ??= _typedLines(strokes);
+    _linesCache[strokes] ??= _typedLinesOfConverted(strokes);
 
 /// [typedLines] per stroke list (a page's list is replaced whenever it
 /// changes), so screens redrawn while scrolling don't group the page again.
 final _linesCache = Expando<List<TypedLine>>();
+
+/// The lines depend only on the converted strokes, so new writing that
+/// isn't converted (a new list on every stroke) reuses the last answer for
+/// the same converted strokes instead of grouping the page again: on a
+/// heavily written page that was the slowest part of each stroke.
+List<TypedLine> _typedLinesOfConverted(List<PageStroke> strokes) {
+  final converted = [
+    for (final s in strokes)
+      if (s.typedGroup != null) s,
+  ];
+  if (converted.isEmpty) return const [];
+  for (final (key, lines) in _recent) {
+    if (_sameStrokes(key, converted)) return lines;
+  }
+  final lines = _typedLines(converted);
+  _recent.insert(0, (converted, lines));
+  if (_recent.length > 8) _recent.removeLast();
+  return lines;
+}
+
+/// The last few answers (a few pages open at once), newest first.
+final _recent = <(List<PageStroke>, List<TypedLine>)>[];
+
+bool _sameStrokes(List<PageStroke> a, List<PageStroke> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (!identical(a[i], b[i])) return false;
+  }
+  return true;
+}
 
 List<TypedLine> _typedLines(List<PageStroke> strokes) {
   final words = typedWords(strokes);

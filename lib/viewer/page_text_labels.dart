@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -178,6 +179,20 @@ class _PageTextLabelsState extends State<PageTextLabels> {
   List<RecognizedWord> _builtWords = const [];
   Object? _builtSettings;
 
+  /// The page width the labels were built for. While pinch-zooming, the
+  /// labels already built are stretched to the new width and built again
+  /// only once the zoom has settled a moment (building 300 labels on
+  /// every frame of a zoom made it stutter).
+  double _builtWidth = 0;
+  Timer? _settle;
+  bool _settled = false;
+
+  @override
+  void dispose() {
+    _settle?.cancel();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -214,9 +229,6 @@ class _PageTextLabelsState extends State<PageTextLabels> {
             if (skip == null || !skip(w)) w,
         ];
         final settings = (
-          // Steps of half a pixel: the page's width wobbles by a hair as
-          // it's moved while zoomed, which shouldn't rebuild every label.
-          (widget.viewWidth * 2).round(),
           widget.above,
           widget.geometry.width,
           widget.geometry.height,
@@ -225,14 +237,31 @@ class _PageTextLabelsState extends State<PageTextLabels> {
           MediaQuery.textScalerOf(context),
           widget.onDoubleTap != null,
         );
+        final width = widget.viewWidth;
         if (_built != null &&
             settings == _builtSettings &&
             _sameWords(words, _builtWords)) {
-          return _built!;
+          // Steps of half a pixel: the page's width wobbles by a hair as
+          // it's moved while zoomed, which shouldn't rebuild every label.
+          if ((width - _builtWidth).abs() < 0.5) {
+            _settle?.cancel();
+            return _scaled(1);
+          }
+          if (!_settled) {
+            _settle?.cancel();
+            _settle = Timer(const Duration(milliseconds: 200), () {
+              if (!mounted) return;
+              setState(() => _settled = true);
+            });
+            return _scaled(width / _builtWidth);
+          }
         }
+        _settled = false;
+        _settle?.cancel();
         _builtWords = words;
         _builtSettings = settings;
-        return _built = Stack(
+        _builtWidth = width;
+        _built = Stack(
           clipBehavior: Clip.none,
           children: [
             for (final w in words)
@@ -286,9 +315,15 @@ class _PageTextLabelsState extends State<PageTextLabels> {
               }(),
           ],
         );
+        return _scaled(1);
       },
     );
   }
+
+  /// The labels built, stretched by [by] (always wrapped the same way, so
+  /// stretching doesn't rebuild them).
+  Widget _scaled(double by) =>
+      Transform.scale(scale: by, alignment: Alignment.topLeft, child: _built);
 }
 
 /// Whether [a] and [b] are the same word objects (a word that changes is

@@ -558,3 +558,14 @@ A new **Text** tool in the pen toolbar. Tap the page with the pen to type a text
 ## 2026-10-15 — Shape tidy-up (owner's choice: text & shapes)
 
 Holding the pen still at the end of a stroke already snapped it straight. Now, if the stroke is a closed loop (it ends near where it started), it's tidied into the shape it's closest to: a circle (when nearly round), an ellipse, a rectangle or a triangle. "Closest" is checked both ways: on average, within a twentieth of its size from ink to shape and from shape to ink, so scribbles and zigzags are left alone. A tidied shape keeps its colour, width and the pen's typical pressure. It has no arrowhead, and it's marked "not writing" so it's never read as a letter (O, D, A). Rectangles are level (not tilted).
+
+## 2026-10-15 — Heavy pages: speed at 300, 600 and 1000 words (owner: heavy pages are about 300 words)
+
+A new speed test fills a page with 300, 600 and 1000 words and times every step that runs while writing. Steps whose cost grew faster than the page did were changed:
+- **Drawing after a stroke.** The page's ink is kept in pieces of 64 strokes. A new stroke records only a new piece and is drawn over the ready-made image of the rest. An erase or a change records only the pieces it touches. Before, every stroke redrew the whole page. Small pieces are joined again when the image is next made.
+- **Ready-made image.** The cap is now 8 million pixels (32 MB, enough for a full page at fit-width on a large tablet). Above that, the image is made smaller and stretched, down to 0.6 of full sharpness. Beyond that, the ink is drawn as it is. While zooming, the last image is stretched until the zoom settles, instead of drawing every stroke on every frame.
+- **Labels while zooming.** They're stretched with the page, then built again once the zoom has stayed still for 0.2 s. Before, all of them were rebuilt on every frame.
+- **Grouping.** Finding where a line changes direction uses running totals, so it no longer grows with the square of the line's length. A line's typical letter height is kept up to date instead of being sorted again for every stroke.
+- **Writing or drawing.** Strokes are looked up in a grid of squares, and long lines are kept apart, instead of each check scanning the strokes above and below it on every line. The shape check is no longer worked out twice per pause.
+- **Typed text.** Its layout depends only on the converted words, so new writing reuses it.
+- **Eraser.** A quick check of each stroke's box before measuring the distance to every point.

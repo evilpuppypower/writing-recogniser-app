@@ -322,26 +322,59 @@ double _turn(double a, double b) {
 /// slant: each piece gets its own line.
 List<List<int>> _straightPieces(List<int> chain, Map<int, InkBox> boxes) {
   if (chain.length < 8) return [chain];
-  final whole = _fit(chain, boxes);
-  var best = -1;
-  var bestSq = double.infinity;
-  for (var k = 4; k <= chain.length - 4; k++) {
-    final a = _fit(chain.sublist(0, k), boxes);
-    final b = _fit(chain.sublist(k), boxes);
-    final sq =
-        a.spread * a.spread * k + b.spread * b.spread * (chain.length - k);
-    if (sq < bestSq && _turn(a.angle, b.angle) > 8 * math.pi / 180) {
-      bestSq = sq;
-      best = k;
+  // Running totals of the middles, so any stretch of the chain is fitted
+  // in one step (a heavy page has lines of 60 letters or more: fitting
+  // both halves afresh at every split point grew with the square).
+  final n = chain.length;
+  final sx = List<double>.filled(n + 1, 0), sy = List<double>.filled(n + 1, 0);
+  final sxx = List<double>.filled(n + 1, 0);
+  final syy = List<double>.filled(n + 1, 0);
+  final sxy = List<double>.filled(n + 1, 0);
+  for (var k = 0; k < n; k++) {
+    final b = boxes[chain[k]]!;
+    final x = (b.left + b.right) / 2, y = b.centerY;
+    sx[k + 1] = sx[k] + x;
+    sy[k + 1] = sy[k] + y;
+    sxx[k + 1] = sxx[k] + x * x;
+    syy[k + 1] = syy[k] + y * y;
+    sxy[k + 1] = sxy[k] + x * y;
+  }
+  // The direction of the middles from..to (as [_fit]) and how far they
+  // stray from it, squared and summed.
+  ({double angle, double sq}) fit(int from, int to) {
+    final m = (to - from).toDouble();
+    final mx = (sx[to] - sx[from]) / m, my = (sy[to] - sy[from]) / m;
+    final a = sxx[to] - sxx[from] - m * mx * mx;
+    final c = syy[to] - syy[from] - m * my * my;
+    final b = sxy[to] - sxy[from] - m * mx * my;
+    final half = (a - c) / 2;
+    final minor = (a + c) / 2 - math.sqrt(half * half + b * b);
+    return (angle: 0.5 * math.atan2(2 * b, a - c), sq: math.max(0, minor));
+  }
+
+  List<List<int>> split(int from, int to) {
+    final len = to - from;
+    if (len < 8) return [chain.sublist(from, to)];
+    final whole = fit(from, to);
+    var best = -1;
+    var bestSq = double.infinity;
+    for (var k = from + 4; k <= to - 4; k++) {
+      final a = fit(from, k), b = fit(k, to);
+      final sq = a.sq + b.sq;
+      if (sq < bestSq && _turn(a.angle, b.angle) > 8 * math.pi / 180) {
+        bestSq = sq;
+        best = k;
+      }
     }
+    // Both halves together must stray much less than the whole does
+    // (rms 0.6 times or less).
+    if (best < 0 || bestSq / len > whole.sq / len * 0.36) {
+      return [chain.sublist(from, to)];
+    }
+    return [...split(from, best), ...split(best, to)];
   }
-  if (best < 0 || math.sqrt(bestSq / chain.length) > whole.spread * 0.6) {
-    return [chain];
-  }
-  return [
-    ..._straightPieces(chain.sublist(0, best), boxes),
-    ..._straightPieces(chain.sublist(best), boxes),
-  ];
+
+  return split(0, n);
 }
 
 /// Runs of writing at a slant: letters written one after another, each
@@ -745,23 +778,40 @@ List<InkStroke> wordInk(
 }
 
 class _Line {
-  _Line(int i, InkBox b) : strokes = [i], box = b, _boxes = [b] {
-    letter = _medianLetter(_boxes);
+  _Line(int i, InkBox b) : strokes = [i], box = b {
+    _count(b);
   }
 
   final List<int> strokes;
-  final List<InkBox> _boxes;
   InkBox box;
 
+  /// The heights of this line's strokes (dots left out), kept in order so
+  /// [letter] doesn't need sorting again on every stroke.
+  final _heights = <double>[];
+
   /// Typical letter height of this line so far (null while it has only
-  /// dots).
+  /// dots), as [_medianLetter].
   double? letter;
 
   void add(int i, InkBox b) {
     strokes.add(i);
-    _boxes.add(b);
     box = box.union(b);
-    letter = _medianLetter(_boxes);
+    _count(b);
+  }
+
+  void _count(InkBox b) {
+    if (math.max(b.width, b.height) <= 1.5) return;
+    var lo = 0, hi = _heights.length;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (_heights[mid] < b.height) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    _heights.insert(lo, b.height);
+    letter = math.max(4.0, _heights[_heights.length ~/ 2]);
   }
 
   /// The height band this line's letters sit in: its box, but at least one
