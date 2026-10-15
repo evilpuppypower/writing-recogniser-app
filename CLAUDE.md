@@ -54,6 +54,7 @@ flutter build apk --release --target-platform android-arm64   # what CI builds a
 - **Notify the owner's phone only when needed** (owner request), using the push-notification tool:
   (a) a decision is needed from the owner, or (b) every PR in the current round has passed CI and one APK is ready to test (name the build).
   No notifications for routine progress. Start the matching chat message with **ACTION NEEDED** or **READY TO TEST**. The chat message is what counts; send the push as well. Don't post PR comments just to alert the owner.
+- **Usage limits: never stall silently** (owner, 2026-10-15). A session stopped by a usage limit doesn't restart by itself when the limit resets. At the start of long work, and again when usage gets close to a limit, read the reset times (`list_events` on this session with kinds `rate_limit_event`: `five_hour` and `seven_day` `resetsAt`) and schedule one `send_later` check-in a couple of minutes after the reset that would stop the work (the 5-hour one, or the weekly one when that is nearer its limit). Say in it what to resume. Move it when the reset time moves; cancel it when the work is done. If it fires and nothing had stopped, carry on without messaging the owner.
 - **Never freeze without feedback.** Anything that can take longer than about 1 second shows a loading indicator. Long operations (importing or opening big files) show a progress bar and an estimated time remaining when it can be measured.
 
 ## Public repo: privacy check (owner rule, 2026-10-11)
