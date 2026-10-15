@@ -40,11 +40,36 @@ class RecognitionJob {
 /// The plan for one page: the words that need recognising, and every word
 /// key on the page now (results for other keys are out of date).
 class RecognitionPlan {
-  const RecognitionPlan(this.lines, this.jobs, this.keys);
+  const RecognitionPlan(
+    this.lines,
+    this.jobs,
+    this.keys, [
+    this.lineJobs = const [],
+  ]);
 
   final List<InkLine> lines;
   final List<RecognitionJob> jobs;
   final Set<String> keys;
+
+  /// The lines with a word that needs recognising, for engines that read
+  /// whole lines (see LineRecognizer).
+  final List<LineJob> lineJobs;
+}
+
+/// A whole line to send to an engine that reads lines.
+class LineJob {
+  const LineJob({
+    required this.line,
+    required this.preContext,
+    required this.letterHeight,
+  });
+
+  /// Line number on the page, top first.
+  final int line;
+
+  /// Recognised text just before the line.
+  final String preContext;
+  final double letterHeight;
 }
 
 /// How many characters of earlier text to pass as context.
@@ -60,17 +85,49 @@ RecognitionPlan planRecognition(
   GroupingParams params = const GroupingParams(),
   bool Function(int index)? include,
   bool Function(String key, InkWord word)? reread,
+  Map<String, String>? hints,
+  bool Function(List<String> keys)? lineNeedsReading,
 }) {
-  final lines = groupStrokes(strokes, params: params, include: include);
+  final lines = groupStrokes(
+    strokes,
+    params: params,
+    include: include,
+    hints: hints,
+  );
   final jobs = <RecognitionJob>[];
+  final lineJobs = <LineJob>[];
   final keys = <String>{};
   final before = StringBuffer();
+  String cut(String ctx) => ctx.length > preContextChars
+      ? ctx.substring(ctx.length - preContextChars)
+      : ctx;
   for (var l = 0; l < lines.length; l++) {
+    final lineStart = before.toString();
+    var lineQueued = false;
+    void queueLine() {
+      if (lineQueued) return;
+      lineQueued = true;
+      lineJobs.add(
+        LineJob(
+          line: l,
+          preContext: cut(lineStart),
+          letterHeight: lines[l].letterHeight,
+        ),
+      );
+    }
+
+    if (lineNeedsReading?.call([
+          for (final w in lines[l].words) wordKey(strokes, w),
+        ]) ??
+        false) {
+      queueLine();
+    }
     for (final w in lines[l].words) {
       final key = wordKey(strokes, w);
       keys.add(key);
       final text = (reread?.call(key, w) ?? false) ? null : known[key];
       if (text == null) {
+        queueLine();
         final ctx = before.toString();
         jobs.add(
           RecognitionJob(
@@ -89,7 +146,7 @@ RecognitionPlan planRecognition(
       }
     }
   }
-  return RecognitionPlan(lines, jobs, keys);
+  return RecognitionPlan(lines, jobs, keys, lineJobs);
 }
 
 /// One piece of ink the user marked "This isn't writing" (task 2.4c),

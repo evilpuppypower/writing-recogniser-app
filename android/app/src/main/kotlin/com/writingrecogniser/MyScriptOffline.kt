@@ -21,8 +21,10 @@ import java.util.concurrent.Executors
  *  - the English recognition files, under assets/myscript/{conf,resources}.
  *
  * Channel "writing_recogniser/myscript_offline":
- *  - status -> {state: ready|noCertificate|noAssets|error, message, lang}
+ *  - status -> {state: ready|noCertificate|noAssets|error, message, lang,
+ *    mmPerPxX, mmPerPxY}
  *  - recognize {strokes: [[x0,y0,t0,p0, x1,y1,t1,p1, ...], ...]} -> JIIX string
+ *    (with each word's bounding box, in mm)
  *  - classify {strokes: same} -> JIIX string from MyScript's "Raw Content"
  *    recognizer, which sorts ink into text and drawings (task 2.2b); an
  *    error "no_classifier" if this build lacks its files.
@@ -48,6 +50,9 @@ class MyScriptOffline(private val context: Context, messenger: BinaryMessenger) 
                     "status" -> worker.execute {
                         val status = ensureReady() ?: mapOf(
                             "state" to "ready", "message" to "", "lang" to lang,
+                            // Millimetres per point sent, so the app can
+                            // match the words' boxes (mm) to its strokes.
+                            "mmPerPxX" to scaleX.toDouble(), "mmPerPxY" to scaleY.toDouble(),
                         )
                         main.post { result.success(status) }
                     }
@@ -130,6 +135,9 @@ class MyScriptOffline(private val context: Context, messenger: BinaryMessenger) 
             val dm = context.resources.displayMetrics
             scaleX = 25.4f * dm.density / dm.xdpi
             scaleY = 25.4f * dm.density / dm.ydpi
+            // Each word's box in the answer, so a whole line can be read at
+            // once and its words matched back to their strokes.
+            conf.setBoolean("export.jiix.bounding-box", true)
             recognizer = e.createRecognizer(scaleX, scaleY, "Text")
             engine = e
             lang = chosen

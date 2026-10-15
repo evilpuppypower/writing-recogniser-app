@@ -136,6 +136,7 @@ List<InkLine> groupStrokes(
   List<PageStroke> strokes, {
   GroupingParams params = const GroupingParams(),
   bool Function(int index)? include,
+  Map<String, String>? hints,
 }) {
   final idx = [
     for (var i = 0; i < strokes.length; i++)
@@ -155,6 +156,7 @@ List<InkLine> groupStrokes(
     boxes,
     letter,
     params,
+    hints,
   );
   // Writing at a slant: grouped turned level, so its words and lines are
   // found the usual way, and the engine is sent it level.
@@ -175,6 +177,7 @@ List<InkLine> groupStrokes(
       levelBoxes,
       typicalLetterHeight(levelBoxes.values),
       params,
+      hints,
     )) {
       for (final w in line.words) {
         w.slant = (angle: run.angle, cx: run.cx, cy: run.cy, box: w.box);
@@ -450,6 +453,7 @@ List<InkLine> _group(
   Map<int, InkBox> boxes,
   double letter,
   GroupingParams params,
+  Map<String, String>? hints,
 ) {
   // Lines: each stroke joins the line it overlaps most in height (and is
   // near enough to sideways), in writing order. Sizes are measured against
@@ -548,8 +552,100 @@ List<InkLine> _group(
     words.sort((a, c) => a.box.left.compareTo(c.box.left));
     result.add(InkLine(words, letterHeight: lineLetter));
   }
+  if (hints != null && hints.isNotEmpty) {
+    _applyHints(strokes, boxes, result, hints);
+  }
   _joinManualWords(strokes, boxes, result);
   return result;
+}
+
+/// Words the engine found earlier ([hints]: stroke id -> word) stay as it
+/// found them: within each line, strokes with the same hint are one word,
+/// and strokes without one keep the words found by the rules (so new
+/// writing shows up as new words, and the line is read again).
+void _applyHints(
+  List<PageStroke> strokes,
+  Map<int, InkBox> boxes,
+  List<InkLine> lines,
+  Map<String, String> hints,
+) {
+  for (final line in lines) {
+    final groups = <String, List<int>>{};
+    final rest = <List<int>>[];
+    for (final w in line.words) {
+      final plain = <int>[];
+      for (final i in w.strokes) {
+        final h = hints[strokes[i].id];
+        if (h == null) {
+          plain.add(i);
+        } else {
+          groups.putIfAbsent(h, () => []).add(i);
+        }
+      }
+      if (plain.isNotEmpty) rest.add(plain);
+    }
+    if (groups.isEmpty) continue;
+    line.words
+      ..clear()
+      ..addAll([
+        for (final idx in [...rest, ...groups.values])
+          _wordOf(strokes, idx, boxes),
+      ])
+      ..sort((a, c) => a.box.left.compareTo(c.box.left));
+  }
+}
+
+/// A word of strokes [idx], in writing order, with its box from [boxes].
+InkWord _wordOf(
+  List<PageStroke> strokes,
+  List<int> idx,
+  Map<int, InkBox> boxes,
+) {
+  final order = [...idx]
+    ..sort(
+      (a, c) => strokes[a].points.first.t.compareTo(strokes[c].points.first.t),
+    );
+  return InkWord(
+    order,
+    _boxOf(order, boxes),
+    order.map((i) => strokes[i].points.first.t).reduce(math.min),
+    order.map((i) => strokes[i].points.last.t).reduce(math.max),
+  );
+}
+
+/// The word made of strokes [idx] of [strokes] (in writing order), on a line
+/// at [slant] if it's written at one (its level box worked out here).
+InkWord wordOfStrokes(
+  List<PageStroke> strokes,
+  List<int> idx, {
+  ({double angle, double cx, double cy})? slant,
+}) {
+  final boxes = {for (final i in idx) i: InkBox.of(strokes[i])};
+  final w = _wordOf(strokes, idx, boxes);
+  if (slant != null) {
+    final level = [
+      for (final i in idx)
+        InkBox.of(
+          strokes[i].copyWith(
+            points: [
+              for (final p in strokes[i].points)
+                levelPoint(p, slant.angle, slant.cx, slant.cy),
+            ],
+          ),
+        ),
+    ].reduce((a, b) => a.union(b));
+    w.slant = (angle: slant.angle, cx: slant.cx, cy: slant.cy, box: level);
+  }
+  return w;
+}
+
+/// All of [line] as one "word", to send the whole line to an engine that
+/// reads lines (and splits them into words itself).
+InkWord lineAsWord(List<PageStroke> strokes, InkLine line) {
+  final s = line.words.first.slant;
+  return wordOfStrokes(strokes, [
+    for (final w in line.words) ...w.strokes,
+  ], slant: s == null ? null : (angle: s.angle, cx: s.cx, cy: s.cy));
 }
 
 /// Strokes the user said are one word ([PageStroke.manualWord]) end up in
