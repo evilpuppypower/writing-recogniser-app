@@ -492,3 +492,9 @@ The selection's box now has a second handle, at its bottom-left corner, marked w
 ## 2026-10-14 — Sharing a selection as a picture (owner's choice)
 
 "Share" on the selection bar makes a picture of the selected ink: white background, 4 pixels per point (at most 4096 pixels across), upright as the page shows. It opens Android's share menu, using share_plus, which the app already uses for exports, so no new package is added. Nothing is sent until the user picks an app. The picture holds only the ink: no typed text, page content or names (the file is called "handwriting.png"). A "Making the picture…" spinner shows while it's drawn.
+
+## 2026-10-15 — Select bar: a "More" menu, and the selection traced round (owner's requests)
+
+Scrolling the selection bar sideways wasn't obvious. The bar now shows the everyday actions: One word, Convert, Copy and Delete, a three-dot "More actions" menu, and Done. The menu holds Copy text, Colour, Thickness, Straighten, Duplicate, Cut, Share and Not writing.
+
+Besides the dotted box, each selected stroke is now traced round with a pale blue outline (the stroke drawn again a little wider). Only the selected strokes are drawn again, so it costs little.

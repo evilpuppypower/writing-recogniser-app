@@ -1210,7 +1210,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             children: [
               Positioned(
                 // About as wide as the bar, so it stays on the page.
-                left: rect.left.clamp(0, math.max(0, pageRect.width - 620)),
+                left: rect.left.clamp(0, math.max(0, pageRect.width - 520)),
                 top: top,
                 child: SelectionBar(
                   count: sel.ids.length,
@@ -2210,96 +2210,105 @@ class SelectionBar extends StatelessWidget {
             onPressed: on,
           ),
         );
-    final width = MediaQuery.sizeOf(context).width - 16;
+    // The everyday actions on the bar; the rest under "More" (owner:
+    // scrolling the bar sideways wasn't obvious).
+    final more = <(IconData, String, String, VoidCallback)>[
+      (
+        Icons.text_snippet_outlined,
+        'Copy text',
+        'Copy the words read here, to paste in another app',
+        onCopyText,
+      ),
+      (Icons.palette_outlined, 'Colour', 'Change colour', onColour),
+      (
+        Icons.line_weight,
+        'Thickness',
+        'Make the lines thinner or thicker',
+        onThickness,
+      ),
+      (
+        Icons.straighten,
+        'Straighten',
+        'Turn slanted writing level',
+        onStraighten,
+      ),
+      (
+        Icons.control_point_duplicate,
+        'Duplicate',
+        'Make a copy just beside it',
+        onDuplicate,
+      ),
+      (Icons.content_cut, 'Cut', 'Cut, to paste on any page', onCut),
+      (
+        Icons.share_outlined,
+        'Share',
+        'Share a picture of it with another app',
+        onShare,
+      ),
+      (
+        Icons.do_not_disturb_on_outlined,
+        'Not writing',
+        "This isn't writing: don't read it",
+        onNotWriting,
+      ),
+    ];
     return Material(
       elevation: 3,
       borderRadius: BorderRadius.circular(24),
       clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        // Scrolls sideways on a narrow screen rather than running off it.
-        constraints: BoxConstraints(maxWidth: width < 200 ? 200 : width),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              action(
-                Icons.join_full,
-                'One word',
-                'Read these strokes as one word',
-                onOneWord,
-              ),
-              action(
-                Icons.keyboard,
-                'Convert',
-                'Convert to typed text',
-                onConvert,
-              ),
-              action(
-                Icons.text_snippet_outlined,
-                'Copy text',
-                'Copy the words read here, to paste in another app',
-                onCopyText,
-              ),
-              action(
-                Icons.palette_outlined,
-                'Colour',
-                'Change colour',
-                onColour,
-              ),
-              action(
-                Icons.line_weight,
-                'Thickness',
-                'Make the lines thinner or thicker',
-                onThickness,
-              ),
-              action(
-                Icons.straighten,
-                'Straighten',
-                'Turn slanted writing level',
-                onStraighten,
-              ),
-              action(
-                Icons.control_point_duplicate,
-                'Duplicate',
-                'Make a copy just beside it',
-                onDuplicate,
-              ),
-              action(
-                Icons.content_cut,
-                'Cut',
-                'Cut, to paste on any page',
-                onCut,
-              ),
-              action(Icons.copy, 'Copy', 'Copy, to paste on any page', onCopy),
-              action(
-                Icons.share_outlined,
-                'Share',
-                'Share a picture of it with another app',
-                onShare,
-              ),
-              action(
-                Icons.delete_outline,
-                'Delete',
-                'Delete these strokes',
-                onDelete,
-              ),
-              action(
-                Icons.do_not_disturb_on_outlined,
-                'Not writing',
-                "This isn't writing: don't read it",
-                onNotWriting,
-              ),
-              IconButton(
-                tooltip:
-                    'Done (drag inside to move, drag the corner dot to '
-                    'resize)',
-                icon: const Icon(Icons.close, size: 18),
-                onPressed: onClose,
-              ),
-            ],
-          ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            action(
+              Icons.join_full,
+              'One word',
+              'Read these strokes as one word',
+              onOneWord,
+            ),
+            action(
+              Icons.keyboard,
+              'Convert',
+              'Convert to typed text',
+              onConvert,
+            ),
+            action(Icons.copy, 'Copy', 'Copy, to paste on any page', onCopy),
+            action(
+              Icons.delete_outline,
+              'Delete',
+              'Delete these strokes',
+              onDelete,
+            ),
+            PopupMenuButton<VoidCallback>(
+              tooltip: 'More actions',
+              icon: const Icon(Icons.more_vert, size: 20),
+              onSelected: (on) => on(),
+              itemBuilder: (context) => [
+                for (final (icon, label, tip, on) in more)
+                  PopupMenuItem(
+                    value: on,
+                    child: Tooltip(
+                      message: tip,
+                      child: Row(
+                        children: [
+                          Icon(icon, size: 20),
+                          const SizedBox(width: 12),
+                          Text(label),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            IconButton(
+              tooltip:
+                  'Done (drag inside to move, the bottom-right dot to '
+                  'resize, the bottom-left dot to turn)',
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: onClose,
+            ),
+          ],
         ),
       ),
     );

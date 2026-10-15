@@ -315,40 +315,38 @@ void main() {
         ),
       ),
     );
+    for (final label in ['One word', 'Convert', 'Copy', 'Delete']) {
+      await tester.tap(find.text(label));
+    }
+    // The rest are under the three dots.
     for (final label in [
-      'One word',
-      'Convert',
       'Copy text',
       'Colour',
       'Thickness',
       'Straighten',
       'Duplicate',
       'Cut',
-      'Copy',
       'Share',
-      'Delete',
       'Not writing',
     ]) {
-      // The bar scrolls sideways when it doesn't fit.
-      await tester.ensureVisible(find.text(label));
+      await tester.tap(find.byTooltip('More actions'));
       await tester.pumpAndSettle();
       await tester.tap(find.text(label));
+      await tester.pumpAndSettle();
     }
-    await tester.ensureVisible(find.byIcon(Icons.close));
-    await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.close));
     expect(done, [
       'word',
       'convert',
+      'copy',
+      'delete',
       'text',
       'colour',
       'thickness',
       'straighten',
       'duplicate',
       'cut',
-      'copy',
       'share',
-      'delete',
       'not',
       'close',
     ]);
