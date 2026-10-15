@@ -544,3 +544,11 @@ Settings → Page colours: "As printed" (the default), "Dark", or "Dark when the
 - **Contents button:** a sheet with the bookmarked pages, then the PDF's own contents list (chapters and sections, indented). Tap one to go to its page. A PDF without a contents list says so, and a big one shows a spinner after a second while its contents are read. On dark pages, selected PDF text and links show in reversed colours (pdfrx draws them before the page is turned dark).
 
 **Two-page view:** a title-bar button switches between one page under another and pages side by side in pairs (1 and 2, 3 and 4, ...), each row centred. The choice is remembered (Settings: `twoPages`), and switching keeps you on the same page. To make the switch work on an open PDF, the app now lays out pages itself in both modes. One page under another looks as before: pages centred, 8-point gaps.
+
+## 2026-10-15 — Text boxes (owner's choice: text & shapes)
+
+A new **Text** tool in the pen toolbar. Tap the page with the pen to type a text box there; tap an existing text box to edit it, change its size or delete it. Sizes are 8–32 pt; the colour is the pen's.
+- A text box is kept as a special stroke (two corner points, its text, and its size in the line-width field). So undo, saving, the Select tool (move, resize, colour, copy, delete) and erasing (it goes whole) all work for it.
+- It's never ink: never drawn as lines, never read as handwriting, never sent to the writing/drawing sorter.
+- It always shows on screen (it's not handwriting that "Show typed text" swaps), shows in thumbnails' place as nothing, and is found by search.
+- Exports always include it as visible text at its own size, one line each, whatever is chosen for the handwriting.

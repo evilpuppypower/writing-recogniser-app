@@ -67,12 +67,51 @@ class _PageTypedTextState extends State<PageTypedText> {
   );
 
   Widget _build(List<PageStroke> strokes) {
-    if (!widget.showTyped.value) return const SizedBox.shrink();
-    final lines = typedLines(strokes);
-    if (lines.isEmpty) return const SizedBox.shrink();
+    final lines = widget.showTyped.value
+        ? typedLines(strokes)
+        : const <TypedLine>[];
+    // Text boxes always show (they have no handwriting to show instead).
+    final boxes = [
+      for (final s in strokes)
+        if (s.isTextBox && s.points.length >= 2) s,
+    ];
+    if (lines.isEmpty && boxes.isEmpty) return const SizedBox.shrink();
     final scale = widget.viewWidth / widget.geometry.displayWidth;
     return IgnorePointer(
-      child: Stack(children: [for (final l in lines) _line(l, scale)]),
+      child: Stack(
+        children: [
+          for (final l in lines) _line(l, scale),
+          for (final b in boxes) _textBox(b, scale),
+        ],
+      ),
+    );
+  }
+
+  /// A text box: its text from the box's top-left corner, at its size,
+  /// upright on screen.
+  Widget _textBox(PageStroke s, double scale) {
+    final corner = PageInkPoint(
+      math.min(s.points.first.x, s.points.last.x),
+      math.max(s.points.first.y, s.points.last.y),
+      0,
+    );
+    final at = widget.geometry.toView(
+      PdfPagePoint(corner.x, corner.y),
+      widget.viewWidth,
+    );
+    return Positioned(
+      left: at.x,
+      top: at.y,
+      child: Text(
+        s.typedText ?? '',
+        softWrap: false,
+        textScaler: TextScaler.noScaling,
+        style: TextStyle(
+          color: Color(_dark ? nightArgb(s.colorArgb) : s.colorArgb),
+          fontSize: s.width * scale,
+          height: 1.25,
+        ),
+      ),
     );
   }
 

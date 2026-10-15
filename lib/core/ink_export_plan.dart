@@ -53,7 +53,8 @@ List<ExportLine> exportLines(
 }) {
   final out = <ExportLine>[];
   for (final s in strokes) {
-    if (s.points.isEmpty) continue;
+    // Text boxes go into the PDF as text (textBoxesForExport), not lines.
+    if (s.points.isEmpty || s.isTextBox) continue;
     final style = PenStyle(
       tool: s.tool,
       colorArgb: s.colorArgb,
@@ -129,7 +130,10 @@ class ExportWord {
     this.angle = 0,
     this.cx = 0,
     this.cy = 0,
+    this.fixedSize = false,
   });
+
+  /// Drawn at exactly [fontSize] (a text box), not fitted to the box.
 
   final String text;
   final double left, bottom, right, top;
@@ -138,6 +142,7 @@ class ExportWord {
   /// (radians) about ([cx], [cy]), and the text is turned back to follow
   /// the writing (see [levelPoint]).
   final double angle, cx, cy;
+  final bool fixedSize;
 
   /// Visible typed text (task 2.3d) in this colour and size (points);
   /// null: invisible, searchable text stretched over the box (task 1.4b).
@@ -164,6 +169,7 @@ class ExportWord {
     angle,
     cx,
     cy,
+    fixedSize,
   ];
 
   factory ExportWord.fromMessage(List<Object?> m) => ExportWord(
@@ -178,5 +184,6 @@ class ExportWord {
     angle: m.length > 10 ? (m[8]! as num).toDouble() : 0,
     cx: m.length > 10 ? (m[9]! as num).toDouble() : 0,
     cy: m.length > 10 ? (m[10]! as num).toDouble() : 0,
+    fixedSize: m.length > 11 && m[11] == true,
   );
 }

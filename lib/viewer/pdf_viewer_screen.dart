@@ -22,7 +22,7 @@ import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/page_recognition.dart' show HiddenInk, hiddenInkAt;
 import '../core/selection.dart';
-import '../core/stroke_grouping.dart' show isWriting, levelPoint;
+import '../core/stroke_grouping.dart' show InkBox, isWriting, levelPoint;
 import '../core/typed_text.dart';
 import '../core/pen_tools.dart';
 import '../core/recognition/recognizer.dart';
@@ -525,6 +525,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         if (w.key.split(',').any(converted.contains)) continue;
         out.add((page: page, line: w.line, box: w.box, text: w.text));
       }
+      for (final s in strokes) {
+        if (!s.isTextBox || s.points.length < 2) continue;
+        out.add((
+          page: page,
+          line: 1 << 20,
+          box: InkBox.of(s),
+          text: s.typedText ?? '',
+        ));
+      }
       for (final t in typedLines(strokes)) {
         final line = t.words
             .expand((w) => w.strokeIds)
@@ -897,6 +906,65 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       messenger.showSnackBar(SnackBar(content: Text("Couldn't share: $e")));
     }
   }
+
+  /// The Text tool tapped [at] on [page]: edit the text box there, or
+  /// place a new one with its top-left corner there.
+  Future<void> _textBoxAt(int page, PdfPagePoint at) async {
+    PageStroke? existing;
+    for (final s in _ink.ink.strokesOn(page).reversed) {
+      if (s.isTextBox && s.distanceTo(at.x, at.y) <= 4) {
+        existing = s;
+        break;
+      }
+    }
+    final result = await showDialog<({String text, double size})?>(
+      context: context,
+      builder: (context) => TextBoxDialog(
+        text: existing?.typedText ?? '',
+        size: existing?.width ?? _textSize,
+        editing: existing != null,
+      ),
+    );
+    if (result == null || !mounted) return;
+    if (existing != null) {
+      final text = result.text;
+      if (text.trim().isEmpty) {
+        _ink.removeStrokes(page, {existing.id});
+        return;
+      }
+      // Same first point time and point count, so the same id: the edit
+      // is one change to the same box.
+      final (w, h) = textBoxSize(text, result.size);
+      final corner = existing.points.first;
+      _ink.replaceStrokes(page, [
+        PageStroke(
+          points: [
+            corner,
+            PageInkPoint(corner.x + w, corner.y - h, existing.points.last.t),
+          ],
+          tool: InkTool.text,
+          width: result.size,
+          colorArgb: existing.colorArgb,
+          typedText: text,
+        ),
+      ]);
+    } else if (result.text.trim().isNotEmpty) {
+      _textSize = result.size;
+      _ink.addStrokes(page, [
+        textBox(
+          result.text,
+          at.x,
+          at.y,
+          size: result.size,
+          colorArgb: _tools.value.pen.colorArgb,
+          nowMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+      ]);
+    }
+  }
+
+  /// The size new text boxes get (the last one chosen).
+  double _textSize = 12;
 
   void _deleteSelection(InkSelection sel) {
     _selection.value = null;
@@ -1394,6 +1462,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           onLasso: (loop) => _lassoDrawn(page.pageNumber, loop),
           selection: _selection,
           onClearSelection: () => _selection.value = null,
+          onTextTap: (at) => _textBoxAt(page.pageNumber, at),
           // The guide shows once the writing is read as a word.
           wordsRead: _text,
           isRead: (id) => _text
@@ -1976,7 +2045,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     // Converted handwriting as visible typed text (task 2.3d).
     for (final page in exportInk.pagesWithInk) {
       if (choice.pages != null && !choice.pages!.contains(page)) continue;
-      final typed = typedForExport(exportInk.strokesOn(page), mode);
+      final typed = [
+        ...typedForExport(exportInk.strokesOn(page), mode),
+        ...textBoxesForExport(exportInk.strokesOn(page)),
+      ];
       if (typed.isNotEmpty) text[page] = [...?text[page], ...typed];
     }
     if (!mounted) return;
@@ -2751,4 +2823,86 @@ class SelectionBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Typing or editing a text box: its text and size. Closes with them, or
+/// null (Cancel); an empty text with "Delete".
+class TextBoxDialog extends StatefulWidget {
+  const TextBoxDialog({
+    super.key,
+    required this.text,
+    required this.size,
+    required this.editing,
+  });
+
+  final String text;
+  final double size;
+  final bool editing;
+
+  static const sizes = [8.0, 10.0, 12.0, 14.0, 18.0, 24.0, 32.0];
+
+  @override
+  State<TextBoxDialog> createState() => _TextBoxDialogState();
+}
+
+class _TextBoxDialogState extends State<TextBoxDialog> {
+  late final _field = TextEditingController(text: widget.text);
+  late double _size = TextBoxDialog.sizes.contains(widget.size)
+      ? widget.size
+      : 12;
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.editing ? 'Edit text box' : 'New text box'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _field,
+          autofocus: true,
+          minLines: 1,
+          maxLines: 6,
+          decoration: const InputDecoration(labelText: 'Text'),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            const Text('Size'),
+            const SizedBox(width: 12),
+            DropdownButton<double>(
+              value: _size,
+              onChanged: (v) => setState(() => _size = v ?? _size),
+              items: [
+                for (final s in TextBoxDialog.sizes)
+                  DropdownMenuItem(value: s, child: Text('${s.round()} pt')),
+              ],
+            ),
+          ],
+        ),
+      ],
+    ),
+    actions: [
+      if (widget.editing)
+        TextButton(
+          onPressed: () => Navigator.of(context).pop((text: '', size: _size)),
+          child: const Text('Delete'),
+        ),
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () =>
+            Navigator.of(context).pop((text: _field.text, size: _size)),
+        child: const Text('Save'),
+      ),
+    ],
+  );
 }
