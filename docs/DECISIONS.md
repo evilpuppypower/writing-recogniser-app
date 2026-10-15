@@ -537,3 +537,10 @@ Settings → Page colours: "As printed" (the default), "Dark", or "Dark when the
 - **Ink and typed text:** shown with the same hue and the lightness turned round, so black ink shows white and dark blue shows light blue.
 - **Highlighter:** lightens instead of multiplying, so it still shows.
 - **Guide line:** shown faint and light.
+
+## 2026-10-15 — Contents and bookmarks (owner's choice: reading comforts)
+
+- **Bookmark button** in the viewer's title bar: marks or unmarks the page showing (filled when marked). Bookmarks are kept per PDF in the app's database (version 8 adds a `bookmarks` table). They go with the PDF's ink: kept when its stored copy is deleted (as the ink is, by default), deleted when its ink is deleted. A tap before they've loaded waits for them, and a failed save says so.
+- **Contents button:** a sheet with the bookmarked pages, then the PDF's own contents list (chapters and sections, indented). Tap one to go to its page. A PDF without a contents list says so, and a big one shows a spinner after a second while its contents are read. On dark pages, selected PDF text and links show in reversed colours (pdfrx draws them before the page is turned dark).
+
+**Two-page view:** a title-bar button switches between one page under another and pages side by side in pairs (1 and 2, 3 and 4, ...), each row centred. The choice is remembered (Settings: `twoPages`), and switching keeps you on the same page. To make the switch work on an open PDF, the app now lays out pages itself in both modes. One page under another looks as before: pages centred, 8-point gaps.

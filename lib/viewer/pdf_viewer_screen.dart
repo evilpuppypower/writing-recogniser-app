@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../core/app_settings.dart';
+import '../core/bookmarks.dart';
 import '../core/document_state.dart';
 import '../core/feedback/correction_store.dart';
 import '../core/handwriting_search.dart';
@@ -34,11 +35,13 @@ import '../recognition/engines.dart';
 import '../recognition/myscript_ink_classifier.dart';
 import '../settings/settings_controller.dart';
 import '../storage/app_database.dart';
+import '../storage/sqlite_bookmark_store.dart';
 import '../storage/sqlite_correction_store.dart';
 import '../storage/sqlite_document_store.dart';
 import '../storage/sqlite_event_log.dart';
 import '../storage/sqlite_ink_store.dart';
 import 'ink_text_controller.dart';
+import 'contents_sheet.dart';
 import 'dark_pages.dart';
 import 'frame_recorder.dart';
 import 'label_fade.dart';
@@ -50,6 +53,7 @@ import 'page_typed_text.dart';
 import 'pen_toolbar.dart';
 import 'pen_tools_controller.dart';
 import 'text_panel.dart';
+import 'two_page_layout.dart';
 
 /// The PDF viewer (task 1.1): scroll and zoom with fingers, page number and
 /// "Go to page", a draggable scroll tab, and it reopens each PDF on the page
@@ -69,6 +73,7 @@ class PdfViewerScreen extends StatefulWidget {
     this.openCorrections = SqliteCorrectionStore.open,
     this.openStore = SqliteDocumentStore.open,
     this.openInkStore = SqliteInkStore.open,
+    this.openBookmarks = SqliteBookmarkStore.open,
     this.sourcePath,
     this.locateSource,
     this.exportPdf = exportPdfWithInk,
@@ -123,6 +128,9 @@ class PdfViewerScreen extends StatefulWidget {
 
   /// Where the ink is saved (the app database by default).
   final Future<InkStore> Function() openInkStore;
+
+  /// Where the PDF's bookmarks are kept (the app database by default).
+  final Future<BookmarkStore> Function() openBookmarks;
 
   /// The PDF file on the tablet; exporting is offered when it's known.
   final String? sourcePath;
@@ -351,8 +359,98 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   int _hitAt = -1;
   late final _pagePainters = [_paintDark, _paintSearch];
 
+  // Bookmarks (owner's choice, 2026-10-15): the pages marked in this PDF.
+  BookmarkStore? _bookmarkStore;
+  List<int> _bookmarks = const [];
+  Future<void> _bookmarksLoaded = Future.value();
+
+  Future<void> _loadBookmarks() async {
+    try {
+      final store = await widget.openBookmarks();
+      final pages = await store.pages(widget.documentId);
+      if (!mounted) return;
+      setState(() {
+        _bookmarkStore = store;
+        _bookmarks = pages;
+      });
+    } catch (_) {
+      // Bookmarks just aren't kept this time.
+      _bookmarkStore = MemoryBookmarkStore();
+    }
+  }
+
+  Future<void> _toggleBookmark(int page) async {
+    // Tapped while they're still loading: wait, so the tap isn't lost.
+    await _bookmarksLoaded;
+    if (!mounted) return;
+    final on = !_bookmarks.contains(page);
+    setState(
+      () => _bookmarks = on
+          ? ([..._bookmarks, page]..sort())
+          : [
+              for (final p in _bookmarks)
+                if (p != page) p,
+            ],
+    );
+    try {
+      await _bookmarkStore?.set(widget.documentId, page, on: on);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Couldn't save the bookmark: $e")));
+    }
+  }
+
+  /// "Contents": the PDF's own contents list (if it has one) and the
+  /// pages bookmarked, each going to its page.
+  Future<void> _showContents() async {
+    List<PdfOutlineNode> outline = const [];
+    // A big PDF's contents can take a moment: say so after a second.
+    var shown = false;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final wait = Timer(const Duration(seconds: 1), () {
+      if (!mounted) return;
+      shown = true;
+      unawaited(
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('Reading the contents…'),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+    try {
+      outline = await _controller.document.loadOutline();
+    } catch (_) {
+      // No contents list.
+    }
+    wait.cancel();
+    if (shown) navigator.pop();
+    if (!mounted) return;
+    final page = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) =>
+          ContentsSheet(outline: outline, bookmarks: _bookmarks),
+    );
+    if (page != null) await _controller.goToPage(pageNumber: page);
+  }
+
   /// Pages shown dark (Settings, Page colours), as last built.
   bool _dark = false;
+
+  /// Pages side by side in pairs (two-page view), as last built.
+  bool _twoPages = false;
 
   void _paintDark(Canvas canvas, Rect pageRect, PdfPage page) {
     if (_dark) paintDarkPage(canvas, pageRect);
@@ -1127,6 +1225,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     ),
     pageOverlaysBuilder: _buildPageOverlays,
     pagePaintCallbacks: _pagePainters,
+    // Read each time pages are laid out, so the two-page switch works on
+    // the open viewer.
+    layoutPages: (pages, params) =>
+        pageLayout(pages, params, twoPages: _twoPages),
     viewerOverlayBuilder: (context, size, handleLinkTap) => [
       PdfViewerScrollThumb(
         controller: _controller,
@@ -1572,6 +1674,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void initState() {
     super.initState();
     _frames.start();
+    _bookmarksLoaded = _loadBookmarks();
     // A selection belongs to the Select tool.
     _tools.addListener(() {
       if (_tools.value.mode != PenMode.lasso) _selection.value = null;
@@ -2065,10 +2168,22 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             builder: (context) {
               // Pages repainted when dark pages are turned on or off.
               final dark = darkPagesOf(context);
-              if (dark != _dark) {
+              final twoPages = SettingsScope.valueOf(context).twoPages;
+              if (dark != _dark || twoPages != _twoPages) {
+                final relayout = twoPages != _twoPages;
                 _dark = dark;
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted && _controller.isReady) _controller.invalidate();
+                _twoPages = twoPages;
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  if (!mounted || !_controller.isReady) return;
+                  final page = _pageNumber.value;
+                  _controller.invalidate();
+                  // Laid out again: back to the page that was showing.
+                  if (relayout && page != null) {
+                    await _controller.goToPage(
+                      pageNumber: page,
+                      duration: Duration.zero,
+                    );
+                  }
                 });
               }
               return Text(widget.title, overflow: TextOverflow.ellipsis);
@@ -2076,6 +2191,45 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           ),
           bottom: _searchOpen ? _searchBar() : null,
           actions: [
+            ValueListenableBuilder(
+              valueListenable: _pageNumber,
+              builder: (context, page, _) {
+                final marked = page != null && _bookmarks.contains(page);
+                return IconButton(
+                  tooltip: marked
+                      ? 'Remove the bookmark on this page'
+                      : 'Bookmark this page',
+                  icon: Icon(marked ? Icons.bookmark : Icons.bookmark_border),
+                  onPressed: page == null || _pageCount == null
+                      ? null
+                      : () => _toggleBookmark(page),
+                );
+              },
+            ),
+            Builder(
+              builder: (context) {
+                final settings = context
+                    .dependOnInheritedWidgetOfExactType<SettingsScope>()
+                    ?.notifier;
+                if (settings == null) return const SizedBox.shrink();
+                final two = settings.value.twoPages;
+                return IconButton(
+                  tooltip: two
+                      ? 'Show one page at a time'
+                      : 'Show two pages side by side',
+                  icon: Icon(
+                    two ? Icons.chrome_reader_mode : Icons.auto_stories,
+                  ),
+                  onPressed: () =>
+                      settings.update(settings.value.copyWith(twoPages: !two)),
+                );
+              },
+            ),
+            IconButton(
+              tooltip: 'Contents and bookmarks',
+              icon: const Icon(Icons.toc),
+              onPressed: _pageCount == null ? null : _showContents,
+            ),
             IconButton(
               tooltip: 'Search the PDF and your handwriting',
               icon: const Icon(Icons.search),

@@ -130,6 +130,7 @@ class AppSettings {
     this.pressureRangePercent = defaultPressureRangePercent,
     this.arrowHookMs = defaultArrowHookMs,
     this.keepInkOnDelete = true,
+    this.twoPages = false,
     this.textLabels = TextLabelPlace.above,
     this.textPanel = TextPanelPlace.off,
     this.writingGuide = WritingGuide.grey,
@@ -222,6 +223,10 @@ class AppSettings {
   /// still delete it for one PDF.
   final bool keepInkOnDelete;
 
+  /// Pages shown side by side in pairs (two-page view) rather than one
+  /// under another.
+  final bool twoPages;
+
   /// Recognised text over the handwriting: above, below or off.
   final TextLabelPlace textLabels;
 
@@ -252,6 +257,7 @@ class AppSettings {
     int? pressureRangePercent,
     int? arrowHookMs,
     bool? keepInkOnDelete,
+    bool? twoPages,
     TextLabelPlace? textLabels,
     TextPanelPlace? textPanel,
     WritingGuide? writingGuide,
@@ -286,6 +292,7 @@ class AppSettings {
         .clamp(minPressureRangePercent, maxPressureRangePercent),
     arrowHookMs: (arrowHookMs ?? this.arrowHookMs).clamp(0, maxArrowHookMs),
     keepInkOnDelete: keepInkOnDelete ?? this.keepInkOnDelete,
+    twoPages: twoPages ?? this.twoPages,
     textLabels: textLabels ?? this.textLabels,
     textPanel: textPanel ?? this.textPanel,
     writingGuide: writingGuide ?? this.writingGuide,
@@ -308,6 +315,7 @@ class AppSettings {
     'pressureRangePercent': pressureRangePercent,
     'arrowHookMs': arrowHookMs,
     'keepInkOnDelete': keepInkOnDelete,
+    'twoPages': twoPages,
     'textLabels': textLabels.name,
     'textPanel': textPanel.name,
     'writingGuide': writingGuide.name,
@@ -338,6 +346,7 @@ class AppSettings {
     final range = m['pressureRangePercent'];
     final hook = m['arrowHookMs'];
     final keepInk = m['keepInkOnDelete'];
+    final twoPages = m['twoPages'];
 
     return AppSettings(
       appColour: byName(
@@ -381,6 +390,7 @@ class AppSettings {
           : d.pressureRangePercent,
       arrowHookMs: hook is int ? hook.clamp(0, maxArrowHookMs) : d.arrowHookMs,
       keepInkOnDelete: keepInk is bool ? keepInk : d.keepInkOnDelete,
+      twoPages: twoPages is bool ? twoPages : d.twoPages,
       textLabels: byName(TextLabelPlace.values, m['textLabels'], d.textLabels),
       textPanel: byName(TextPanelPlace.values, m['textPanel'], d.textPanel),
       writingGuide: byName(
@@ -414,6 +424,7 @@ class AppSettings {
       other.pressureRangePercent == pressureRangePercent &&
       other.arrowHookMs == arrowHookMs &&
       other.keepInkOnDelete == keepInkOnDelete &&
+      other.twoPages == twoPages &&
       other.textLabels == textLabels &&
       other.textPanel == textPanel &&
       other.writingGuide == writingGuide &&
@@ -436,6 +447,7 @@ class AppSettings {
     pressureRangePercent,
     arrowHookMs,
     keepInkOnDelete,
+    twoPages,
     textLabels,
     textPanel,
     writingGuide,
