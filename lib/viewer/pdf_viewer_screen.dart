@@ -338,19 +338,35 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   PdfTextSearcher? _searcherMade;
   PdfTextSearcher get _searcher =>
       _searcherMade ??= PdfTextSearcher(_controller)..addListener(_searchFound);
+
+  /// What's being searched for now, and whether the PDF search for it
+  /// hasn't started yet (typing pauses first).
+  String _query = '';
+  bool _searchPending = false;
+  Timer? _searchTimer;
   List<HandwritingHit> _handHits = const [];
   List<({int page, double top, int? pdf, HandwritingHit? hand})> _hits =
       const [];
   int _hitAt = -1;
   late final _pagePainters = [_paintSearch];
 
-  void _openSearch() => setState(() => _searchOpen = true);
+  void _openSearch() {
+    setState(() => _searchOpen = true);
+    // New or changed writing is found while search is open.
+    _text.addListener(_refreshHandHits);
+    _ink.addListener(_refreshHandHits);
+  }
 
   void _closeSearch() {
+    _text.removeListener(_refreshHandHits);
+    _ink.removeListener(_refreshHandHits);
+    _searchTimer?.cancel();
     _searcher.resetTextSearch();
     _searchField.clear();
     setState(() {
       _searchOpen = false;
+      _query = '';
+      _searchPending = false;
       _handHits = const [];
       _hits = const [];
       _hitAt = -1;
@@ -360,17 +376,31 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   void _search(String query) {
     final q = query.trim();
-    if (q.isEmpty) {
-      _searcher.resetTextSearch();
-    } else {
-      _searcher.startTextSearch(
-        q,
-        caseInsensitive: true,
-        goToFirstMatch: false,
-      );
+    _query = q;
+    _searchTimer?.cancel();
+    _searcher.resetTextSearch();
+    _searchPending = q.isNotEmpty;
+    if (q.isNotEmpty) {
+      // The PDF search starts once typing pauses.
+      _searchTimer = Timer(const Duration(milliseconds: 400), () {
+        if (!mounted || _query != q) return;
+        _searchPending = false;
+        _searcher.startTextSearch(
+          q,
+          caseInsensitive: true,
+          goToFirstMatch: false,
+          searchImmediately: true,
+        );
+      });
     }
     _handHits = q.isEmpty ? const [] : searchHandwriting(_searchWords(), q);
     _hitAt = -1;
+    _searchFound();
+  }
+
+  void _refreshHandHits() {
+    if (!_searchOpen || _query.isEmpty || !mounted) return;
+    _handHits = searchHandwriting(_searchWords(), _query);
     _searchFound();
   }
 
@@ -401,12 +431,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     return out;
   }
 
-  /// PDF and handwriting matches together, page by page, top first.
+  /// The PDF matches for what's being searched now (none from an earlier
+  /// search, while the new one waits to start).
+  List<PdfPageTextRange> get _pdfMatches =>
+      !_searchPending && _searcher.pattern?.toString() == _query
+      ? _searcher.matches
+      : const [];
+
+  /// PDF and handwriting matches together, page by page, top first; the
+  /// current match stays current as more are found.
   void _searchFound() {
     if (!mounted) return;
+    final was = _hitAt >= 0 && _hitAt < _hits.length ? _hits[_hitAt] : null;
     final hits =
         [
-          for (final (i, m) in _searcher.matches.indexed)
+          for (final (i, m) in _pdfMatches.indexed)
             (page: m.pageNumber, top: m.bounds.top, pdf: i, hand: null),
           for (final h in _handHits)
             (page: h.page, top: h.box.top, pdf: null, hand: h),
@@ -417,55 +456,58 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         );
     setState(() {
       _hits = hits;
-      if (_hitAt >= hits.length) _hitAt = hits.length - 1;
+      _hitAt = was == null
+          ? -1
+          : hits.indexWhere(
+              (h) => was.pdf != null
+                  ? h.pdf == was.pdf
+                  : identical(h.hand, was.hand),
+            );
     });
     _controller.invalidate();
   }
 
   Future<void> _goToHit(int step) async {
-    if (_hits.isEmpty) return;
-    setState(() => _hitAt = (_hitAt + step) % _hits.length);
+    final n = _hits.length;
+    if (n == 0) return;
+    setState(
+      () => _hitAt = _hitAt < 0 ? (step > 0 ? 0 : n - 1) : (_hitAt + step) % n,
+    );
     final hit = _hits[_hitAt];
     final pdf = hit.pdf;
     final hand = hit.hand;
-    if (pdf != null) {
-      await _searcher.goToMatchOfIndex(pdf);
-    } else if (hand != null) {
-      await _controller.ensureVisible(
-        _controller.calcRectForRectInsidePage(
-          pageNumber: hand.page,
-          rect: PdfRect(
-            hand.box.left,
-            hand.box.top,
-            hand.box.right,
-            hand.box.bottom,
-          ),
-        ),
-        margin: 50,
-      );
-    }
+    final match = pdf == null ? null : _pdfMatches[pdf];
+    final page = match?.pageNumber ?? hand!.page;
+    final r =
+        match?.bounds ??
+        PdfRect(hand!.box.left, hand.box.top, hand.box.right, hand.box.bottom);
+    await _controller.ensureVisible(
+      _controller.calcRectForRectInsidePage(pageNumber: page, rect: r),
+      margin: 50,
+    );
     _controller.invalidate();
   }
 
-  /// Highlights handwriting matches (yellow; the current one orange), and
-  /// the PDF's (pdfrx draws those).
+  /// Highlights the matches: yellow, and the current one orange.
   void _paintSearch(Canvas canvas, Rect pageRect, PdfPage page) {
     if (!_searchOpen) return;
-    _searcher.pageTextMatchPaintCallback(canvas, pageRect, page);
-    final current = _hitAt >= 0 && _hitAt < _hits.length
-        ? _hits[_hitAt].hand
-        : null;
+    final current = _hitAt >= 0 && _hitAt < _hits.length ? _hits[_hitAt] : null;
+    void mark(PdfRect r, bool now, {double room = 0}) => canvas.drawRect(
+      r
+          .toRect(page: page, scaledPageSize: pageRect.size)
+          .translate(pageRect.left, pageRect.top)
+          .inflate(room),
+      Paint()..color = now ? const Color(0x80FF9800) : const Color(0x80FFEB3B),
+    );
+    for (final (i, m) in _pdfMatches.indexed) {
+      if (m.pageNumber == page.pageNumber) mark(m.bounds, current?.pdf == i);
+    }
     for (final h in _handHits) {
       if (h.page != page.pageNumber) continue;
-      final r = PdfRect(h.box.left, h.box.top, h.box.right, h.box.bottom)
-          .toRect(page: page, scaledPageSize: pageRect.size)
-          .translate(pageRect.left, pageRect.top);
-      canvas.drawRect(
-        r.inflate(2),
-        Paint()
-          ..color = identical(h, current)
-              ? const Color(0x80FF9800)
-              : const Color(0x80FFEB3B),
+      mark(
+        PdfRect(h.box.left, h.box.top, h.box.right, h.box.bottom),
+        identical(h, current?.hand),
+        room: 2,
       );
     }
   }
@@ -1385,7 +1427,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     child: ListenableBuilder(
       listenable: _searcher,
       builder: (context, _) {
-        final searching = _searcher.isSearching;
+        final searching = _searcher.isSearching || _searchPending;
         final count = _hits.isEmpty
             ? (_searchField.text.trim().isEmpty
                   ? ''
@@ -1966,6 +2008,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   @override
   void dispose() {
+    _searchTimer?.cancel();
+    if (_searchOpen) {
+      _text.removeListener(_refreshHandHits);
+      _ink.removeListener(_refreshHandHits);
+    }
     _searcherMade?.dispose();
     _searchField.dispose();
     _frames.stop();
