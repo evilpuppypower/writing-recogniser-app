@@ -16,6 +16,10 @@ enum PenMode {
 
   /// Draw a loop around handwriting to select it (task 2.3c).
   lasso,
+
+  /// Tap the page to place a typed text box, or tap one to edit it
+  /// (owner's choice, 2026-10-15).
+  text,
 }
 
 /// How the eraser works (owner: both, switchable).
@@ -176,7 +180,7 @@ class PenToolsState {
   PenStyle? get current => switch (mode) {
     PenMode.pen => pen,
     PenMode.highlighter => highlighter,
-    PenMode.eraser || PenMode.lasso => null,
+    PenMode.eraser || PenMode.lasso || PenMode.text => null,
   };
 
   PenToolsState copyWith({
@@ -228,7 +232,8 @@ class PenToolsState {
 
   Map<String, Object?> toJson() => {
     // The lasso is for one job at a time: reopen with the pen.
-    'mode': (mode == PenMode.lasso ? PenMode.pen : mode).name,
+    'mode': (mode == PenMode.lasso || mode == PenMode.text ? PenMode.pen : mode)
+        .name,
     'pen': pen.toJson(),
     'highlighter': highlighter.toJson(),
     'dock': dock.name,

@@ -102,7 +102,7 @@ class Thumbnails {
     }
 
     for (final s in ink) {
-      if (s.points.isEmpty) continue;
+      if (s.points.isEmpty || s.isTextBox) continue;
       final highlighter = s.tool == InkTool.highlighter;
       final paint = ui.Paint()
         ..color = ui.Color(s.colorArgb).withValues(alpha: highlighter ? 0.4 : 1)

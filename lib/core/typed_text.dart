@@ -348,6 +348,8 @@ List<ExportWord> typedForExport(
 /// The size typed text gets on a page turned [quarterTurns]: fitted to the
 /// handwriting as seen on screen.
 double typedSizeOnPage(ExportWord w, int quarterTurns) {
+  final size = w.fontSize;
+  if (w.fixedSize && size != null) return size;
   final box = quarterTurns.isOdd
       ? InkBox(w.bottom, w.left, w.top, w.right)
       : InkBox(w.left, w.bottom, w.right, w.top);
@@ -374,3 +376,24 @@ double typedSizeOnPage(ExportWord w, int quarterTurns) {
     f: cy + sn * (m.e - cx) + cs * (m.f - cy),
   );
 }
+
+/// The text boxes on a page (see InkTool.text) as visible export text, one
+/// line each, at their own size: always exported, whatever is chosen for
+/// the handwriting.
+List<ExportWord> textBoxesForExport(List<PageStroke> strokes) => [
+  for (final s in strokes)
+    if (s.isTextBox && s.points.length >= 2 && (s.typedText ?? '').isNotEmpty)
+      for (final (i, line) in s.typedText!.split('\n').indexed)
+        if (line.trim().isNotEmpty)
+          ExportWord(
+            line,
+            math.min(s.points.first.x, s.points.last.x),
+            math.max(s.points.first.y, s.points.last.y) -
+                (i + 1) * s.width * 1.25,
+            math.max(s.points.first.x, s.points.last.x),
+            math.max(s.points.first.y, s.points.last.y) - i * s.width * 1.25,
+            colorArgb: s.colorArgb,
+            fontSize: s.width,
+            fixedSize: true,
+          ),
+];

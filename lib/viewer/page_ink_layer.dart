@@ -310,7 +310,12 @@ class PageInkLayer extends StatefulWidget {
     this.onClearSelection,
     this.wordsRead,
     this.isRead,
+    this.onTextTap,
   });
+
+  /// With the Text tool: the pen tapped here (PDF page coordinates), to
+  /// place or edit a text box.
+  final void Function(PdfPagePoint at)? onTextTap;
 
   /// When the writing guide shows (owner, 2026-10-14: not straight away,
   /// so drawing or circling doesn't bring it up): [guideDelay] after the
@@ -566,6 +571,10 @@ class _PageInkLayerState extends State<PageInkLayer> {
     _downAt = e.localPosition;
     _downMs = DateTime.now().millisecondsSinceEpoch;
     _moved = 0;
+    if (_tools.mode == PenMode.text && !_isEraser(e)) {
+      _textTap = true; // a text box goes where the pen lifts (if a tap)
+      return;
+    }
     if (_tools.mode == PenMode.lasso && !_isEraser(e)) {
       final rect = _selectionRect();
       final at = e.localPosition;
@@ -638,6 +647,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
 
   void _move(PointerEvent e) {
     _moved = math.max(_moved, (e.localPosition - _downAt).distance);
+    if (_textTap) return;
     final sel = widget.selection?.value;
     if (_rotating && sel != null) {
       final c = widget.geometry.toView(_rotateAbout, widget.viewWidth);
@@ -656,6 +666,24 @@ class _PageInkLayerState extends State<PageInkLayer> {
         for (final s in _rotateFrom)
           turned == 0
               ? s
+              : s.isTextBox
+              // Text stays upright: its box moves with its corner.
+              ? () {
+                  final c = levelPoint(
+                    s.points.first,
+                    turned,
+                    _rotateAbout.x,
+                    _rotateAbout.y,
+                  );
+                  final dx = c.x - s.points.first.x;
+                  final dy = c.y - s.points.first.y;
+                  return s.copyWith(
+                    points: [
+                      for (final p in s.points)
+                        PageInkPoint(p.x + dx, p.y + dy, p.t, p.pressure),
+                    ],
+                  );
+                }()
               : s.copyWith(
                   points: [
                     for (final p in s.points)
@@ -729,6 +757,18 @@ class _PageInkLayerState extends State<PageInkLayer> {
   }
 
   void _up(PointerEvent e) {
+    if (_textTap) {
+      _textTap = false;
+      if (_moved <= _textTapReach) {
+        widget.onTextTap?.call(
+          widget.geometry.toPdf(
+            ViewPoint(e.localPosition.dx, e.localPosition.dy),
+            widget.viewWidth,
+          ),
+        );
+      }
+      return;
+    }
     if (_endSelectionDrag()) return;
     _finishStroke(e);
     _fadeGuideLater();
@@ -878,7 +918,12 @@ class _PageInkLayerState extends State<PageInkLayer> {
     }
   }
 
+  /// The Text tool: the pen is down for a tap (see [PageInkLayer.onTextTap]).
+  bool _textTap = false;
+  static const _textTapReach = 12.0;
+
   void _cancel() {
+    _textTap = false;
     if (_endSelectionDrag()) return;
     _fadeGuideLater();
     _snapTimer?.cancel();
@@ -1561,6 +1606,27 @@ class _SelectionPainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round;
     for (final s in controller.ink.strokesOn(pageNumber)) {
       if (s.points.isEmpty || !sel.ids.contains(s.id)) continue;
+      if (s.isTextBox) {
+        // A text box: its box, outlined.
+        final b = InkBox.of(s);
+        final r = geometry.rectToView(
+          PdfPageRect(
+            left: b.left,
+            bottom: b.bottom,
+            right: b.right,
+            top: b.top,
+          ),
+          viewWidth,
+        );
+        canvas.drawRect(
+          Rect.fromLTWH(r.left, r.top, r.width, r.height).inflate(2),
+          Paint()
+            ..color = const Color(0x661E88E5)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3,
+        );
+        continue;
+      }
       final path = Path();
       for (final (i, p) in s.points.indexed) {
         final v = geometry.toView(PdfPagePoint(p.x, p.y), viewWidth);
@@ -1681,7 +1747,7 @@ Future<Uint8List?> inkImage(
 }) async {
   final ink = [
     for (final s in strokes)
-      if (s.points.isNotEmpty) s,
+      if (s.points.isNotEmpty && !s.isTextBox) s,
   ];
   if (ink.isEmpty) return null;
   var box = InkBox.of(ink.first);
@@ -1785,7 +1851,9 @@ class _InkDrawer {
   Rect bounds(List<PageStroke> strokes, {Set<String> skip = const {}}) {
     Rect? r;
     for (final s in strokes) {
-      if (s.points.isEmpty || skip.contains(s.typedGroup)) continue;
+      if (s.points.isEmpty || s.isTextBox || skip.contains(s.typedGroup)) {
+        continue;
+      }
       final b = InkBox.of(s);
       final v = geometry.rectToView(
         PdfPageRect(left: b.left, bottom: b.bottom, right: b.right, top: b.top),
@@ -1800,7 +1868,8 @@ class _InkDrawer {
   }
 
   void draw(Canvas canvas, List<PageInkPoint> points, PenStyle style) {
-    if (points.isEmpty) return;
+    // Text boxes aren't ink: they're shown as typed text.
+    if (points.isEmpty || style.tool == InkTool.text) return;
     Offset at(PageInkPoint p) {
       final v = geometry.toView(PdfPagePoint(p.x, p.y), viewWidth);
       return Offset(v.x, v.y);

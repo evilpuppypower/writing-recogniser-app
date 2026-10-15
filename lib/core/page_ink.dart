@@ -32,7 +32,16 @@ class PageInkPoint {
       (v * scale).roundToDouble() / scale;
 }
 
-enum InkTool { pen, highlighter }
+enum InkTool {
+  pen,
+  highlighter,
+
+  /// A typed text box placed anywhere (owner's choice, 2026-10-15): not
+  /// ink. Its two points are the box's top-left and bottom-right corners,
+  /// [PageStroke.typedText] its text and [PageStroke.width] its text size
+  /// (points). Never read as handwriting.
+  text,
+}
 
 /// A finished stroke on one page.
 class PageStroke {
@@ -142,8 +151,21 @@ class PageStroke {
   );
 
   /// Distance in points from (x, y) to the nearest part of this stroke.
+  /// Whether this is a typed text box (see [InkTool.text]).
+  bool get isTextBox => tool == InkTool.text;
+
   double distanceTo(double x, double y) {
     if (points.isEmpty) return double.infinity;
+    if (isTextBox) {
+      // Distance to the box (0 inside it).
+      final l = math.min(points.first.x, points.last.x);
+      final r = math.max(points.first.x, points.last.x);
+      final b = math.min(points.first.y, points.last.y);
+      final t = math.max(points.first.y, points.last.y);
+      final dx = x < l ? l - x : (x > r ? x - r : 0.0);
+      final dy = y < b ? b - y : (y > t ? y - t : 0.0);
+      return math.sqrt(dx * dx + dy * dy);
+    }
     var best = _dist(x, y, points.first.x, points.first.y);
     for (var i = 1; i < points.length; i++) {
       best = math.min(best, _segmentDistance(x, y, points[i - 1], points[i]));
@@ -429,7 +451,8 @@ class DocumentInk {
     var changed = false;
     _pages[page] = [
       for (final s in strokesOn(page))
-        if (ids.contains(s.id))
+        // Not a text box: its "width" is its text size.
+        if (ids.contains(s.id) && !s.isTextBox)
           () {
             final (lo, hi) = limits(s.tool);
             final w = (s.width * factor).clamp(lo, hi);
@@ -520,7 +543,8 @@ class DocumentInk {
     final strokes = strokesOn(page);
     final removed = [
       for (final s in strokes)
-        if (s.distanceTo(x, y) <= radius + s.width / 2 &&
+        // A text box's "width" is its text size: only the box counts.
+        if (s.distanceTo(x, y) <= radius + (s.isTextBox ? 0 : s.width / 2) &&
             !(protect?.call(s) ?? false))
           s,
     ];
@@ -547,13 +571,14 @@ class DocumentInk {
     var changed = false;
     final next = <PageStroke>[];
     for (final s in strokes) {
-      final reach = radius + s.width / 2;
+      final reach = radius + (s.isTextBox ? 0 : s.width / 2);
       if (s.distanceTo(x, y) > reach || (protect?.call(s) ?? false)) {
         next.add(s);
         continue;
       }
       changed = true;
-      next.addAll(_cut(s, x, y, reach));
+      // A text box goes whole (its corners aren't ink to cut).
+      if (!s.isTextBox) next.addAll(_cut(s, x, y, reach));
     }
     if (changed) _pages[page] = next;
     return changed;
@@ -639,4 +664,33 @@ class DocumentInk {
     });
     return ink;
   }
+}
+
+/// A new text box (see [InkTool.text]) with its top-left corner at ([x], [y])
+/// (PDF page coordinates), sized to fit [text] at [size] points.
+PageStroke textBox(
+  String text,
+  double x,
+  double y, {
+  required double size,
+  required int colorArgb,
+  required int nowMs,
+  (double, double)? measured,
+}) {
+  final (w, h) = measured ?? textBoxSize(text, size);
+  return PageStroke(
+    points: [PageInkPoint(x, y, nowMs), PageInkPoint(x + w, y - h, nowMs + 1)],
+    tool: InkTool.text,
+    width: size,
+    colorArgb: colorArgb,
+    typedText: text,
+  );
+}
+
+/// About how much room [text] takes at [size] points: its longest line at
+/// 0.55 of the size per character, and 1.25 of the size per line.
+(double, double) textBoxSize(String text, double size) {
+  final lines = text.split('\n');
+  final longest = lines.map((l) => l.length).fold(1, math.max);
+  return (longest * size * 0.55, lines.length * size * 1.25);
 }

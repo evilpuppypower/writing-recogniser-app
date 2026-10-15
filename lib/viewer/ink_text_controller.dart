@@ -527,7 +527,20 @@ class InkTextController extends ChangeNotifier {
     try {
       final words = _words.putIfAbsent(page, () => {});
       final known = {for (final e in words.entries) e.key: e.value.text};
-      final kinds = reconcileKinds(strokes, await classifier.classify(strokes));
+      // Text boxes aren't ink: never sent to be sorted (they're drawings
+      // as far as reading goes).
+      final inkOnly = [
+        for (var i = 0; i < strokes.length; i++)
+          if (!strokes[i].isTextBox) i,
+      ];
+      final sorted = await classifier.classify([
+        for (final i in inkOnly) strokes[i],
+      ]);
+      final allKinds = List.filled(strokes.length, InkKind.drawing);
+      for (var k = 0; k < inkOnly.length && k < sorted.length; k++) {
+        allKinds[inkOnly[k]] = sorted[k];
+      }
+      final kinds = reconcileKinds(strokes, allKinds);
       if (_disposed) return;
       final flipped = _notWriting[page] ?? const <String>{};
       final lineEngine = engine is LineRecognizer
