@@ -362,6 +362,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   // Bookmarks (owner's choice, 2026-10-15): the pages marked in this PDF.
   BookmarkStore? _bookmarkStore;
   List<int> _bookmarks = const [];
+  Future<void> _bookmarksLoaded = Future.value();
 
   Future<void> _loadBookmarks() async {
     try {
@@ -379,6 +380,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   Future<void> _toggleBookmark(int page) async {
+    // Tapped while they're still loading: wait, so the tap isn't lost.
+    await _bookmarksLoaded;
+    if (!mounted) return;
     final on = !_bookmarks.contains(page);
     setState(
       () => _bookmarks = on
@@ -388,18 +392,49 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                 if (p != page) p,
             ],
     );
-    await _bookmarkStore?.set(widget.documentId, page, on: on);
+    try {
+      await _bookmarkStore?.set(widget.documentId, page, on: on);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Couldn't save the bookmark: $e")));
+    }
   }
 
   /// "Contents": the PDF's own contents list (if it has one) and the
   /// pages bookmarked, each going to its page.
   Future<void> _showContents() async {
     List<PdfOutlineNode> outline = const [];
+    // A big PDF's contents can take a moment: say so after a second.
+    var shown = false;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final wait = Timer(const Duration(seconds: 1), () {
+      if (!mounted) return;
+      shown = true;
+      unawaited(
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('Reading the contents…'),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
     try {
       outline = await _controller.document.loadOutline();
     } catch (_) {
       // No contents list.
     }
+    wait.cancel();
+    if (shown) navigator.pop();
     if (!mounted) return;
     final page = await showModalBottomSheet<int>(
       context: context,
@@ -1639,7 +1674,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void initState() {
     super.initState();
     _frames.start();
-    unawaited(_loadBookmarks());
+    _bookmarksLoaded = _loadBookmarks();
     // A selection belongs to the Select tool.
     _tools.addListener(() {
       if (_tools.value.mode != PenMode.lasso) _selection.value = null;

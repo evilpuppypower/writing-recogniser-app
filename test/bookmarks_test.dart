@@ -24,7 +24,7 @@ void main() {
       expect(await store.pages('a'), [3, 12]);
       await store.set('a', 12, on: false);
       expect(await store.pages('a'), [3]);
-      // Deleting the PDF's stored copy removes its bookmarks too.
+      // Bookmarks go with the PDF's ink: deleting the ink deletes them.
       await SqliteInkStore(db).deleteDocument('a');
       expect(await store.pages('a'), isEmpty);
       expect(await store.pages('b'), [5]);
