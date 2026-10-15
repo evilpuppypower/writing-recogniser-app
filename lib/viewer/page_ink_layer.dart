@@ -13,6 +13,7 @@ import '../core/page_ink.dart';
 import '../core/pen_tap.dart';
 import '../core/pen_tools.dart';
 import '../core/selection.dart';
+import '../core/shapes.dart';
 import '../core/stroke_grouping.dart' show InkBox, levelPoint;
 import '../core/typed_text.dart' show convertedGroups;
 import '../core/writing_guide.dart';
@@ -457,6 +458,10 @@ class _PageInkLayerState extends State<PageInkLayer> {
   Timer? _snapTimer;
   bool _snapped = false;
 
+  /// The tidy shape the stroke snapped to (it stays put until the pen
+  /// lifts), or null.
+  List<PageInkPoint>? _shape;
+
   void _restartSnapTimer(Offset at) {
     _stillAt = at;
     _snapTimer?.cancel();
@@ -466,6 +471,18 @@ class _PageInkLayerState extends State<PageInkLayer> {
   void _snap() {
     final pts = _active.value;
     if (_erasing || _snapped || pts.length < 2) return;
+    // A closed shape held still at its end: tidied into the circle,
+    // ellipse, rectangle or triangle it's closest to (pen only).
+    if (_style.tool == InkTool.pen) {
+      final shape = tidyShape(pts);
+      if (shape != null) {
+        _snapped = true;
+        _shape = shape.points;
+        _active.value = shape.points;
+        HapticFeedback.selectionClick();
+        return;
+      }
+    }
     final dx = (pts.last.x - pts.first.x) * _pixelsPerPoint;
     final dy = (pts.last.y - pts.first.y) * _pixelsPerPoint;
     if (math.sqrt(dx * dx + dy * dy) < snapMinLengthPixels) return;
@@ -641,6 +658,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
       _guideHide?.cancel(); // stays while writing
       _active.value = [_pointOf(e)];
       _snapped = false;
+      _shape = null;
       _restartSnapTimer(e.localPosition);
     }
   }
@@ -743,6 +761,8 @@ class _PageInkLayerState extends State<PageInkLayer> {
     }
     if (_erasing) {
       _erase(e);
+    } else if (_shape != null) {
+      // A tidied shape stays as it is until the pen lifts.
     } else if (_snapped) {
       // Straightened: the end follows the pen until it lifts.
       _active.value = straightLine(_active.value.first, _pointOf(e));
@@ -806,9 +826,13 @@ class _PageInkLayerState extends State<PageInkLayer> {
       _hideEraser();
       return;
     }
-    var points = _snapped
-        ? straightLine(_active.value.first, _pointOf(e))
-        : [..._active.value, _pointOf(e)];
+    final shape = _shape;
+    _shape = null;
+    var points =
+        shape ??
+        (_snapped
+            ? straightLine(_active.value.first, _pointOf(e))
+            : [..._active.value, _pointOf(e)]);
     if (_style.arrow && !_snapped) {
       // Drop the flick as the pen lifts, so the head points along the line.
       points = trimLiftHook(
@@ -820,12 +844,16 @@ class _PageInkLayerState extends State<PageInkLayer> {
     final wasSnapped = _snapped;
     _active.value = const [];
     _snapped = false;
+    _shape = null;
     final stroke = PageStroke(
       points: points,
       colorArgb: _style.colorArgb,
       width: _style.width,
       tool: _style.tool,
-      arrow: _style.arrow,
+      // No arrowhead on a closed shape.
+      arrow: _style.arrow && shape == null,
+      // A tidied shape is a drawing: never read as a letter ("O", "D").
+      notWriting: shape != null,
     );
     // A pen tap on a label: maybe the first half of a double-tap.
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -928,6 +956,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
     _fadeGuideLater();
     _snapTimer?.cancel();
     _snapped = false;
+    _shape = null;
     _lassoing = false;
     if (_erasing) widget.controller.endGesture();
     _erasing = false;

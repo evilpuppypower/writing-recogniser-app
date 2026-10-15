@@ -554,3 +554,7 @@ A new **Text** tool in the pen toolbar. Tap the page with the pen to type a text
 - Exports always include it as visible text at its own size, one line each, whatever is chosen for the handwriting.
 - Its corners are measured from the text as drawn, so a tap anywhere on it edits it. Copies keep their text. Erasers take it only when they touch the box, and Thickness leaves it alone. Turning a selection moves it but keeps the text upright, and selecting it outlines its box. Its own size stays offered when editing.
 - Not yet on pages turned sideways (it says so).
+
+## 2026-10-15 — Shape tidy-up (owner's choice: text & shapes)
+
+Holding the pen still at the end of a stroke already snapped it straight. Now, if the stroke is a closed loop (it ends near where it started), it's tidied into the shape it's closest to: a circle (when nearly round), an ellipse, a rectangle or a triangle. "Closest" is checked both ways: on average, within a twentieth of its size from ink to shape and from shape to ink, so scribbles and zigzags are left alone. A tidied shape keeps its colour, width and the pen's typical pressure. It has no arrowhead, and it's marked "not writing" so it's never read as a letter (O, D, A). Rectangles are level (not tilted).
