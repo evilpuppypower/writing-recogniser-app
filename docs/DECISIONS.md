@@ -508,3 +508,14 @@ Scrolling over pages with more than about 10 words got laggy. The cause: each pe
 - The image waits until the ink has stayed the same for 0.2 s (not remade on every move of the eraser). Page widths within half a pixel count as the same, so moving a zoomed page doesn't remake it. It's made at the screen's own pixel size, so it's as sharp as before.
 - Labels and typed text aren't rebuilt for sub-pixel wobbles in the page width while it's moved. Converted text's lines are worked out once per change of the ink, not on every redraw.
 The ink looks the same. The diagnostic report's drawing times show the difference.
+
+## 2026-10-15 — MyScript reads whole lines and decides where words are (owner's choice: "both, engine first")
+
+The owner found words often read as gibberish because our rules cut one word into pieces, which were then read separately. MyScript's own word splitting is much better, so with MyScript offline:
+- The app still finds the lines (rules, slants and all).
+- A line with new or changed writing goes to MyScript whole.
+- MyScript's answer gives each word's box (in millimetres; the engine now also tells the app its millimetres per point). Each stroke goes to the word whose box it overlaps most.
+- Those words are kept as MyScript found them (as hints to the grouping), so the line isn't read again until something on it changes. New writing on the line, or erasing part of it, sends the whole line again.
+- "One word" marks still win: if MyScript splits strokes the user marked as one word, those pieces are joined.
+
+There are fewer engine calls overall (one per line, not one per word), and each line takes a little longer, as the owner accepted. If MyScript can't do this for a line (no boxes in its answer, or an older build), that line is read word by word as before. ML Kit and MyScript cloud still read word by word. Engines opt in through a separate LineRecognizer interface, so the Recognizer interface (CLAUDE.md rule 1) is unchanged. A learned word-finding model may come later, if lines themselves are found wrongly.

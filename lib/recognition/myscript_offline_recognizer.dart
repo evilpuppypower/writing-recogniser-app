@@ -9,7 +9,7 @@ import 'jiix.dart';
 /// MyScript iink running on the tablet (Android native SDK). No internet and
 /// no quota; nothing leaves the device. Needs the owner's certificate and
 /// MyScript's English recognition files, both added to the APK by CI.
-class MyScriptOfflineRecognizer implements Recognizer {
+class MyScriptOfflineRecognizer implements Recognizer, LineRecognizer {
   MyScriptOfflineRecognizer({
     this.channel = const MethodChannel('writing_recogniser/myscript_offline'),
   });
@@ -18,6 +18,11 @@ class MyScriptOfflineRecognizer implements Recognizer {
 
   /// Language in use once ready, e.g. "en_GB".
   String? language;
+
+  /// Millimetres per point sent (from the engine), to match the words'
+  /// boxes to strokes; null from older builds (lines are then read word by
+  /// word).
+  double? mmPerX, mmPerY;
 
   @override
   String get name => 'MyScript offline';
@@ -33,6 +38,8 @@ class MyScriptOfflineRecognizer implements Recognizer {
       final message = (m?['message'] as String?) ?? '';
       if (state == 'ready') {
         language = m?['lang'] as String?;
+        mmPerX = (m?['mmPerPxX'] as num?)?.toDouble();
+        mmPerY = (m?['mmPerPxY'] as num?)?.toDouble();
         return const RecognizerStatus(RecognizerState.ready);
       }
       return RecognizerStatus(RecognizerState.unavailable, message);
@@ -71,6 +78,29 @@ class MyScriptOfflineRecognizer implements Recognizer {
       throw RecognitionException(e.message ?? 'MyScript offline failed.');
     } on FormatException {
       throw const RecognitionException('MyScript gave an unreadable answer.');
+    }
+  }
+
+  @override
+  Future<List<LineWord>?> recognizeLine(
+    List<InkStroke> strokes,
+    RecognitionContext context,
+  ) async {
+    final sx = mmPerX, sy = mmPerY;
+    if (strokes.isEmpty || sx == null || sy == null) return null;
+    try {
+      final jiix = await channel.invokeMethod<String>('recognize', {
+        'strokes': encodeStrokesFlat(strokes),
+      });
+      if (jiix == null || jiix.isEmpty) return null;
+      final decoded = jsonDecode(jiix);
+      return decoded is Map<String, Object?>
+          ? jiixLineWords(decoded, strokes, mmPerX: sx, mmPerY: sy)
+          : null;
+    } on PlatformException catch (e) {
+      throw RecognitionException(e.message ?? 'MyScript offline failed.');
+    } on FormatException {
+      return null;
     }
   }
 }

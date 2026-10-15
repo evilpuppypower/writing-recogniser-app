@@ -518,9 +518,20 @@ class InkTextController extends ChangeNotifier {
       final kinds = reconcileKinds(strokes, await classifier.classify(strokes));
       if (_disposed) return;
       final flipped = _notWriting[page] ?? const <String>{};
+      final lineEngine = engine is LineRecognizer
+          ? engine as LineRecognizer
+          : null;
       final plan = planRecognition(
         strokes,
         known,
+        // With an engine that reads whole lines, its words stay as it split
+        // them (each word's key lists its strokes).
+        hints: lineEngine == null
+            ? null
+            : {
+                for (final w in words.values)
+                  for (final id in w.key.split(',')) id: w.key,
+              },
         include: (i) =>
             !strokes[i].notWriting &&
             (i >= kinds.length || kinds[i] == InkKind.writing) &&
@@ -556,8 +567,73 @@ class InkTextController extends ChangeNotifier {
         dirty = true;
         _notify();
       }
+      // Whole lines, for an engine that reads them and splits them into
+      // words itself (owner, 2026-10-15); a line it can't read this way is
+      // read word by word below.
+      final readLines = <int>{};
+      for (final job
+          in lineEngine == null ? const <LineJob>[] : plan.lineJobs) {
+        if (_disposed) return;
+        final line = plan.lines[job.line];
+        final all = lineAsWord(strokes, line);
+        final scale = engineLetterPixels / job.letterHeight;
+        final ink = wordInk(strokes, all, scale: scale);
+        final sent = DateTime.now().millisecondsSinceEpoch;
+        List<LineWord>? got;
+        try {
+          got = await lineEngine!.recognizeLine(
+            ink,
+            RecognitionContext(
+              preContext: job.preContext,
+              writingAreaWidth: (all.slant?.box ?? all.box).width * scale,
+              writingAreaHeight: (all.slant?.box ?? all.box).height * scale,
+            ),
+          );
+        } on RecognitionException catch (e) {
+          complete = false;
+          problem = e.message;
+          _notify();
+          readLines.add(job.line);
+          continue;
+        }
+        if (_disposed) return;
+        if (got == null || got.isEmpty) continue;
+        final found = _withManualWords(strokes, [
+          for (final g in got)
+            (
+              readings: g.candidates,
+              strokes: [for (final k in g.strokes) all.strokes[k]],
+            ),
+        ]);
+        // The line's old words go; the words the engine found come in.
+        final lineIds = {for (final k in all.strokes) strokes[k].id};
+        words.removeWhere((key, _) => key.split(',').any(lineIds.contains));
+        final slant = all.slant;
+        for (final f in found) {
+          final w = wordOfStrokes(
+            strokes,
+            f.strokes,
+            slant: slant == null
+                ? null
+                : (angle: slant.angle, cx: slant.cx, cy: slant.cy),
+          );
+          _keep(
+            page,
+            words,
+            key: wordKey(strokes, w),
+            word: w,
+            line: job.line,
+            engineTexts: f.readings,
+            ink: wordInk(strokes, w, scale: scale),
+            sent: sent,
+          );
+        }
+        readLines.add(job.line);
+        dirty = true;
+      }
       for (final job in plan.jobs) {
         if (_disposed) return;
+        if (readLines.contains(job.line)) continue;
         final scale = engineLetterPixels / job.letterHeight;
         final ink = wordInk(strokes, job.word, scale: scale);
         final sent = DateTime.now().millisecondsSinceEpoch;
@@ -567,7 +643,7 @@ class InkTextController extends ChangeNotifier {
             ink,
             RecognitionContext(
               // Includes words recognised earlier in this same run.
-              preContext: _textBefore(words, job),
+              preContext: _textBefore(words, job.line, job.word.box.left),
               writingAreaWidth:
                   (job.word.slant?.box ?? job.word.box).width * scale,
               writingAreaHeight:
@@ -586,61 +662,17 @@ class InkTextController extends ChangeNotifier {
             if (c.text.trim().isNotEmpty) c.text.trim(),
         ];
         if (engineTexts.isEmpty) continue;
-        // The feedback layer (task 2.6) re-ranks or swaps using the user's
-        // corrections.
-        final previous = _lastWord(_textBefore(words, job));
-        final fed = feedback.apply([
-          for (final t in engineTexts) Candidate(t),
-        ], FeedbackContext(previousWord: previous, documentId: documentId));
-        final texts = [for (final c in fed.candidates) c.text];
-        words[job.key] = RecognizedWord(
-          text: texts.first,
-          alternatives: texts.skip(1).toList(),
-          box: job.word.box,
-          slant: job.word.slant,
-          line: job.line,
+        _keep(
+          page,
+          words,
           key: job.key,
-          engineText: engineTexts.first,
-          engineReadings: engineTexts,
-          autoReplaced: fed.autoReplaced,
-          previousWord: previous,
+          word: job.word,
+          line: job.line,
+          engineTexts: engineTexts,
           ink: ink,
+          sent: sent,
         );
-        problem = null;
         dirty = true;
-        _notify();
-        final now = DateTime.now().millisecondsSinceEpoch;
-        unawaited(
-          eventLog
-                  ?.log(
-                    LoggedEvent(
-                      type: 'recognition',
-                      at: DateTime.fromMillisecondsSinceEpoch(now),
-                      engine: engine.name,
-                      // Pen lift to text, only for writing done just now
-                      // (not ink read again when a PDF is reopened).
-                      latencyMs: now - job.word.end < 60000
-                          ? now - job.word.end
-                          : null,
-                      data: {
-                        'source': 'pdf',
-                        'page': page,
-                        'text': texts.first,
-                        'alternatives': texts.skip(1).take(4).toList(),
-                        'engineMs': now - sent,
-                        // For the learning screen (task 3.1): what the
-                        // engine read before the feedback layer, and which
-                        // word this is, to match later corrections.
-                        'engineText': engineTexts.first,
-                        'autoReplaced': fed.autoReplaced,
-                        'word': job.key,
-                        'doc': ?documentId,
-                      },
-                    ),
-                  )
-                  .catchError((_) {}) ??
-              Future<void>.value(),
-        );
       }
     } finally {
       _running.remove(page);
@@ -654,16 +686,112 @@ class InkTextController extends ChangeNotifier {
     }
   }
 
+  /// Keeps what the engine read for [word] (after the feedback layer,
+  /// task 2.6, re-ranks or swaps it using the user's corrections), and logs
+  /// it (rule 5).
+  void _keep(
+    int page,
+    Map<String, RecognizedWord> words, {
+    required String key,
+    required InkWord word,
+    required int line,
+    required List<String> engineTexts,
+    required List<InkStroke> ink,
+    required int sent,
+  }) {
+    final previous = _lastWord(_textBefore(words, line, word.box.left));
+    final fed = feedback.apply([
+      for (final t in engineTexts) Candidate(t),
+    ], FeedbackContext(previousWord: previous, documentId: documentId));
+    final texts = [for (final c in fed.candidates) c.text];
+    words[key] = RecognizedWord(
+      text: texts.first,
+      alternatives: texts.skip(1).toList(),
+      box: word.box,
+      slant: word.slant,
+      line: line,
+      key: key,
+      engineText: engineTexts.first,
+      engineReadings: engineTexts,
+      autoReplaced: fed.autoReplaced,
+      previousWord: previous,
+      ink: ink,
+    );
+    problem = null;
+    _notify();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    unawaited(
+      eventLog
+              ?.log(
+                LoggedEvent(
+                  type: 'recognition',
+                  at: DateTime.fromMillisecondsSinceEpoch(now),
+                  engine: engine.name,
+                  // Pen lift to text, only for writing done just now (not
+                  // ink read again when a PDF is reopened).
+                  latencyMs: now - word.end < 60000 ? now - word.end : null,
+                  data: {
+                    'source': 'pdf',
+                    'page': page,
+                    'text': texts.first,
+                    'alternatives': texts.skip(1).take(4).toList(),
+                    'engineMs': now - sent,
+                    // For the learning screen (task 3.1): what the engine
+                    // read before the feedback layer, and which word this
+                    // is, to match later corrections.
+                    'engineText': engineTexts.first,
+                    'autoReplaced': fed.autoReplaced,
+                    'word': key,
+                    'doc': ?documentId,
+                  },
+                ),
+              )
+              .catchError((_) {}) ??
+          Future<void>.value(),
+    );
+  }
+
+  /// The engine's words with strokes the user marked "One word" kept
+  /// together: words sharing such strokes become one, their readings
+  /// joined.
+  static List<({List<String> readings, List<int> strokes})> _withManualWords(
+    List<PageStroke> strokes,
+    List<({List<String> readings, List<int> strokes})> found,
+  ) {
+    final into = List<int>.generate(found.length, (k) => k);
+    int root(int k) => into[k] == k ? k : into[k] = root(into[k]);
+    final firstWith = <String, int>{};
+    for (var k = 0; k < found.length; k++) {
+      for (final i in found[k].strokes) {
+        final mark = strokes[i].manualWord;
+        if (mark == null) continue;
+        final other = firstWith.putIfAbsent(mark, () => k);
+        if (root(other) != root(k)) into[root(k)] = root(other);
+      }
+    }
+    final merged = <int, ({List<String> readings, List<int> strokes})>{};
+    for (var k = 0; k < found.length; k++) {
+      final r = root(k);
+      final had = merged[r];
+      merged[r] = had == null
+          ? found[k]
+          : (
+              readings: ['${had.readings.first}${found[k].readings.first}'],
+              strokes: [...had.strokes, ...found[k].strokes],
+            );
+    }
+    return merged.values.toList();
+  }
+
   static String _textBefore(
     Map<String, RecognizedWord> words,
-    RecognitionJob job,
+    int line,
+    double left,
   ) {
     final before =
         [
           for (final w in words.values)
-            if (w.line < job.line ||
-                (w.line == job.line && w.box.left < job.word.box.left))
-              w,
+            if (w.line < line || (w.line == line && w.box.left < left)) w,
         ]..sort(
           (a, b) => a.line != b.line
               ? a.line.compareTo(b.line)

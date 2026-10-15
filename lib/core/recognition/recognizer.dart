@@ -90,3 +90,25 @@ abstract class Recognizer {
     RecognitionContext context,
   );
 }
+
+/// One word of a line read whole: its readings, best first, and which of
+/// the strokes sent (indexes) it's made of.
+class LineWord {
+  const LineWord(this.candidates, this.strokes);
+
+  final List<String> candidates;
+  final List<int> strokes;
+}
+
+/// An engine that can read a whole line of writing at once and split it
+/// into words itself (owner, 2026-10-15: our own splitting cut words into
+/// pieces). Optional: engines without it are sent word by word.
+abstract class LineRecognizer {
+  /// Reads [strokes] (one line) and says which strokes make each word, in
+  /// reading order; null if it can't this time (the app then reads word by
+  /// word).
+  Future<List<LineWord>?> recognizeLine(
+    List<InkStroke> strokes,
+    RecognitionContext context,
+  );
+}
