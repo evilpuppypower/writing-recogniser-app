@@ -1144,6 +1144,9 @@ class StylusInkRecognizer extends OneSequenceGestureRecognizer {
 /// much ink there is (owner: scrolling got laggy with a lot of writing).
 class _InkPicture {
   ui.Picture? picture;
+
+  /// The highlighter strokes, always drawn straight onto the page.
+  ui.Picture? marker;
   double width = 0;
   Object? key;
 
@@ -1152,9 +1155,22 @@ class _InkPicture {
 
   ui.Image? image;
 
-  /// The page width the [image] was made for, and the inked area there.
+  /// The page width and pixel ratio the [image] was made for, and the
+  /// inked area there.
   double imageWidth = 0;
+  double imageRatio = 0;
   Rect imageBounds = Rect.zero;
+
+  /// Page widths this close count as the same: moving a zoomed page
+  /// changes its width in the last decimal places.
+  static bool sameWidth(double a, double b) => (a - b).abs() < 0.5;
+
+  /// Whether the image (or the decision not to make one) is for this
+  /// width and pixel ratio.
+  bool imageFits(double viewWidth, double ratio) =>
+      imageWidth != 0 &&
+      sameWidth(imageWidth, viewWidth) &&
+      imageRatio == ratio;
 
   /// The page width an image is wanted for, once it has stayed the same
   /// for [_settle] (no image is made mid-zoom), and whether that time has
@@ -1172,7 +1188,8 @@ class _InkPicture {
   static const maxPixels = 4000000;
 
   void want(double viewWidth) {
-    if (viewWidth == _wanted && (_settled || (_timer?.isActive ?? false))) {
+    if (sameWidth(viewWidth, _wanted) &&
+        (_settled || (_timer?.isActive ?? false))) {
       return;
     }
     _wanted = viewWidth;
@@ -1184,17 +1201,27 @@ class _InkPicture {
     });
   }
 
-  bool settledAt(double viewWidth) => _settled && _wanted == viewWidth;
+  bool settledAt(double viewWidth) => _settled && sameWidth(_wanted, viewWidth);
+
+  /// Waits again before making an image (the ink just changed).
+  void restartWait(double viewWidth) {
+    _settled = false;
+    _wanted = double.nan;
+    want(viewWidth);
+  }
 
   void dropImage() {
     image?.dispose();
     image = null;
     imageWidth = 0;
+    imageRatio = 0;
   }
 
   void dispose() {
     picture?.dispose();
     picture = null;
+    marker?.dispose();
+    marker = null;
     key = null;
     dropImage();
   }
@@ -1244,15 +1271,18 @@ class _PageInkPainter extends CustomPainter {
       geometry.quarterTurns,
     );
     if (cache.picture == null || cache.key != key) {
-      final recorder = ui.PictureRecorder();
-      final c = Canvas(recorder);
+      // Pen ink, and highlighter apart: it's multiplied over the page so
+      // printed text stays readable, which only works drawn straight onto
+      // the page (never in the ready-made image).
+      final pen = ui.PictureRecorder(), marker = ui.PictureRecorder();
+      final penCanvas = Canvas(pen), markerCanvas = Canvas(marker);
       final ink = _InkDrawer(geometry, viewWidth, pressure);
       // Typed text shown instead of the ink of converted words.
       final typed = typedShown ? convertedGroups(strokes) : const <String>{};
       for (final s in strokes) {
         if (typed.contains(s.typedGroup)) continue;
         ink.draw(
-          c,
+          s.tool == InkTool.highlighter ? markerCanvas : penCanvas,
           s.points,
           PenStyle(
             tool: s.tool,
@@ -1264,13 +1294,24 @@ class _PageInkPainter extends CustomPainter {
       }
       cache
         ..dispose()
-        ..picture = recorder.endRecording()
+        ..picture = pen.endRecording()
+        ..marker = marker.endRecording()
         ..width = viewWidth
         ..key = key
-        ..bounds = ink.bounds(strokes, skip: typed);
+        ..bounds = ink.bounds([
+          for (final s in strokes)
+            if (s.tool != InkTool.highlighter) s,
+        ], skip: typed)
+        // The ink changed: a new image once it has stayed the same a
+        // moment (not on every move of the eraser).
+        ..restartWait(viewWidth);
     }
     final zoom = viewWidth / cache.width;
-    if (cache.image == null || cache.imageWidth != viewWidth) {
+    canvas.save();
+    canvas.scale(zoom, zoom);
+    canvas.drawPicture(cache.marker!);
+    canvas.restore();
+    if (!cache.imageFits(viewWidth, devicePixelRatio)) {
       cache.dropImage();
       if (cache.settledAt(viewWidth)) {
         _makeImage(zoom);
@@ -1305,7 +1346,9 @@ class _PageInkPainter extends CustomPainter {
     );
     final w = (b.width * devicePixelRatio).ceil();
     final h = (b.height * devicePixelRatio).ceil();
-    cache.imageWidth = viewWidth;
+    cache
+      ..imageWidth = viewWidth
+      ..imageRatio = devicePixelRatio;
     if (w <= 0 || h <= 0 || w * h > _InkPicture.maxPixels) return;
     final recorder = ui.PictureRecorder();
     Canvas(recorder)
@@ -1317,7 +1360,13 @@ class _PageInkPainter extends CustomPainter {
     try {
       cache
         ..image = picture.toImageSync(w, h)
-        ..imageBounds = b;
+        // Exactly the image's own size, so the ink isn't squeezed.
+        ..imageBounds = Rect.fromLTWH(
+          b.left,
+          b.top,
+          w / devicePixelRatio,
+          h / devicePixelRatio,
+        );
     } finally {
       picture.dispose();
     }
@@ -1664,16 +1713,16 @@ Future<Uint8List?> inkImage(
   }
 }
 
-/// A pen line width (pixels) rounded to a step of 0.25 px (5% when wider
-/// than 5 px), so a stroke's pressure changes give a few runs of one
-/// width, not one per segment.
+/// A pen line width (pixels) rounded to steps of 6% of itself, so a
+/// stroke's pressure changes give a few runs of one width, not one per
+/// segment, and the steps look the same at any zoom.
 double widthStep(double w) {
-  if (w > 5) {
-    final step = w * 0.05;
-    return (w / step).round() * step;
-  }
-  return math.max(0.25, (w * 4).round() / 4);
+  if (w <= 0.05) return 0.05;
+  final n = (math.log(w) / _widthStepLog).round();
+  return math.pow(1.06, n).toDouble();
 }
+
+final _widthStepLog = math.log(1.06);
 
 /// Draws strokes on a page laid out [viewWidth] pixels wide.
 class _InkDrawer {

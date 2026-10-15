@@ -35,12 +35,15 @@ DocumentInk heavyPage(int words) {
 }
 
 void main() {
-  test('line widths come in steps, so a stroke is a few paths', () {
-    expect(widthStep(1.31), 1.25);
-    expect(widthStep(1.38), 1.5);
-    expect(widthStep(0.01), 0.25);
-    // Wider lines: steps of 5%.
-    expect((widthStep(10.2) - 10).abs(), lessThan(0.6));
+  test('line widths come in steps of 6%, so a stroke is a few paths', () {
+    for (final w in [0.4, 1.3, 2.7, 6.5, 12.0, 40.0]) {
+      expect((widthStep(w) - w).abs() / w, lessThanOrEqualTo(0.03));
+    }
+    // Every width from 1 to 12 px comes down to a few dozen steps, at any
+    // size.
+    final steps = {for (var i = 0; i <= 1100; i++) widthStep(1 + i / 100)};
+    expect(steps.length, lessThan(45));
+    expect(widthStep(0), 0.05);
   });
 
   testWidgets('a page with 50 words draws, and scrolls, without trouble', (
