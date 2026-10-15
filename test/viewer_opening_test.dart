@@ -28,6 +28,13 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Opening Big.pdf…'), findsOneWidget);
     expect(find.text('Big.pdf'), findsOneWidget); // the title bar
+    // Search waits until the PDF is open.
+    final search = find.byTooltip('Search the PDF and your handwriting');
+    expect(search, findsOneWidget);
+    await tester.tap(search);
+    await tester.pump();
+    expect(find.byType(TextField), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('title bar and back button work while the PDF is still '
