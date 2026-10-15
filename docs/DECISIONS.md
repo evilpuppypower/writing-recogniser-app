@@ -529,3 +529,11 @@ A search button in the viewer's title bar opens a search box under it. One searc
 - the handwriting read on every page: the words read, or for converted writing its typed text as edited.
 
 Matches are listed together, page by page and top first. "n of m" shows where you are, with up and down buttons; Enter goes to the next match. PDF matches are highlighted by pdfrx; handwriting matches get a yellow box, and the current one is orange. Searches ignore case and extra spaces, find part of a word, and can run across words. The button works once the PDF has opened. Nothing leaves the tablet.
+
+## 2026-10-15 — Dark pages (owner's question: an automatic light-to-dark converter)
+
+Settings → Page colours: "As printed" (the default), "Dark", or "Dark when the tablet is" (follows the tablet's dark mode). Only the screen changes, never the PDF or an export:
+- **Pages:** colours reversed and the black lifted to a soft dark grey, drawn over the page under the ink. Photos in a PDF look reversed too (the simple version).
+- **Ink and typed text:** shown with the same hue and the lightness turned round, so black ink shows white and dark blue shows light blue.
+- **Highlighter:** lightens instead of multiplying, so it still shows.
+- **Guide line:** shown faint and light.

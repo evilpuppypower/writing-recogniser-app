@@ -17,6 +17,7 @@ import '../core/stroke_grouping.dart' show InkBox, levelPoint;
 import '../core/typed_text.dart' show convertedGroups;
 import '../core/writing_guide.dart';
 import '../settings/settings_controller.dart';
+import 'dark_pages.dart';
 
 /// One undoable change: a page's strokes before and after.
 class _InkEdit {
@@ -944,6 +945,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   @override
   Widget build(BuildContext context) {
     final pressure = SettingsScope.valueOf(context).pressureResponse;
+    final dark = darkPagesOf(context);
     final layer = RawGestureDetector(
       behavior: HitTestBehavior.translucent,
       gestures: {
@@ -970,6 +972,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
                 pressure: pressure,
                 cache: _picture,
                 showTyped: widget.showTyped,
+                dark: dark,
                 devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
               ),
             ),
@@ -987,9 +990,13 @@ class _PageInkLayerState extends State<PageInkLayer> {
                   guide: _guide,
                   geometry: widget.geometry,
                   viewWidth: widget.viewWidth,
-                  colorArgb: SettingsScope.valueOf(context)
-                      .writingGuide
-                      .colorArgb,
+                  colorArgb: () {
+                    final c = SettingsScope.valueOf(context)
+                        .writingGuide
+                        .colorArgb;
+                    // On a dark page, a faint light line instead.
+                    return dark && c != 0 ? nightArgb(c) : c;
+                  }(),
                 ),
               ),
             ),
@@ -1014,6 +1021,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
                 viewWidth: widget.viewWidth,
                 activeStyle: () => _style,
                 pressure: pressure,
+                dark: dark,
                 eraserAt: _eraserAt,
                 eraserRadius: () => _tools.eraserSize,
                 lassoing: () => _lassoing,
@@ -1244,9 +1252,13 @@ class _PageInkPainter extends CustomPainter {
     required this.cache,
     this.showTyped,
     this.devicePixelRatio = 1,
+    this.dark = false,
   }) : super(repaint: Listenable.merge([controller, ?showTyped, cache.ready]));
 
   final double devicePixelRatio;
+
+  /// Shown on a dark page (see darkPagesOf): colours turned round.
+  final bool dark;
 
   final ValueListenable<bool>? showTyped;
   final DocumentInkController controller;
@@ -1265,6 +1277,7 @@ class _PageInkPainter extends CustomPainter {
     final key = (
       strokes,
       typedShown,
+      dark,
       pressure,
       geometry.width,
       geometry.height,
@@ -1276,7 +1289,7 @@ class _PageInkPainter extends CustomPainter {
       // the page (never in the ready-made image).
       final pen = ui.PictureRecorder(), marker = ui.PictureRecorder();
       final penCanvas = Canvas(pen), markerCanvas = Canvas(marker);
-      final ink = _InkDrawer(geometry, viewWidth, pressure);
+      final ink = _InkDrawer(geometry, viewWidth, pressure, dark: dark);
       // Typed text shown instead of the ink of converted words.
       final typed = typedShown ? convertedGroups(strokes) : const <String>{};
       for (final s in strokes) {
@@ -1385,7 +1398,8 @@ class _PageInkPainter extends CustomPainter {
       old.pressure != pressure ||
       old.controller != controller ||
       old.cache != cache ||
-      old.devicePixelRatio != devicePixelRatio;
+      old.devicePixelRatio != devicePixelRatio ||
+      old.dark != dark;
 }
 
 /// What's being drawn right now: the stroke under the pen, the lasso, the
@@ -1401,7 +1415,10 @@ class _ActiveInkPainter extends CustomPainter {
     required this.eraserAt,
     required this.eraserRadius,
     this.lassoing,
+    this.dark = false,
   }) : super(repaint: Listenable.merge([active, eraserAt]));
+
+  final bool dark;
 
   final ValueNotifier<List<PageInkPoint>> active;
   final PageGeometry geometry;
@@ -1417,7 +1434,7 @@ class _ActiveInkPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final ink = _InkDrawer(geometry, viewWidth, pressure);
+    final ink = _InkDrawer(geometry, viewWidth, pressure, dark: dark);
     if (lassoing?.call() ?? false) {
       ink.drawLasso(canvas, active.value);
     } else {
@@ -1726,8 +1743,11 @@ final _widthStepLog = math.log(1.06);
 
 /// Draws strokes on a page laid out [viewWidth] pixels wide.
 class _InkDrawer {
-  _InkDrawer(this.geometry, this.viewWidth, this.pressure)
+  _InkDrawer(this.geometry, this.viewWidth, this.pressure, {this.dark = false})
     : scale = viewWidth / geometry.displayWidth;
+
+  /// Drawing on a dark page: ink colours turned round (see nightArgb).
+  final bool dark;
 
   final PageGeometry geometry;
   final double viewWidth;
@@ -1791,7 +1811,8 @@ class _InkDrawer {
       // readable underneath.
       final paint = Paint()
         ..color = Color(style.colorArgb).withValues(alpha: 0.4)
-        ..blendMode = BlendMode.multiply
+        // On a dark page, lightened instead (multiplied, it wouldn't show).
+        ..blendMode = dark ? BlendMode.screen : BlendMode.multiply
         ..strokeWidth = style.width * scale
         ..strokeCap = StrokeCap.butt
         ..strokeJoin = StrokeJoin.round
@@ -1810,7 +1831,7 @@ class _InkDrawer {
 
     // Pen: each segment's width follows the pen pressure.
     final paint = Paint()
-      ..color = Color(style.colorArgb)
+      ..color = Color(dark ? nightArgb(style.colorArgb) : style.colorArgb)
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke
       ..isAntiAlias = true;

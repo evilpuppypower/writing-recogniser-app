@@ -588,6 +588,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          ListTile(
+            title: const Text('Page colours'),
+            subtitle: const Text(
+              'Dark pages for reading at night: the page and your ink are '
+              'shown in reverse on screen. The PDF and exports are unchanged.',
+            ),
+            trailing: DropdownButton<PageColours>(
+              value: s.pageColours,
+              onChanged: (v) {
+                if (v != null) settings.update(s.copyWith(pageColours: v));
+              },
+              items: [
+                for (final c in PageColours.values)
+                  DropdownMenuItem(value: c, child: Text(c.label)),
+              ],
+            ),
+          ),
           const Divider(),
           const _Header('MyScript Cloud'),
           FutureBuilder(
