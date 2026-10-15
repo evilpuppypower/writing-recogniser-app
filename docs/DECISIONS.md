@@ -552,3 +552,5 @@ A new **Text** tool in the pen toolbar. Tap the page with the pen to type a text
 - It's never ink: never drawn as lines, never read as handwriting, never sent to the writing/drawing sorter.
 - It always shows on screen (it's not handwriting that "Show typed text" swaps), shows in thumbnails' place as nothing, and is found by search.
 - Exports always include it as visible text at its own size, one line each, whatever is chosen for the handwriting.
+- Its corners are measured from the text as drawn, so a tap anywhere on it edits it. Copies keep their text. Erasers take it only when they touch the box, and Thickness leaves it alone. Turning a selection moves it but keeps the text upright, and selecting it outlines its box. Its own size stays offered when editing.
+- Not yet on pages turned sideways (it says so).

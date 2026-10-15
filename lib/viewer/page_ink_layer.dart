@@ -666,6 +666,24 @@ class _PageInkLayerState extends State<PageInkLayer> {
         for (final s in _rotateFrom)
           turned == 0
               ? s
+              : s.isTextBox
+              // Text stays upright: its box moves with its corner.
+              ? () {
+                  final c = levelPoint(
+                    s.points.first,
+                    turned,
+                    _rotateAbout.x,
+                    _rotateAbout.y,
+                  );
+                  final dx = c.x - s.points.first.x;
+                  final dy = c.y - s.points.first.y;
+                  return s.copyWith(
+                    points: [
+                      for (final p in s.points)
+                        PageInkPoint(p.x + dx, p.y + dy, p.t, p.pressure),
+                    ],
+                  );
+                }()
               : s.copyWith(
                   points: [
                     for (final p in s.points)
@@ -1588,6 +1606,27 @@ class _SelectionPainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round;
     for (final s in controller.ink.strokesOn(pageNumber)) {
       if (s.points.isEmpty || !sel.ids.contains(s.id)) continue;
+      if (s.isTextBox) {
+        // A text box: its box, outlined.
+        final b = InkBox.of(s);
+        final r = geometry.rectToView(
+          PdfPageRect(
+            left: b.left,
+            bottom: b.bottom,
+            right: b.right,
+            top: b.top,
+          ),
+          viewWidth,
+        );
+        canvas.drawRect(
+          Rect.fromLTWH(r.left, r.top, r.width, r.height).inflate(2),
+          Paint()
+            ..color = const Color(0x661E88E5)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3,
+        );
+        continue;
+      }
       final path = Path();
       for (final (i, p) in s.points.indexed) {
         final v = geometry.toView(PdfPagePoint(p.x, p.y), viewWidth);

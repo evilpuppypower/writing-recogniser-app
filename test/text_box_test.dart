@@ -5,6 +5,7 @@ import 'package:writing_recogniser/core/ink_export_plan.dart';
 import 'package:writing_recogniser/core/page_coordinates.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/core/pen_tools.dart';
+import 'package:writing_recogniser/core/selection.dart';
 import 'package:writing_recogniser/core/stroke_grouping.dart';
 import 'package:writing_recogniser/core/typed_text.dart';
 import 'package:writing_recogniser/viewer/page_ink_layer.dart';
@@ -116,5 +117,52 @@ void main() {
     await tester.pumpAndSettle();
     expect(got?.text, 'Note');
     expect(got?.size, 12);
+  });
+
+  test('copies of a text box keep their text', () {
+    final copy = pastedCopies([box], 99000).single;
+    expect(copy.isTextBox, isTrue);
+    expect(copy.typedText, 'Hello\nthere');
+    expect(textBoxesForExport([copy]), hasLength(2));
+  });
+
+  test('an eraser just outside a big text box leaves it', () {
+    final big = textBox('Big', 100, 700, size: 32, colorArgb: 0, nowMs: 1);
+    final ink = DocumentInk()..add(1, big);
+    // 10 pt below the box, with a 3 pt eraser: outside.
+    final below = big.points.last.y - 10;
+    expect(ink.eraseArea(1, 110, below, 3), isFalse);
+    expect(ink.eraseAt(1, 110, below, 3), isEmpty);
+    expect(ink.strokesOn(1), hasLength(1));
+  });
+
+  test('Thickness leaves text boxes alone', () {
+    final ink = DocumentInk()..add(1, box);
+    expect(ink.scaleWidth(1, {box.id}, 2, (_) => (0.3, 24)), isFalse);
+    expect(ink.strokesOn(1).single.width, 10);
+  });
+
+  testWidgets('editing keeps a size that isn\'t in the list', (tester) async {
+    ({String text, double size})? got;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async => got = await showDialog(
+              context: context,
+              builder: (_) =>
+                  const TextBoxDialog(text: 'Note', size: 15.5, editing: true),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.text('15.5 pt'), findsOneWidget);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(got?.size, 15.5);
   });
 }

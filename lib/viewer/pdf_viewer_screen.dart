@@ -192,7 +192,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       mostlyConverted(w.key, convertedStrokeIds(_ink.ink.strokesOn(page)));
 
   bool get _hasTyped => _ink.ink.pagesWithInk.any(
-    (p) => _ink.ink.strokesOn(p).any((s) => s.typedText?.isNotEmpty ?? false),
+    (p) => _ink.ink
+        .strokesOn(p)
+        // Converted handwriting (not text boxes, which always show).
+        .any((s) => s.typedGroup != null && (s.typedText?.isNotEmpty ?? false)),
   );
 
   /// While typed text shows: what a tap at [at] on [page] does (edit the
@@ -910,6 +913,18 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// The Text tool tapped [at] on [page]: edit the text box there, or
   /// place a new one with its top-left corner there.
   Future<void> _textBoxAt(int page, PdfPagePoint at) async {
+    // Text is laid out along the page's own rows, which run up and down the
+    // screen on a page turned sideways: not there yet.
+    if (_geometryOf(_controller.document.pages[page - 1]).quarterTurns != 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Text boxes can't be added to pages turned sideways yet.",
+          ),
+        ),
+      );
+      return;
+    }
     PageStroke? existing;
     for (final s in _ink.ink.strokesOn(page).reversed) {
       if (s.isTextBox && s.distanceTo(at.x, at.y) <= 4) {
@@ -934,8 +949,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       }
       // Same first point time and point count, so the same id: the edit
       // is one change to the same box.
-      final (w, h) = textBoxSize(text, result.size);
-      final corner = existing.points.first;
+      final (w, h) = _measureText(text, result.size);
+      final corner = PageInkPoint(
+        math.min(existing.points.first.x, existing.points.last.x),
+        math.max(existing.points.first.y, existing.points.last.y),
+        existing.points.first.t,
+        existing.points.first.pressure,
+      );
       _ink.replaceStrokes(page, [
         PageStroke(
           points: [
@@ -958,9 +978,25 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           size: result.size,
           colorArgb: _tools.value.pen.colorArgb,
           nowMs: DateTime.now().millisecondsSinceEpoch,
+          measured: _measureText(result.text, result.size),
         ),
       ]);
     }
+  }
+
+  /// How much room [text] takes on the page at [size] points, measured as
+  /// it's drawn (so a tap anywhere on it finds the box).
+  (double, double) _measureText(String text, double size) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(fontSize: size, height: 1.25),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final measured = (painter.width, painter.height);
+    painter.dispose();
+    return measured;
   }
 
   /// The size new text boxes get (the last one chosen).
@@ -2847,9 +2883,10 @@ class TextBoxDialog extends StatefulWidget {
 
 class _TextBoxDialogState extends State<TextBoxDialog> {
   late final _field = TextEditingController(text: widget.text);
-  late double _size = TextBoxDialog.sizes.contains(widget.size)
-      ? widget.size
-      : 12;
+  late double _size = widget.size;
+
+  /// The sizes offered, with the box's own size (e.g. after resizing it).
+  late final _sizes = ({...TextBoxDialog.sizes, widget.size}.toList()..sort());
 
   @override
   void dispose() {
@@ -2880,8 +2917,13 @@ class _TextBoxDialogState extends State<TextBoxDialog> {
               value: _size,
               onChanged: (v) => setState(() => _size = v ?? _size),
               items: [
-                for (final s in TextBoxDialog.sizes)
-                  DropdownMenuItem(value: s, child: Text('${s.round()} pt')),
+                for (final s in _sizes)
+                  DropdownMenuItem(
+                    value: s,
+                    child: Text(
+                      '${s.toStringAsFixed(s == s.roundToDouble() ? 0 : 1)} pt',
+                    ),
+                  ),
               ],
             ),
           ],

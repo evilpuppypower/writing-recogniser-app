@@ -451,7 +451,8 @@ class DocumentInk {
     var changed = false;
     _pages[page] = [
       for (final s in strokesOn(page))
-        if (ids.contains(s.id))
+        // Not a text box: its "width" is its text size.
+        if (ids.contains(s.id) && !s.isTextBox)
           () {
             final (lo, hi) = limits(s.tool);
             final w = (s.width * factor).clamp(lo, hi);
@@ -542,7 +543,8 @@ class DocumentInk {
     final strokes = strokesOn(page);
     final removed = [
       for (final s in strokes)
-        if (s.distanceTo(x, y) <= radius + s.width / 2 &&
+        // A text box's "width" is its text size: only the box counts.
+        if (s.distanceTo(x, y) <= radius + (s.isTextBox ? 0 : s.width / 2) &&
             !(protect?.call(s) ?? false))
           s,
     ];
@@ -569,7 +571,7 @@ class DocumentInk {
     var changed = false;
     final next = <PageStroke>[];
     for (final s in strokes) {
-      final reach = radius + s.width / 2;
+      final reach = radius + (s.isTextBox ? 0 : s.width / 2);
       if (s.distanceTo(x, y) > reach || (protect?.call(s) ?? false)) {
         next.add(s);
         continue;
@@ -673,8 +675,9 @@ PageStroke textBox(
   required double size,
   required int colorArgb,
   required int nowMs,
+  (double, double)? measured,
 }) {
-  final (w, h) = textBoxSize(text, size);
+  final (w, h) = measured ?? textBoxSize(text, size);
   return PageStroke(
     points: [PageInkPoint(x, y, nowMs), PageInkPoint(x + w, y - h, nowMs + 1)],
     tool: InkTool.text,
