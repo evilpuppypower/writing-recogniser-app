@@ -100,6 +100,9 @@ void main() {
       200,
       scrollable: find.byType(Scrollable).first,
     );
+    // Fully on screen (not half under the edge) before tapping.
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
     await tester.tap(tile);
     await tester.pumpAndSettle();
     expect(settings.showSmoothnessGraphs, isTrue);

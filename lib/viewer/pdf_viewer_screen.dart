@@ -39,6 +39,7 @@ import '../storage/sqlite_document_store.dart';
 import '../storage/sqlite_event_log.dart';
 import '../storage/sqlite_ink_store.dart';
 import 'ink_text_controller.dart';
+import 'dark_pages.dart';
 import 'frame_recorder.dart';
 import 'label_fade.dart';
 import 'page_ink_layer.dart';
@@ -348,7 +349,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   List<({int page, double top, int? pdf, HandwritingHit? hand})> _hits =
       const [];
   int _hitAt = -1;
-  late final _pagePainters = [_paintSearch];
+  late final _pagePainters = [_paintDark, _paintSearch];
+
+  /// Pages shown dark (Settings, Page colours), as last built.
+  bool _dark = false;
+
+  void _paintDark(Canvas canvas, Rect pageRect, PdfPage page) {
+    if (_dark) paintDarkPage(canvas, pageRect);
+  }
 
   void _openSearch() {
     setState(() => _searchOpen = true);
@@ -2053,7 +2061,19 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(widget.title, overflow: TextOverflow.ellipsis),
+          title: Builder(
+            builder: (context) {
+              // Pages repainted when dark pages are turned on or off.
+              final dark = darkPagesOf(context);
+              if (dark != _dark) {
+                _dark = dark;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted && _controller.isReady) _controller.invalidate();
+                });
+              }
+              return Text(widget.title, overflow: TextOverflow.ellipsis);
+            },
+          ),
           bottom: _searchOpen ? _searchBar() : null,
           actions: [
             IconButton(

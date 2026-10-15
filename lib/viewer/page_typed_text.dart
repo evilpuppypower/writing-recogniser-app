@@ -7,6 +7,7 @@ import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/stroke_grouping.dart' show InkBox, Slant, levelPoint;
 import '../core/typed_text.dart';
+import 'dark_pages.dart';
 import 'page_ink_layer.dart' show DocumentInkController;
 
 /// Handwriting converted to typed text (task 2.3c), drawn where the ink is,
@@ -40,13 +41,18 @@ class _PageTypedTextState extends State<PageTypedText> {
   Widget? _built;
   Object? _builtFrom;
 
+  /// Shown on a dark page: the text's colour turned round.
+  bool _dark = false;
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: Listenable.merge([widget.controller, widget.showTyped]),
     builder: (context, _) {
       final strokes = widget.controller.ink.strokesOn(widget.pageNumber);
       final g = widget.geometry;
+      _dark = darkPagesOf(context);
       final from = (
+        _dark,
         widget.showTyped.value,
         strokes,
         (widget.viewWidth * 2).round(), // see PageTextLabels
@@ -98,7 +104,7 @@ class _PageTypedTextState extends State<PageTypedText> {
           softWrap: false,
           textScaler: TextScaler.noScaling,
           style: TextStyle(
-            color: Color(w.colorArgb),
+            color: Color(_dark ? nightArgb(w.colorArgb) : w.colorArgb),
             fontSize: shownFontSize(w.text, w.box, geometry) * scale,
             height: 1,
           ),
@@ -144,7 +150,7 @@ class _PageTypedTextState extends State<PageTypedText> {
               softWrap: false,
               textScaler: TextScaler.noScaling,
               style: TextStyle(
-                color: Color(w.colorArgb),
+                color: Color(_dark ? nightArgb(w.colorArgb) : w.colorArgb),
                 fontSize: w.fontSize * scale,
                 height: 1,
               ),

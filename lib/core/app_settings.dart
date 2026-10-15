@@ -93,6 +93,18 @@ enum WritingGuide {
   final int colorArgb;
 }
 
+/// How PDF pages look (owner's request, 2026-10-15): as printed, dark for
+/// reading at night, or dark only while the tablet is in dark mode. Only
+/// the screen changes: never the PDF or an export.
+enum PageColours {
+  light('As printed'),
+  dark('Dark'),
+  system('Dark when the tablet is');
+
+  const PageColours(this.label);
+  final String label;
+}
+
 /// "Also convert handwriting I haven't converted" at export (owner's
 /// choice 1b): remembered from the last export once it has been chosen.
 enum ExportConvertRest {
@@ -121,6 +133,7 @@ class AppSettings {
     this.textLabels = TextLabelPlace.above,
     this.textPanel = TextPanelPlace.off,
     this.writingGuide = WritingGuide.grey,
+    this.pageColours = PageColours.light,
     this.exportConvertRest = ExportConvertRest.auto,
   });
 
@@ -218,6 +231,9 @@ class AppSettings {
   /// The guide line under the line being written, or off.
   final WritingGuide writingGuide;
 
+  /// See [PageColours].
+  final PageColours pageColours;
+
   /// The export dialog's "Also convert" tick, as last chosen.
   final ExportConvertRest exportConvertRest;
 
@@ -239,6 +255,7 @@ class AppSettings {
     TextLabelPlace? textLabels,
     TextPanelPlace? textPanel,
     WritingGuide? writingGuide,
+    PageColours? pageColours,
     ExportConvertRest? exportConvertRest,
   }) => AppSettings(
     appColour: appColour ?? this.appColour,
@@ -272,6 +289,7 @@ class AppSettings {
     textLabels: textLabels ?? this.textLabels,
     textPanel: textPanel ?? this.textPanel,
     writingGuide: writingGuide ?? this.writingGuide,
+    pageColours: pageColours ?? this.pageColours,
     exportConvertRest: exportConvertRest ?? this.exportConvertRest,
   );
 
@@ -293,6 +311,7 @@ class AppSettings {
     'textLabels': textLabels.name,
     'textPanel': textPanel.name,
     'writingGuide': writingGuide.name,
+    'pageColours': pageColours.name,
     'exportConvertRest': exportConvertRest.name,
   };
 
@@ -369,6 +388,7 @@ class AppSettings {
         m['writingGuide'],
         d.writingGuide,
       ),
+      pageColours: byName(PageColours.values, m['pageColours'], d.pageColours),
       exportConvertRest: byName(
         ExportConvertRest.values,
         m['exportConvertRest'],
@@ -397,6 +417,7 @@ class AppSettings {
       other.textLabels == textLabels &&
       other.textPanel == textPanel &&
       other.writingGuide == writingGuide &&
+      other.pageColours == pageColours &&
       other.exportConvertRest == exportConvertRest;
 
   @override
@@ -418,6 +439,7 @@ class AppSettings {
     textLabels,
     textPanel,
     writingGuide,
+    pageColours,
     exportConvertRest,
   );
 }
