@@ -1375,6 +1375,29 @@ class _SelectionPainter extends CustomPainter {
     );
     if (rect == null) return;
     canvas.drawRect(rect, Paint()..color = const Color(0x141E88E5));
+    // The selected writing traced round: each selected stroke drawn again,
+    // wider, in pale blue under the ink (owner's request). Only the
+    // selected strokes, so it stays cheap.
+    final scale = viewWidth / geometry.displayWidth;
+    final halo = Paint()
+      ..color = const Color(0x661E88E5)
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    for (final s in controller.ink.strokesOn(pageNumber)) {
+      if (s.points.isEmpty || !sel.ids.contains(s.id)) continue;
+      final path = Path();
+      for (final (i, p) in s.points.indexed) {
+        final v = geometry.toView(PdfPagePoint(p.x, p.y), viewWidth);
+        if (i == 0) {
+          path.moveTo(v.x, v.y);
+        } else {
+          path.lineTo(v.x, v.y);
+        }
+      }
+      if (s.points.length == 1) path.relativeLineTo(0.1, 0);
+      canvas.drawPath(path, halo..strokeWidth = s.width * scale + 6);
+    }
     final path = [
       rect.topLeft,
       rect.topRight,
