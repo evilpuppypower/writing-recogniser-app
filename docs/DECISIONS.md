@@ -537,3 +537,10 @@ Settings → Page colours: "As printed" (the default), "Dark", or "Dark when the
 - **Ink and typed text:** shown with the same hue and the lightness turned round, so black ink shows white and dark blue shows light blue.
 - **Highlighter:** lightens instead of multiplying, so it still shows.
 - **Guide line:** shown faint and light.
+
+## 2026-10-15 — Contents and bookmarks (owner's choice: reading comforts)
+
+- **Bookmark button** in the viewer's title bar: marks or unmarks the page showing (filled when marked). Bookmarks are kept per PDF in the app's database (version 8 adds a `bookmarks` table), and are deleted with the PDF's stored copy.
+- **Contents button:** a sheet with the bookmarked pages, then the PDF's own contents list (chapters and sections, indented). Tap one to go to its page. A PDF without a contents list says so.
+
+Two-page view is still to come.

@@ -3,6 +3,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:writing_recogniser/core/ink_store.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/storage/app_database.dart';
+import 'package:writing_recogniser/storage/sqlite_bookmark_store.dart';
 import 'package:writing_recogniser/storage/sqlite_ink_store.dart';
 import 'package:writing_recogniser/viewer/page_ink_layer.dart';
 
@@ -154,6 +155,7 @@ void main() {
         );
         await SqliteInkStore(v7).savePage('doc', 1, [stroke(1)]);
         await v7.execute('DROP TABLE page_text');
+        await v7.execute('DROP TABLE bookmarks');
         await v7.setVersion(6);
         await v7.close();
         final upgraded = await AppDatabase.open(
@@ -164,6 +166,9 @@ void main() {
         expect((await s.load('doc')).strokesOn(1), hasLength(1));
         await s.saveText('doc', 1, '[]');
         expect(await s.loadText('doc'), {1: '[]'});
+        // And the bookmarks table (version 8).
+        await SqliteBookmarkStore(upgraded).set('doc', 2, on: true);
+        expect(await SqliteBookmarkStore(upgraded).pages('doc'), [2]);
         await upgraded.close();
         await databaseFactoryFfi.deleteDatabase(path);
       },

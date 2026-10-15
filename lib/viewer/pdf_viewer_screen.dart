@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../core/app_settings.dart';
+import '../core/bookmarks.dart';
 import '../core/document_state.dart';
 import '../core/feedback/correction_store.dart';
 import '../core/handwriting_search.dart';
@@ -34,11 +35,13 @@ import '../recognition/engines.dart';
 import '../recognition/myscript_ink_classifier.dart';
 import '../settings/settings_controller.dart';
 import '../storage/app_database.dart';
+import '../storage/sqlite_bookmark_store.dart';
 import '../storage/sqlite_correction_store.dart';
 import '../storage/sqlite_document_store.dart';
 import '../storage/sqlite_event_log.dart';
 import '../storage/sqlite_ink_store.dart';
 import 'ink_text_controller.dart';
+import 'contents_sheet.dart';
 import 'dark_pages.dart';
 import 'frame_recorder.dart';
 import 'label_fade.dart';
@@ -69,6 +72,7 @@ class PdfViewerScreen extends StatefulWidget {
     this.openCorrections = SqliteCorrectionStore.open,
     this.openStore = SqliteDocumentStore.open,
     this.openInkStore = SqliteInkStore.open,
+    this.openBookmarks = SqliteBookmarkStore.open,
     this.sourcePath,
     this.locateSource,
     this.exportPdf = exportPdfWithInk,
@@ -123,6 +127,9 @@ class PdfViewerScreen extends StatefulWidget {
 
   /// Where the ink is saved (the app database by default).
   final Future<InkStore> Function() openInkStore;
+
+  /// Where the PDF's bookmarks are kept (the app database by default).
+  final Future<BookmarkStore> Function() openBookmarks;
 
   /// The PDF file on the tablet; exporting is offered when it's known.
   final String? sourcePath;
@@ -350,6 +357,58 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       const [];
   int _hitAt = -1;
   late final _pagePainters = [_paintDark, _paintSearch];
+
+  // Bookmarks (owner's choice, 2026-10-15): the pages marked in this PDF.
+  BookmarkStore? _bookmarkStore;
+  List<int> _bookmarks = const [];
+
+  Future<void> _loadBookmarks() async {
+    try {
+      final store = await widget.openBookmarks();
+      final pages = await store.pages(widget.documentId);
+      if (!mounted) return;
+      setState(() {
+        _bookmarkStore = store;
+        _bookmarks = pages;
+      });
+    } catch (_) {
+      // Bookmarks just aren't kept this time.
+      _bookmarkStore = MemoryBookmarkStore();
+    }
+  }
+
+  Future<void> _toggleBookmark(int page) async {
+    final on = !_bookmarks.contains(page);
+    setState(
+      () => _bookmarks = on
+          ? ([..._bookmarks, page]..sort())
+          : [
+              for (final p in _bookmarks)
+                if (p != page) p,
+            ],
+    );
+    await _bookmarkStore?.set(widget.documentId, page, on: on);
+  }
+
+  /// "Contents": the PDF's own contents list (if it has one) and the
+  /// pages bookmarked, each going to its page.
+  Future<void> _showContents() async {
+    List<PdfOutlineNode> outline = const [];
+    try {
+      outline = await _controller.document.loadOutline();
+    } catch (_) {
+      // No contents list.
+    }
+    if (!mounted) return;
+    final page = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) =>
+          ContentsSheet(outline: outline, bookmarks: _bookmarks),
+    );
+    if (page != null) await _controller.goToPage(pageNumber: page);
+  }
 
   /// Pages shown dark (Settings, Page colours), as last built.
   bool _dark = false;
@@ -1572,6 +1631,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void initState() {
     super.initState();
     _frames.start();
+    unawaited(_loadBookmarks());
     // A selection belongs to the Select tool.
     _tools.addListener(() {
       if (_tools.value.mode != PenMode.lasso) _selection.value = null;
@@ -2076,6 +2136,26 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           ),
           bottom: _searchOpen ? _searchBar() : null,
           actions: [
+            ValueListenableBuilder(
+              valueListenable: _pageNumber,
+              builder: (context, page, _) {
+                final marked = page != null && _bookmarks.contains(page);
+                return IconButton(
+                  tooltip: marked
+                      ? 'Remove the bookmark on this page'
+                      : 'Bookmark this page',
+                  icon: Icon(marked ? Icons.bookmark : Icons.bookmark_border),
+                  onPressed: page == null || _pageCount == null
+                      ? null
+                      : () => _toggleBookmark(page),
+                );
+              },
+            ),
+            IconButton(
+              tooltip: 'Contents and bookmarks',
+              icon: const Icon(Icons.toc),
+              onPressed: _pageCount == null ? null : _showContents,
+            ),
             IconButton(
               tooltip: 'Search the PDF and your handwriting',
               icon: const Icon(Icons.search),

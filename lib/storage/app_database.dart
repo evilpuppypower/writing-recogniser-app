@@ -7,7 +7,7 @@ class AppDatabase {
   AppDatabase._();
 
   static const fileName = 'writing_recogniser.db';
-  static const version = 7;
+  static const version = 8;
 
   /// Opens (and creates or upgrades) the database. [factory] and [path] can
   /// be overridden for tests.
@@ -107,6 +107,17 @@ class AppDatabase {
           page INTEGER NOT NULL,       -- 1-based
           words TEXT NOT NULL,         -- JSON list of recognised words
           updated_at INTEGER NOT NULL, -- ms since epoch
+          PRIMARY KEY (document_id, page)
+        )
+      ''');
+    }
+    if (from < 8) {
+      // Pages the user bookmarked in each PDF (owner's choice, 2026-10-15).
+      await db.execute('''
+        CREATE TABLE bookmarks (
+          document_id TEXT NOT NULL,   -- library id (as in page_ink)
+          page INTEGER NOT NULL,       -- 1-based
+          created_at INTEGER NOT NULL, -- ms since epoch
           PRIMARY KEY (document_id, page)
         )
       ''');

@@ -68,6 +68,12 @@ class SqliteInkStore implements InkStore {
       where: 'document_id = ?',
       whereArgs: [documentId],
     );
+    // Its bookmarks go with it.
+    await _db.delete(
+      'bookmarks',
+      where: 'document_id = ?',
+      whereArgs: [documentId],
+    );
   }
 
   @override
