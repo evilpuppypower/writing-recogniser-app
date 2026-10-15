@@ -214,7 +214,9 @@ class _PageTextLabelsState extends State<PageTextLabels> {
             if (skip == null || !skip(w)) w,
         ];
         final settings = (
-          widget.viewWidth,
+          // Steps of half a pixel: the page's width wobbles by a hair as
+          // it's moved while zoomed, which shouldn't rebuild every label.
+          (widget.viewWidth * 2).round(),
           widget.above,
           widget.geometry.width,
           widget.geometry.height,

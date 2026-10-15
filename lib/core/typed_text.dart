@@ -85,7 +85,14 @@ class TypedLine {
 /// The converted words on a page, gathered into lines as the handwriting
 /// is (see [groupStrokes]: words far apart at the same height are separate
 /// lines), top first.
-List<TypedLine> typedLines(List<PageStroke> strokes) {
+List<TypedLine> typedLines(List<PageStroke> strokes) =>
+    _linesCache[strokes] ??= _typedLines(strokes);
+
+/// [typedLines] per stroke list (a page's list is replaced whenever it
+/// changes), so screens redrawn while scrolling don't group the page again.
+final _linesCache = Expando<List<TypedLine>>();
+
+List<TypedLine> _typedLines(List<PageStroke> strokes) {
   final words = typedWords(strokes);
   if (words.isEmpty) return const [];
   final ids = {for (final w in words) ...w.strokeIds};

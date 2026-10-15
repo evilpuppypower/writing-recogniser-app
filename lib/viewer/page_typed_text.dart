@@ -49,7 +49,7 @@ class _PageTypedTextState extends State<PageTypedText> {
       final from = (
         widget.showTyped.value,
         strokes,
-        widget.viewWidth,
+        (widget.viewWidth * 2).round(), // see PageTextLabels
         g.width,
         g.height,
         g.quarterTurns,

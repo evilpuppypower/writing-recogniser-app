@@ -498,3 +498,11 @@ The selection's box now has a second handle, at its bottom-left corner, marked w
 Scrolling the selection bar sideways wasn't obvious. The bar now shows the everyday actions: One word, Convert, Copy and Delete, a three-dot "More actions" menu, and Done. The menu holds Copy text, Colour, Thickness, Straighten, Duplicate, Cut, Share and Not writing.
 
 Besides the dotted box, each selected stroke is now traced round with a pale blue outline (the stroke drawn again a little wider). Only the selected strokes are drawn again, so it costs little.
+
+## 2026-10-15 — Faster scrolling with a lot of writing (owner's report)
+
+Scrolling over pages with more than about 10 words got laggy. The cause: each pen stroke was drawn as one short line per pair of points (thousands per page). The tablet's graphics engine redraws all of them on every frame while scrolling, so the cost grew with every word written. Now:
+- A page's finished ink is drawn once into a ready-made image of just the inked area, once the zoom has stayed the same for 0.2 s. Scrolling then draws one image, however much ink there is. While zooming, and for 0.2 s after a change, the ink is drawn as before, so it stays sharp. Images are capped at 4 million pixels; past that (zoomed far in on a heavily inked page) the ink is drawn as before.
+- Each stroke is drawn as a few paths (one per run of about the same width) instead of one line per segment.
+- Labels and typed text aren't rebuilt for sub-pixel wobbles in the page width while it's moved. Converted text's lines are worked out once per change of the ink, not on every redraw.
+The ink looks the same. The diagnostic report's drawing times show the difference.
