@@ -11,6 +11,7 @@ import 'package:pdfrx/pdfrx.dart';
 import '../core/app_settings.dart';
 import '../core/document_state.dart';
 import '../core/feedback/correction_store.dart';
+import '../core/handwriting_search.dart';
 import '../core/ink_export_plan.dart' show ExportWord;
 import '../core/ink_classifier.dart';
 import '../core/event_log.dart';
@@ -328,6 +329,146 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// Strokes copied with the selection bar's Copy, for Paste.
   List<PageStroke>? _clipboard;
+
+  // Search (owner's choice, 2026-10-15): the PDF's own text (pdfrx finds
+  // it) and the handwriting read on its pages, in one list of matches.
+  bool _searchOpen = false;
+  final _searchField = TextEditingController();
+  // Made when search is first opened (the PDF is loaded by then).
+  PdfTextSearcher? _searcherMade;
+  PdfTextSearcher get _searcher =>
+      _searcherMade ??= PdfTextSearcher(_controller)..addListener(_searchFound);
+  List<HandwritingHit> _handHits = const [];
+  List<({int page, double top, int? pdf, HandwritingHit? hand})> _hits =
+      const [];
+  int _hitAt = -1;
+  late final _pagePainters = [_paintSearch];
+
+  void _openSearch() => setState(() => _searchOpen = true);
+
+  void _closeSearch() {
+    _searcher.resetTextSearch();
+    _searchField.clear();
+    setState(() {
+      _searchOpen = false;
+      _handHits = const [];
+      _hits = const [];
+      _hitAt = -1;
+    });
+    _controller.invalidate();
+  }
+
+  void _search(String query) {
+    final q = query.trim();
+    if (q.isEmpty) {
+      _searcher.resetTextSearch();
+    } else {
+      _searcher.startTextSearch(
+        q,
+        caseInsensitive: true,
+        goToFirstMatch: false,
+      );
+    }
+    _handHits = q.isEmpty ? const [] : searchHandwriting(_searchWords(), q);
+    _hitAt = -1;
+    _searchFound();
+  }
+
+  /// The handwriting to search: converted lines by their typed text (as
+  /// edited), the rest by the words read.
+  List<SearchWord> _searchWords() {
+    final out = <SearchWord>[];
+    for (var page = 1; page <= (_pageCount ?? 0); page++) {
+      final strokes = _ink.ink.strokesOn(page);
+      final converted = convertedStrokeIds(strokes);
+      final lineOf = <String, int>{};
+      for (final w in _text.wordsOn(page)) {
+        for (final id in w.key.split(',')) {
+          lineOf[id] = w.line;
+        }
+        if (w.key.split(',').any(converted.contains)) continue;
+        out.add((page: page, line: w.line, box: w.box, text: w.text));
+      }
+      for (final t in typedLines(strokes)) {
+        final line = t.words
+            .expand((w) => w.strokeIds)
+            .map((id) => lineOf[id])
+            .whereType<int>()
+            .fold(1 << 20, math.min);
+        out.add((page: page, line: line, box: t.box, text: t.text));
+      }
+    }
+    return out;
+  }
+
+  /// PDF and handwriting matches together, page by page, top first.
+  void _searchFound() {
+    if (!mounted) return;
+    final hits =
+        [
+          for (final (i, m) in _searcher.matches.indexed)
+            (page: m.pageNumber, top: m.bounds.top, pdf: i, hand: null),
+          for (final h in _handHits)
+            (page: h.page, top: h.box.top, pdf: null, hand: h),
+        ]..sort(
+          (a, b) => a.page != b.page
+              ? a.page.compareTo(b.page)
+              : b.top.compareTo(a.top),
+        );
+    setState(() {
+      _hits = hits;
+      if (_hitAt >= hits.length) _hitAt = hits.length - 1;
+    });
+    _controller.invalidate();
+  }
+
+  Future<void> _goToHit(int step) async {
+    if (_hits.isEmpty) return;
+    setState(() => _hitAt = (_hitAt + step) % _hits.length);
+    final hit = _hits[_hitAt];
+    final pdf = hit.pdf;
+    final hand = hit.hand;
+    if (pdf != null) {
+      await _searcher.goToMatchOfIndex(pdf);
+    } else if (hand != null) {
+      await _controller.ensureVisible(
+        _controller.calcRectForRectInsidePage(
+          pageNumber: hand.page,
+          rect: PdfRect(
+            hand.box.left,
+            hand.box.top,
+            hand.box.right,
+            hand.box.bottom,
+          ),
+        ),
+        margin: 50,
+      );
+    }
+    _controller.invalidate();
+  }
+
+  /// Highlights handwriting matches (yellow; the current one orange), and
+  /// the PDF's (pdfrx draws those).
+  void _paintSearch(Canvas canvas, Rect pageRect, PdfPage page) {
+    if (!_searchOpen) return;
+    _searcher.pageTextMatchPaintCallback(canvas, pageRect, page);
+    final current = _hitAt >= 0 && _hitAt < _hits.length
+        ? _hits[_hitAt].hand
+        : null;
+    for (final h in _handHits) {
+      if (h.page != page.pageNumber) continue;
+      final r = PdfRect(h.box.left, h.box.top, h.box.right, h.box.bottom)
+          .toRect(page: page, scaledPageSize: pageRect.size)
+          .translate(pageRect.left, pageRect.top);
+      canvas.drawRect(
+        r.inflate(2),
+        Paint()
+          ..color = identical(h, current)
+              ? const Color(0x80FF9800)
+              : const Color(0x80FFEB3B),
+      );
+    }
+  }
 
   /// A loop was drawn with the Select tool on [page]: select what's inside.
   void _lassoDrawn(int page, List<PageInkPoint> loop) {
@@ -935,6 +1076,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       enableSelectionHandles: true,
     ),
     pageOverlaysBuilder: _buildPageOverlays,
+    pagePaintCallbacks: _pagePainters,
     viewerOverlayBuilder: (context, size, handleLinkTap) => [
       PdfViewerScrollThumb(
         controller: _controller,
@@ -1235,6 +1377,70 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       ),
     ),
   ];
+
+  /// The search box under the title bar: what to find, how many matches,
+  /// and buttons to step through them.
+  PreferredSizeWidget _searchBar() => PreferredSize(
+    preferredSize: const Size.fromHeight(52),
+    child: ListenableBuilder(
+      listenable: _searcher,
+      builder: (context, _) {
+        final searching = _searcher.isSearching;
+        final count = _hits.isEmpty
+            ? (_searchField.text.trim().isEmpty
+                  ? ''
+                  : (searching ? 'Searching…' : 'No matches'))
+            : '${_hitAt < 0 ? '–' : _hitAt + 1} of ${_hits.length}';
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 4, 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchField,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  decoration: const InputDecoration(
+                    hintText: 'Search the text and your handwriting',
+                    isDense: true,
+                    prefixIcon: Icon(Icons.search),
+                  ),
+                  onChanged: _search,
+                  onSubmitted: (_) => _goToHit(1),
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (searching)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(count),
+              ),
+              IconButton(
+                tooltip: 'Previous match',
+                icon: const Icon(Icons.keyboard_arrow_up),
+                onPressed: _hits.isEmpty ? null : () => _goToHit(-1),
+              ),
+              IconButton(
+                tooltip: 'Next match',
+                icon: const Icon(Icons.keyboard_arrow_down),
+                onPressed: _hits.isEmpty ? null : () => _goToHit(1),
+              ),
+              IconButton(
+                tooltip: 'Close search',
+                icon: const Icon(Icons.close),
+                onPressed: _closeSearch,
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
 
   Future<void> _askForPage() async {
     final pages = _pageCount;
@@ -1760,6 +1966,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   @override
   void dispose() {
+    _searcherMade?.dispose();
+    _searchField.dispose();
     _frames.stop();
     _textSaver?.flush(); // takes the text now, before it's thrown away
     _textSaver?.dispose();
@@ -1799,7 +2007,16 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(widget.title, overflow: TextOverflow.ellipsis),
+          bottom: _searchOpen ? _searchBar() : null,
           actions: [
+            IconButton(
+              tooltip: 'Search the PDF and your handwriting',
+              icon: const Icon(Icons.search),
+              // Once the PDF is open (its text can't be searched before).
+              onPressed: _pageCount == null
+                  ? null
+                  : (_searchOpen ? _closeSearch : _openSearch),
+            ),
             ListenableBuilder(
               listenable: _ink,
               builder: (context, _) => Row(

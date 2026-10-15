@@ -519,3 +519,13 @@ The owner found words often read as gibberish because our rules cut one word int
 - "One word" marks still win: if MyScript splits strokes the user marked as one word, those pieces are joined.
 
 There are fewer engine calls overall (one per line, not one per word), and each line takes a little longer, as the owner accepted. If MyScript can't do this for a line, that line is read word by word as before, and isn't sent whole again that session until it changes. That covers: no boxes in its answer (the app then stops asking), boxes that don't fit the ink even after fitting their overall extent onto it, an unsound answer, or an older build. Words already read whose strokes MyScript groups the same way are kept as they were, so corrections survive. Pages read word by word before this change are read once more by whole line, unless a word on the line was corrected. ML Kit and MyScript cloud still read word by word. Engines opt in through a separate LineRecognizer interface, so the Recognizer interface (CLAUDE.md rule 1) is unchanged. A learned word-finding model may come later, if lines themselves are found wrongly.
+
+There are fewer engine calls overall (one per line, not one per word), and each line takes a little longer, as the owner accepted. If MyScript can't do this for a line (no boxes in its answer, or an older build), that line is read word by word as before. ML Kit and MyScript cloud still read word by word. Engines opt in through a separate LineRecognizer interface, so the Recognizer interface (CLAUDE.md rule 1) is unchanged. A learned word-finding model may come later, if lines themselves are found wrongly.
+
+## 2026-10-15 — Search (owner's choice)
+
+A search button in the viewer's title bar opens a search box under it. One search covers:
+- the PDF's own text, found by pdfrx's text searcher (it searches page by page in the background, with a spinner meanwhile);
+- the handwriting read on every page: the words read, or for converted writing its typed text as edited.
+
+Matches are listed together, page by page and top first. "n of m" shows where you are, with up and down buttons; Enter goes to the next match. PDF matches are highlighted by pdfrx; handwriting matches get a yellow box, and the current one is orange. Searches ignore case and extra spaces, find part of a word, and can run across words. The button works once the PDF has opened. Nothing leaves the tablet.
