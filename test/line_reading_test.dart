@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/ink.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
@@ -179,6 +181,119 @@ void main() {
     final more = [...page, letter(170, 700, 9000)];
     expect(groupStrokes(more, hints: hints).single.words, hasLength(2));
   });
+
+  testWidgets('a corrected word survives its line being read again', (
+    tester,
+  ) async {
+    final engine = _SplitEngine();
+    final c = InkTextController(engine: engine);
+    final page = spaced(100, 2, 0);
+    c.inkChanged(1, page, pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    await c.correct(1, c.wordsOn(1).first, 'hello');
+    c.inkChanged(1, [...page, letter(128, 700, 9000)], pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    expect(c.wordsOn(1).map((w) => w.text), ['hello', 'b', 'c']);
+    expect(c.wordsOn(1).first.corrected, isTrue);
+    c.dispose();
+  });
+
+  testWidgets('a page read word by word before is read once more by line', (
+    tester,
+  ) async {
+    final engine = FakeLineEngine();
+    final c = InkTextController(engine: engine);
+    final page = spaced(100, 4, 0);
+    // Saved by an older version: pieces read one by one.
+    final pieces = groupStrokes(page).single.words;
+    c.restore(
+      1,
+      jsonEncode({
+        'seen': [for (final s in page) s.id],
+        'words': [
+          for (final w in pieces)
+            RecognizedWord(
+              text: 'gib',
+              alternatives: const [],
+              box: w.box,
+              line: 0,
+              key: [for (final i in w.strokes) page[i].id].join(','),
+            ).toJson(),
+        ],
+      }),
+    );
+    c.inkChanged(1, page, pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    expect(engine.lineCalls, hasLength(1));
+    expect(c.wordsOn(1).map((w) => w.text), ['line4']);
+    // And only once.
+    c.inkChanged(1, [...page], pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    expect(engine.lineCalls, hasLength(1));
+    c.dispose();
+  });
+
+  testWidgets('an unsound answer is ignored: words are read one by one', (
+    tester,
+  ) async {
+    final engine = _BrokenEngine();
+    final c = InkTextController(engine: engine);
+    c.inkChanged(1, spaced(100, 3, 0, step: 7), pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    expect(engine.wordCalls, hasLength(1));
+    expect(c.wordsOn(1).map((w) => w.text), ['w3']);
+    c.dispose();
+  });
+
+  test('boxes in other units are fitted onto the ink', () {
+    const strokes = [
+      InkStroke([InkPoint(0, 0, 0), InkPoint(10, 20, 1)]),
+      InkStroke([InkPoint(60, 0, 4), InkPoint(80, 20, 5)]),
+    ];
+    // Boxes ten times too big, and moved: still matched by position.
+    final words = jiixLineWords(
+      {
+        'words': [
+          {
+            'label': 'a',
+            'bounding-box': {'x': 500, 'y': 500, 'width': 50, 'height': 100},
+          },
+          {
+            'label': 'b',
+            'bounding-box': {'x': 800, 'y': 500, 'width': 100, 'height': 100},
+          },
+        ],
+      },
+      strokes,
+      mmPerX: 0.5,
+      mmPerY: 0.5,
+    )!;
+    expect(words.map((w) => w.strokes), [
+      [0],
+      [1],
+    ]);
+  });
+}
+
+/// Answers with a word that has no strokes and one with a stroke that
+/// isn't there.
+class _BrokenEngine extends FakeLineEngine {
+  @override
+  Future<List<LineWord>?> recognizeLine(
+    List<InkStroke> strokes,
+    RecognitionContext context,
+  ) async {
+    lineCalls.add(strokes);
+    return [
+      const LineWord(['x'], []),
+      const LineWord(['y'], [0, 99]),
+    ];
+  }
 }
 
 /// Splits a line into one word per stroke, reading them "a", "b", ...

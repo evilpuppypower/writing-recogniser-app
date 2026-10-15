@@ -86,6 +86,7 @@ RecognitionPlan planRecognition(
   bool Function(int index)? include,
   bool Function(String key, InkWord word)? reread,
   Map<String, String>? hints,
+  bool Function(List<String> keys)? lineNeedsReading,
 }) {
   final lines = groupStrokes(
     strokes,
@@ -103,21 +104,30 @@ RecognitionPlan planRecognition(
   for (var l = 0; l < lines.length; l++) {
     final lineStart = before.toString();
     var lineQueued = false;
+    void queueLine() {
+      if (lineQueued) return;
+      lineQueued = true;
+      lineJobs.add(
+        LineJob(
+          line: l,
+          preContext: cut(lineStart),
+          letterHeight: lines[l].letterHeight,
+        ),
+      );
+    }
+
+    if (lineNeedsReading?.call([
+          for (final w in lines[l].words) wordKey(strokes, w),
+        ]) ??
+        false) {
+      queueLine();
+    }
     for (final w in lines[l].words) {
       final key = wordKey(strokes, w);
       keys.add(key);
       final text = (reread?.call(key, w) ?? false) ? null : known[key];
       if (text == null) {
-        if (!lineQueued) {
-          lineQueued = true;
-          lineJobs.add(
-            LineJob(
-              line: l,
-              preContext: cut(lineStart),
-              letterHeight: lines[l].letterHeight,
-            ),
-          );
-        }
+        queueLine();
         final ctx = before.toString();
         jobs.add(
           RecognitionJob(

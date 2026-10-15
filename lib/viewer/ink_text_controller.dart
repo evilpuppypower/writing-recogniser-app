@@ -31,7 +31,12 @@ class RecognizedWord {
     this.ink = const [],
     this.engineReadings,
     this.slant,
+    this.byLine = false,
   });
+
+  /// Found by an engine reading its whole line (so its strokes are the
+  /// engine's word, kept as it split them).
+  final bool byLine;
 
   final String text;
 
@@ -87,6 +92,7 @@ class RecognizedWord {
     if (previousWord.isNotEmpty) 'prev': previousWord,
     'ink': [for (final s in ink) s.toJson()],
     'readings': ?engineReadings,
+    if (byLine) 'byLine': true,
     if (slant case final s?)
       'slant': [
         s.angle,
@@ -119,6 +125,7 @@ class RecognizedWord {
         final List r => [for (final x in r) '$x'],
         _ => null,
       },
+      byLine: j['byLine'] == true,
       slant: switch (j['slant']) {
         final List v when v.length == 7 => () {
           final n = [for (final x in v) (x as num).toDouble()];
@@ -155,6 +162,7 @@ class RecognizedWord {
     ink: ink,
     engineReadings: engineReadings,
     slant: identical(slant, _keep) ? this.slant : slant as Slant?,
+    byLine: byLine,
   );
 }
 
@@ -333,6 +341,10 @@ class InkTextController extends ChangeNotifier {
   /// Engines expect writing about the size it is on screen: the typical
   /// letter is scaled to this many pixels.
   static const engineLetterPixels = 50.0;
+
+  /// Lines (their word keys) an engine couldn't read whole this session,
+  /// so they aren't sent whole again until they change.
+  final _lineFailed = <String>{};
 
   final _words = <int, Map<String, RecognizedWord>>{};
   final _timers = <int, Timer>{};
@@ -530,7 +542,18 @@ class InkTextController extends ChangeNotifier {
             ? null
             : {
                 for (final w in words.values)
-                  for (final id in w.key.split(',')) id: w.key,
+                  if (w.byLine)
+                    for (final id in w.key.split(',')) id: w.key,
+              },
+        // Lines read word by word before (e.g. by an older version) are
+        // read once more as a whole, unless the user corrected a word on
+        // them.
+        lineNeedsReading: lineEngine == null
+            ? null
+            : (keys) {
+                if (_lineFailed.contains(keys.join('|'))) return false;
+                final ws = [for (final k in keys) ?words[k]];
+                return ws.any((w) => !w.byLine) && !ws.any((w) => w.corrected);
               },
         include: (i) =>
             !strokes[i].notWriting &&
@@ -597,18 +620,36 @@ class InkTextController extends ChangeNotifier {
           continue;
         }
         if (_disposed) return;
-        if (got == null || got.isEmpty) continue;
+        // Only sound answers: every word with a reading and strokes of
+        // this line, and every stroke in one word.
+        final usable = [
+          for (final g in got ?? const <LineWord>[])
+            if (g.candidates.any((c) => c.trim().isNotEmpty) &&
+                g.strokes.isNotEmpty &&
+                g.strokes.every((k) => k >= 0 && k < all.strokes.length))
+              g,
+        ];
+        final covered = {for (final g in usable) ...g.strokes};
+        if (usable.isEmpty || covered.length != all.strokes.length) {
+          // Not this way (this session): its words are read one by one.
+          _lineFailed.add(
+            [for (final w in line.words) wordKey(strokes, w)].join('|'),
+          );
+          continue;
+        }
         final found = _withManualWords(strokes, [
-          for (final g in got)
+          for (final g in usable)
             (
-              readings: g.candidates,
-              strokes: [for (final k in g.strokes) all.strokes[k]],
+              readings: [
+                for (final c in g.candidates)
+                  if (c.trim().isNotEmpty) c.trim(),
+              ],
+              strokes: [for (final k in g.strokes.toSet()) all.strokes[k]],
             ),
         ]);
-        // The line's old words go; the words the engine found come in.
-        final lineIds = {for (final k in all.strokes) strokes[k].id};
-        words.removeWhere((key, _) => key.split(',').any(lineIds.contains));
         final slant = all.slant;
+        final lineIds = {for (final k in all.strokes) strokes[k].id};
+        final keep = <String>{};
         for (final f in found) {
           final w = wordOfStrokes(
             strokes,
@@ -617,17 +658,35 @@ class InkTextController extends ChangeNotifier {
                 ? null
                 : (angle: slant.angle, cx: slant.cx, cy: slant.cy),
           );
+          final key = wordKey(strokes, w);
+          keep.add(key);
+          final old = words[key];
+          if (old != null) {
+            // The same strokes as a word already read (perhaps corrected
+            // by the user): it stays as it is, now marked as the engine's.
+            words[key] = RecognizedWord.fromJson({
+              ...old.toJson(),
+              'byLine': true,
+            }).copyWith(line: job.line, box: w.box, slant: w.slant);
+            continue;
+          }
           _keep(
             page,
             words,
-            key: wordKey(strokes, w),
+            key: key,
             word: w,
             line: job.line,
             engineTexts: f.readings,
             ink: wordInk(strokes, w, scale: scale),
             sent: sent,
+            byLine: true,
           );
         }
+        // The line's other old words go.
+        words.removeWhere(
+          (key, _) =>
+              !keep.contains(key) && key.split(',').any(lineIds.contains),
+        );
         readLines.add(job.line);
         dirty = true;
       }
@@ -698,6 +757,7 @@ class InkTextController extends ChangeNotifier {
     required List<String> engineTexts,
     required List<InkStroke> ink,
     required int sent,
+    bool byLine = false,
   }) {
     final previous = _lastWord(_textBefore(words, line, word.box.left));
     final fed = feedback.apply([
@@ -716,6 +776,7 @@ class InkTextController extends ChangeNotifier {
       autoReplaced: fed.autoReplaced,
       previousWord: previous,
       ink: ink,
+      byLine: byLine,
     );
     problem = null;
     _notify();

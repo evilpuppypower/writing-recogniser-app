@@ -23,6 +23,7 @@ class MyScriptOfflineRecognizer implements Recognizer, LineRecognizer {
   /// boxes to strokes; null from older builds (lines are then read word by
   /// word).
   double? mmPerX, mmPerY;
+  bool _noBoxes = false;
 
   @override
   String get name => 'MyScript offline';
@@ -87,16 +88,28 @@ class MyScriptOfflineRecognizer implements Recognizer, LineRecognizer {
     RecognitionContext context,
   ) async {
     final sx = mmPerX, sy = mmPerY;
-    if (strokes.isEmpty || sx == null || sy == null) return null;
+    if (strokes.isEmpty || sx == null || sy == null || _noBoxes) return null;
     try {
       final jiix = await channel.invokeMethod<String>('recognize', {
         'strokes': encodeStrokesFlat(strokes),
       });
       if (jiix == null || jiix.isEmpty) return null;
       final decoded = jsonDecode(jiix);
-      return decoded is Map<String, Object?>
-          ? jiixLineWords(decoded, strokes, mmPerX: sx, mmPerY: sy)
-          : null;
+      if (decoded is! Map<String, Object?>) return null;
+      // An engine whose answers have no word boxes never will: stop asking
+      // (lines are then read word by word, with no extra call).
+      final words = decoded['words'];
+      if (words is List &&
+          words.any(
+            (w) =>
+                w is Map &&
+                '${w['label'] ?? ''}'.trim().isNotEmpty &&
+                w['bounding-box'] == null,
+          )) {
+        _noBoxes = true;
+        return null;
+      }
+      return jiixLineWords(decoded, strokes, mmPerX: sx, mmPerY: sy);
     } on PlatformException catch (e) {
       throw RecognitionException(e.message ?? 'MyScript offline failed.');
     } on FormatException {

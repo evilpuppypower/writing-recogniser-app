@@ -63,7 +63,63 @@ List<LineWord>? jiixLineWords(
     ));
   }
   if (words.isEmpty) return null;
+  final of = _assign(words, strokes, mmPerX, mmPerY);
+  if (of != null) return _lineWords(words, of);
+  // The boxes don't sit on the ink as expected (other units or origin):
+  // fit the boxes' overall extent onto the ink's, as the writing/drawing
+  // sorting does, and try once more; else give up (read word by word).
+  final ink = _extent([
+    for (final s in strokes)
+      for (final p in s.points) (p.x * mmPerX, p.y * mmPerY),
+  ]);
+  final boxes = _extent([
+    for (final w in words) ...[(w.l, w.t), (w.r, w.b)],
+  ]);
+  if (ink == null || boxes == null) return null;
+  double fx(double v) =>
+      boxes.w <= 0 ? ink.l : ink.l + (v - boxes.l) * ink.w / boxes.w;
+  double fy(double v) =>
+      boxes.h <= 0 ? ink.t : ink.t + (v - boxes.t) * ink.h / boxes.h;
+  final fitted = [
+    for (final w in words)
+      (readings: w.readings, l: fx(w.l), t: fy(w.t), r: fx(w.r), b: fy(w.b)),
+  ];
+  final again = _assign(fitted, strokes, mmPerX, mmPerY);
+  return again == null ? null : _lineWords(fitted, again);
+}
+
+typedef _Box = ({
+  List<String> readings,
+  double l,
+  double t,
+  double r,
+  double b,
+});
+
+List<LineWord> _lineWords(List<_Box> words, List<List<int>> of) => [
+  for (var k = 0; k < words.length; k++)
+    if (of[k].isNotEmpty) LineWord(words[k].readings, of[k]),
+];
+
+({double l, double t, double w, double h})? _extent(
+  List<(double, double)> points,
+) {
+  if (points.isEmpty) return null;
+  final xs = points.map((p) => p.$1), ys = points.map((p) => p.$2);
+  final l = xs.reduce(math.min), t = ys.reduce(math.min);
+  return (l: l, t: t, w: xs.reduce(math.max) - l, h: ys.reduce(math.max) - t);
+}
+
+/// Each stroke's word (the box it overlaps most, or the nearest); null if
+/// fewer than 4 in 5 strokes overlap any box (the boxes don't fit the ink).
+List<List<int>>? _assign(
+  List<_Box> words,
+  List<InkStroke> strokes,
+  double mmPerX,
+  double mmPerY,
+) {
   final of = List.generate(words.length, (_) => <int>[]);
+  var overlapping = 0, counted = 0;
   for (var i = 0; i < strokes.length; i++) {
     final pts = strokes[i].points;
     if (pts.isEmpty) continue;
@@ -75,6 +131,7 @@ List<LineWord>? jiixLineWords(
       t = math.min(t, p.y * mmPerY);
       b = math.max(b, p.y * mmPerY);
     }
+    counted++;
     var best = -1;
     var bestScore = -double.infinity;
     for (var k = 0; k < words.length; k++) {
@@ -94,10 +151,9 @@ List<LineWord>? jiixLineWords(
         best = k;
       }
     }
+    if (bestScore > 0) overlapping++;
     of[best].add(i);
   }
-  return [
-    for (var k = 0; k < words.length; k++)
-      if (of[k].isNotEmpty) LineWord(words[k].readings, of[k]),
-  ];
+  if (counted == 0 || overlapping * 5 < counted * 4) return null;
+  return of;
 }
