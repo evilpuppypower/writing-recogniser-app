@@ -543,4 +543,4 @@ Settings → Page colours: "As printed" (the default), "Dark", or "Dark when the
 - **Bookmark button** in the viewer's title bar: marks or unmarks the page showing (filled when marked). Bookmarks are kept per PDF in the app's database (version 8 adds a `bookmarks` table), and are deleted with the PDF's stored copy.
 - **Contents button:** a sheet with the bookmarked pages, then the PDF's own contents list (chapters and sections, indented). Tap one to go to its page. A PDF without a contents list says so.
 
-Two-page view is still to come.
+**Two-page view:** a title-bar button switches between one page under another and pages side by side in pairs (1 and 2, 3 and 4, ...), each row centred. The choice is remembered (Settings: `twoPages`), and switching keeps you on the same page. To make the switch work on an open PDF, the app now lays out pages itself in both modes. One page under another looks as before: pages centred, 8-point gaps.

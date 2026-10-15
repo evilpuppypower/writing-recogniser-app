@@ -53,6 +53,7 @@ import 'page_typed_text.dart';
 import 'pen_toolbar.dart';
 import 'pen_tools_controller.dart';
 import 'text_panel.dart';
+import 'two_page_layout.dart';
 
 /// The PDF viewer (task 1.1): scroll and zoom with fingers, page number and
 /// "Go to page", a draggable scroll tab, and it reopens each PDF on the page
@@ -412,6 +413,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// Pages shown dark (Settings, Page colours), as last built.
   bool _dark = false;
+
+  /// Pages side by side in pairs (two-page view), as last built.
+  bool _twoPages = false;
 
   void _paintDark(Canvas canvas, Rect pageRect, PdfPage page) {
     if (_dark) paintDarkPage(canvas, pageRect);
@@ -1186,6 +1190,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     ),
     pageOverlaysBuilder: _buildPageOverlays,
     pagePaintCallbacks: _pagePainters,
+    // Read each time pages are laid out, so the two-page switch works on
+    // the open viewer.
+    layoutPages: (pages, params) =>
+        pageLayout(pages, params, twoPages: _twoPages),
     viewerOverlayBuilder: (context, size, handleLinkTap) => [
       PdfViewerScrollThumb(
         controller: _controller,
@@ -2125,10 +2133,22 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             builder: (context) {
               // Pages repainted when dark pages are turned on or off.
               final dark = darkPagesOf(context);
-              if (dark != _dark) {
+              final twoPages = SettingsScope.valueOf(context).twoPages;
+              if (dark != _dark || twoPages != _twoPages) {
+                final relayout = twoPages != _twoPages;
                 _dark = dark;
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted && _controller.isReady) _controller.invalidate();
+                _twoPages = twoPages;
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  if (!mounted || !_controller.isReady) return;
+                  final page = _pageNumber.value;
+                  _controller.invalidate();
+                  // Laid out again: back to the page that was showing.
+                  if (relayout && page != null) {
+                    await _controller.goToPage(
+                      pageNumber: page,
+                      duration: Duration.zero,
+                    );
+                  }
                 });
               }
               return Text(widget.title, overflow: TextOverflow.ellipsis);
@@ -2148,6 +2168,25 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   onPressed: page == null || _pageCount == null
                       ? null
                       : () => _toggleBookmark(page),
+                );
+              },
+            ),
+            Builder(
+              builder: (context) {
+                final settings = context
+                    .dependOnInheritedWidgetOfExactType<SettingsScope>()
+                    ?.notifier;
+                if (settings == null) return const SizedBox.shrink();
+                final two = settings.value.twoPages;
+                return IconButton(
+                  tooltip: two
+                      ? 'Show one page at a time'
+                      : 'Show two pages side by side',
+                  icon: Icon(
+                    two ? Icons.chrome_reader_mode : Icons.auto_stories,
+                  ),
+                  onPressed: () =>
+                      settings.update(settings.value.copyWith(twoPages: !two)),
                 );
               },
             ),
