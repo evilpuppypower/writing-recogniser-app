@@ -2,6 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/feedback/correction.dart';
 import 'package:writing_recogniser/core/feedback/feedback_layer.dart';
 import 'package:writing_recogniser/core/feedback/personal_words.dart';
+import 'package:writing_recogniser/core/feedback/vocabulary.dart';
+
+import 'dart:convert';
+
 import 'package:writing_recogniser/core/recognition/recognizer.dart';
 
 List<Candidate> read(List<String> texts) => [
@@ -90,6 +94,21 @@ void main() {
     // The earlier correction swaps it (as before).
     expect(apply(p, ['clog', 'dig']).text, 'dog');
     expect(p.usesOf('dog'), 1);
+  });
+
+  test('the vocabulary leaves out words the user didn\'t write or keep', () {
+    final page = jsonEncode({
+      'words': [
+        {'text': 'basalt', 'prev': 'the'},
+        {'text': 'fox', 'corrected': true}, // counted with its correction
+        {'text': 'gneiss', 'auto': true}, // the app's choice
+        {'text': 'w3', 'unsure': true}, // maybe misread, never confirmed
+        {'text': ' '},
+      ],
+    });
+    expect(vocabularyFromPages([page, 'not json']), [
+      (word: 'basalt', previous: 'the'),
+    ]);
   });
 
   test('nothing to work with: unchanged', () {

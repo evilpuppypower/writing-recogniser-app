@@ -9,6 +9,7 @@ import '../core/feedback/correction.dart';
 import '../core/feedback/correction_store.dart';
 import '../core/feedback/feedback_layer.dart';
 import '../core/feedback/personal_words.dart';
+import '../core/feedback/vocabulary.dart';
 import '../core/ink.dart';
 import '../core/ink_classifier.dart';
 import '../core/page_ink.dart';
@@ -205,20 +206,27 @@ class InkTextController extends ChangeNotifier {
 
   /// Teaches the feedback layer the user's vocabulary: every word kept on
   /// their pages ([pages]: saved page text, as [pageJson] makes it), in
-  /// every PDF. Call once when a PDF opens.
-  void loadVocabulary(Iterable<String> pages) {
-    for (final json in pages) {
-      try {
-        final saved = (jsonDecode(json) as Map).cast<String, Object?>();
-        for (final w in saved['words']! as List) {
-          final word = RecognizedWord.fromJson(
-            (w as Map).cast<String, Object?>(),
-          );
-          feedback.used(word.text, previousWord: word.previousWord);
-        }
-      } catch (_) {
-        // A page that can't be read just doesn't count.
-      }
+  /// every PDF (see [vocabularyFromPages]).
+  void loadVocabulary(Iterable<String> pages) =>
+      _useVocabulary(vocabularyFromPages(pages.toList()));
+
+  /// As [loadVocabulary], with the words still being read (away from the
+  /// screen's thread): new writing is read once they're in, so it gets the
+  /// user's words from the start.
+  void loadVocabularyLater(Future<List<UsedWord>> words) {
+    final loading = words.then(_useVocabulary, onError: (_) {});
+    _vocabulary = loading;
+    loading.whenComplete(() {
+      if (identical(_vocabulary, loading)) _vocabulary = null;
+    });
+  }
+
+  /// The vocabulary still being read (null once it's in, or if none is).
+  Future<void>? _vocabulary;
+
+  void _useVocabulary(List<UsedWord> words) {
+    for (final w in words) {
+      feedback.used(w.word, previousWord: w.previous);
     }
   }
 
@@ -550,6 +558,11 @@ class InkTextController extends ChangeNotifier {
       }
     }
     if (!await _isReady() || _disposed) return;
+    final vocabulary = _vocabulary;
+    if (vocabulary != null) {
+      await vocabulary;
+      if (_disposed) return;
+    }
     _running.add(page);
     var dirty = false;
     var complete = true; // every word was read (none failed)

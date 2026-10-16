@@ -7,6 +7,7 @@ import 'package:writing_recogniser/core/page_coordinates.dart';
 import 'package:writing_recogniser/core/event_log.dart';
 import 'package:writing_recogniser/core/feedback/correction.dart';
 import 'package:writing_recogniser/core/feedback/correction_store.dart';
+import 'package:writing_recogniser/core/feedback/vocabulary.dart';
 import 'package:writing_recogniser/core/ink.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/core/recognition/recognizer.dart';
@@ -413,6 +414,21 @@ void main() {
       await tester.pump(pause);
       await tester.pumpAndSettle();
       expect(c.wordsOn(2).single.text, 'w3');
+      c.dispose();
+    });
+
+    testWidgets('writing waits for the vocabulary, so it gets the user\'s '
+        'words from the start', (tester) async {
+      final c = InkTextController(engine: FakeEngine());
+      final words = Completer<List<UsedWord>>();
+      c.loadVocabularyLater(words.future);
+      c.inkChanged(1, word(100, 700, 3, 0), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      expect(c.wordsOn(1), isEmpty); // still reading the vocabulary
+      words.complete([for (var i = 0; i < 3; i++) (word: 'alt', previous: '')]);
+      await tester.pumpAndSettle();
+      expect(c.wordsOn(1).single.text, 'alt');
       c.dispose();
     });
 
