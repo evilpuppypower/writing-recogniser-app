@@ -113,11 +113,20 @@ class PdfViewerScreen extends StatefulWidget {
     this.saveFile = saveFileAs,
     this.shareFile = shareFileVia,
     this.reopenedForPages = false,
+    this.openAtPage,
+    this.openWithSearch,
   });
 
   /// Opened again after its pages changed: the opening-time message
   /// isn't shown.
   final bool reopenedForPages;
+
+  /// Opened from the home screen's search: at this page (where it's
+  /// shown), instead of where it was left.
+  final int? openAtPage;
+
+  /// Opened from the home screen's search: this is searched for.
+  final String? openWithSearch;
 
   final String title;
 
@@ -2624,7 +2633,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           ? widget.viewerBuilder(
               _controller,
               _viewerParams(),
-              saved?.lastPage ?? 1,
+              widget.openAtPage ?? saved?.lastPage ?? 1,
             )
           : PdfViewer(
               PdfDocumentRefByLoader(
@@ -2635,7 +2644,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               ),
               controller: _controller,
               params: _viewerParams(),
-              initialPageNumber: saved?.lastPage ?? 1,
+              initialPageNumber: widget.openAtPage ?? saved?.lastPage ?? 1,
             );
     });
   }
@@ -2684,12 +2693,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final pages = document.pages.length;
     setState(() => _pageCount = pages);
     _readyMs ??= DateTime.now().difference(_tappedAt).inMilliseconds;
-    final resume = _saved?.resumePageFor(pages) ?? 1;
+    final target = widget.openAtPage?.clamp(1, pages);
+    final resume = target ?? _saved?.resumePageFor(pages) ?? 1;
     _resumePage = resume;
     await _viewLoaded;
     // Where it was and how zoomed in, unless its pages just changed (then
-    // the page it was told to open on).
+    // the page it was told to open on) or search opened it at a page.
     final placed =
+        target == null &&
         !widget.reopenedForPages &&
         mounted &&
         await _restoreView(controller).catchError((_) => false);
@@ -2697,7 +2708,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       await controller.goToPage(pageNumber: resume, duration: Duration.zero);
     }
     _restored = true;
-    if (!mounted || resume <= 1 || widget.reopenedForPages) return;
+    final query = widget.openWithSearch?.trim() ?? '';
+    if (mounted && query.isNotEmpty) {
+      _openSearch();
+      _searchField.text = query;
+      _search(query);
+    }
+    if (!mounted || resume <= 1 || widget.reopenedForPages || target != null) {
+      return;
+    }
     // The timing message says where it continued from; if the first page is
     // slow to draw, say so now instead.
     _resumeNoteTimer = Timer(const Duration(seconds: 3), () {
