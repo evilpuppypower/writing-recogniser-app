@@ -722,3 +722,9 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 
 - Settings → "Tidy up shapes" turns it on or off (on by default). Holding the pen still at the end of a line still straightens it either way.
 - When a tidied shape is undone or erased within 20 s, shapes of that kind must be closer to a neat shape than that one was before they're tidied again. That's 90% of how far off it was, never stricter than 1.5% of its size on average (usually 5%). Each tidied shape that's kept brings it a tenth of the way back. What it learned is kept on the tablet between sessions.
+
+## 2026-10-16 — Your writing: usual size and slant, learned and editable (owner)
+
+- The app learns the user's usual letter height and the usual slant of their lines from finished lines of at least 3 words, within 30° of level. Each line counts once, however often its page is read. The values move 5% of the way per line, faster at first.
+- **Used for:** reading a page's first few words (until it has 12 written strokes, the usual size is used instead of measuring the page), and spacing "Lined to fit your writing" in a document with no writing yet. The slant is learned and shown for now; the writing box will use it next.
+- **Settings → Your writing** shows both and lets the user change them. Learning carries on from what's set, which counts like 20 lines so the next line doesn't sweep it away. "Start learning again" forgets both. A PDF open while the values are changed in Settings doesn't save over them.

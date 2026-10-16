@@ -30,6 +30,7 @@ import '../core/ink_store.dart';
 import '../core/nearby_classifier.dart';
 import '../core/personal_ink_kinds.dart';
 import '../core/shape_learning.dart';
+import '../core/writing_profile.dart';
 import '../core/shapes.dart' show ShapeKind;
 import '../core/blank_pdf.dart';
 import '../core/laid_out_stores.dart';
@@ -961,7 +962,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         for (final line in groupStrokes(_ink.ink.strokesOn(page)))
           line.letterHeight,
     ];
-    final letter = typicalLineLetter(heights);
+    final letter = typicalLineLetter(heights) ?? _profile.letterHeight;
     if (letter != null) {
       final gap = lineGapFor(letter);
       try {
@@ -1526,6 +1527,57 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// What this user draws and writes, learned from their marks (owner's
   /// approved idea 7); kept on the tablet as shape numbers only.
   final _inkKinds = PersonalInkKinds();
+
+  /// The user's usual letter size and slant (owner's approved idea 6),
+  /// learned from finished lines; editable in Settings.
+  final _profile = WritingProfile();
+  final _profileSeen = <String>{};
+  var _profileChanged = false;
+
+  Future<void> _loadProfile() async {
+    try {
+      final raw = await SharedPreferencesAsync().getString(
+        WritingProfile.prefsKey,
+      );
+      if (raw != null) _profile.load(jsonDecode(raw));
+    } catch (_) {}
+    _text.usualLetter = _profile.letterHeight;
+    _text.onLines = (strokes, lines) {
+      final before = _profile.lines;
+      _profile.learnNew(strokes, lines, _profileSeen);
+      if (_profile.lines != before) {
+        _profileChanged = true;
+        _text.usualLetter = _profile.letterHeight;
+      }
+    };
+  }
+
+  void _saveProfile() {
+    if (!_profileChanged) return;
+    _profileChanged = false;
+    try {
+      unawaited(
+        () async {
+          // Settings may have changed it since this PDF opened: what's set
+          // there wins, and these lines are learned on top.
+          final prefs = SharedPreferencesAsync();
+          final saved = WritingProfile();
+          final raw = await prefs.getString(WritingProfile.prefsKey);
+          if (raw != null) saved.load(jsonDecode(raw));
+          if (saved.setAt != _profile.setAt) {
+            // Set in Settings meanwhile: that's what's kept, and used here.
+            _profile.load(saved.toJson());
+            _text.usualLetter = _profile.letterHeight;
+            return;
+          }
+          await prefs.setString(
+            WritingProfile.prefsKey,
+            jsonEncode(_profile.toJson()),
+          );
+        }().catchError((_) {}),
+      );
+    } catch (_) {}
+  }
 
   /// How exact a shape must be before it's tidied (owner's approved idea
   /// 8), learned from tidied shapes taken back straight away.
@@ -2288,6 +2340,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   void _flushSaves() {
     _saveView();
+    _saveProfile();
     _autosaver?.flush();
     _textSaver?.flush();
     _saveRhythm();
@@ -2884,6 +2937,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _bookmarksLoaded = _loadBookmarks();
     unawaited(_loadInkKinds());
     unawaited(_loadShapeLearning());
+    unawaited(_loadProfile());
     _ink.addListener(_checkTidiedShape);
     _text.printedText = _printedOf;
     _coloursLoaded = _loadColours();

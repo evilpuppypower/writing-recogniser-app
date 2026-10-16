@@ -659,6 +659,7 @@ class InkTextController extends ChangeNotifier {
         strokes,
         known,
         printed: printed,
+        params: GroupingParams(usualLetter: usualLetter),
         // With an engine that reads whole lines, its words stay as it split
         // them (each word's key lists its strokes).
         hints: lineEngine == null
@@ -692,6 +693,7 @@ class InkTextController extends ChangeNotifier {
         },
       );
       final before = words.length;
+      onLines?.call(strokes, plan.lines);
       words.removeWhere((key, _) => !plan.keys.contains(key));
       // Lines can be renumbered when a line is added above.
       for (var l = 0; l < plan.lines.length; l++) {
@@ -891,6 +893,14 @@ class InkTextController extends ChangeNotifier {
   /// Told how long each read took after a pause (sizes and times only),
   /// for the diagnostic report.
   void Function(Map<String, Object?> timings)? onRead;
+
+  /// The lines of handwriting found on a page each time it's read (to
+  /// learn the user's usual size and slant, see WritingProfile).
+  void Function(List<PageStroke> strokes, List<InkLine> lines)? onLines;
+
+  /// The user's usual letter height in points, for pages with little
+  /// writing yet (see GroupingParams.usualLetter).
+  double? usualLetter;
 
   /// Keeps what the engine read for [word] (after the feedback layer,
   /// task 2.6, re-ranks or swaps it using the user's corrections), and logs
