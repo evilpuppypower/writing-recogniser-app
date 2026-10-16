@@ -16,6 +16,8 @@ import '../core/bookmarks.dart';
 import 'page_colours_dialog.dart';
 import 'arrange_pages_screen.dart';
 import 'pages_sheet.dart';
+import 'writing_box_panel.dart';
+import '../core/writing_box.dart';
 import 'paper_painter.dart';
 import '../storage/sqlite_document_colours_store.dart';
 import '../core/document_colours.dart';
@@ -1528,6 +1530,84 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// approved idea 7); kept on the tablet as shape numbers only.
   final _inkKinds = PersonalInkKinds();
 
+  /// The writing box's place (owner's approved idea 12), or null when
+  /// it's closed.
+  final _writingBox = ValueNotifier<WritingBoxTarget?>(null);
+
+  /// The strip's height / width, as last laid out.
+  double _boxAspect = 0.3;
+
+  void _toggleWritingBox() {
+    if (_writingBox.value != null) {
+      _writingBox.value = null;
+      return;
+    }
+    _writingBox.value = WritingBoxTarget(
+      page: _pageNumber.value ?? 1,
+      left: 0.05,
+      top: 0.1,
+      width: 0.45,
+    );
+  }
+
+  Widget _writingBoxPanel(WritingBoxTarget t) {
+    if (!_controller.isReady ||
+        t.page < 1 ||
+        t.page > _controller.document.pages.length) {
+      return const SizedBox.shrink();
+    }
+    final page = _controller.document.pages[t.page - 1];
+    final g = _geometryOf(page);
+    return LayoutBuilder(
+      builder: (context, box) {
+        if (box.maxWidth > 0 && box.maxHeight > 48) {
+          _boxAspect = (box.maxHeight - 48) / box.maxWidth;
+        }
+        return ListenableBuilder(
+          listenable: Listenable.merge([_ink, _tools]),
+          builder: (context, _) => WritingBoxPanel(
+            document: _controller.document,
+            page: page,
+            geometry: g,
+            ink: _ink.ink.strokesOn(t.page),
+            target: t,
+            style: _tools.value.current,
+            dark: _dark,
+            decorate: switch (_layout) {
+              final layout? when t.page <= layout.length =>
+                (child) => PaperOver(
+                  page: layout.at(t.page),
+                  dark: _dark,
+                  child: child,
+                ),
+              _ => null,
+            },
+            onStroke: (stroke, right) {
+              _ink.add(t.page, stroke);
+              final now = _writingBox.value;
+              if (now == null) return;
+              final h = now.heightFor(
+                _boxAspect,
+                g.displayHeight / g.displayWidth,
+              );
+              _writingBox.value = now
+                  .follow(right, height: h)
+                  .overflow(height: h, pageCount: _pageCount ?? t.page);
+            },
+            onMove: (next) => _writingBox.value = next.overflow(
+              height: next.heightFor(
+                _boxAspect,
+                g.displayHeight / g.displayWidth,
+              ),
+              pageCount: _pageCount ?? t.page,
+            ),
+            onClose: () => _writingBox.value = null,
+          ),
+        );
+      },
+    );
+  }
+
   /// The user's usual letter size and slant (owner's approved idea 6),
   /// learned from finished lines; editable in Settings.
   final _profile = WritingProfile();
@@ -2597,6 +2677,32 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     Rect pageRect,
     PdfPage page,
   ) => [
+    // Where the writing box writes, on its page.
+    Positioned.fill(
+      child: IgnorePointer(
+        child: ValueListenableBuilder(
+          valueListenable: _writingBox,
+          builder: (context, t, _) {
+            if (t == null || t.page != page.pageNumber) {
+              return const SizedBox.shrink();
+            }
+            final g = _geometryOf(page);
+            final h = t.heightFor(_boxAspect, g.displayHeight / g.displayWidth);
+            return CustomPaint(
+              painter: _BoxGuide(
+                Rect.fromLTWH(
+                  t.left * pageRect.width,
+                  t.top * pageRect.height,
+                  t.width * pageRect.width,
+                  h * pageRect.height,
+                ),
+                Theme.of(context).colorScheme.primary,
+              ),
+            );
+          },
+        ),
+      ),
+    ),
     // A ribbon on a bookmarked page, so it shows which of two pages side
     // by side is marked. Never takes a touch.
     Positioned(
@@ -3463,6 +3569,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _savePosition();
     _saveView();
     _docSettings?.dispose();
+    _writingBox.dispose();
     _lastTidied?.keep.cancel();
     _ink.removeListener(_checkTidiedShape);
     _lifecycle.dispose();
@@ -3614,6 +3721,19 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                 icon: const Icon(Icons.grid_view),
                 onPressed: _pageCount == null ? null : _showPages,
               ),
+              if ((_docSettings?.value ?? SettingsScope.valueOf(context))
+                  .writingBoxButton)
+                ValueListenableBuilder(
+                  valueListenable: _writingBox,
+                  builder: (context, t, _) => IconButton(
+                    tooltip: t == null
+                        ? 'Writing box: write large, ink lands small'
+                        : 'Close the writing box',
+                    isSelected: t != null,
+                    icon: const Icon(Icons.zoom_in_map),
+                    onPressed: _pageCount == null ? null : _toggleWritingBox,
+                  ),
+                ),
               if (widget.sourcePath != null)
                 IconButton(
                   tooltip: 'Add a blank page after this one',
@@ -3762,6 +3882,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                       onCancel: _cancelOpening,
                     ),
                 Positioned.fill(child: FavouritesBar(controller: _tools)),
+                // The writing box, along the bottom (owner's approved idea
+                // 12).
+                ValueListenableBuilder(
+                  valueListenable: _writingBox,
+                  builder: (context, t, _) => t == null
+                      ? const SizedBox.shrink()
+                      : Align(
+                          alignment: Alignment.bottomCenter,
+                          child: FractionallySizedBox(
+                            heightFactor: 0.34,
+                            widthFactor: 1,
+                            child: _writingBoxPanel(t),
+                          ),
+                        ),
+                ),
                 // Shown only while saved ink is still loading.
                 ValueListenableBuilder(
                   valueListenable: _inkLoaded,
@@ -4239,4 +4374,32 @@ class _TextBoxDialogState extends State<TextBoxDialog> {
       ),
     ],
   );
+}
+
+/// The writing box's outline on its page.
+class _BoxGuide extends CustomPainter {
+  _BoxGuide(this.rect, this.colour);
+
+  final Rect rect;
+  final Color colour;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..color = colour.withValues(alpha: 0.08)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..color = colour.withValues(alpha: 0.7)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_BoxGuide old) => old.rect != rect || old.colour != colour;
 }

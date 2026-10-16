@@ -552,6 +552,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           SwitchListTile(
+            title: const Text('Writing box button'),
+            subtitle: const Text(
+              'A button in the PDF\'s toolbar that opens a strip along the '
+              'bottom: write large there, and the ink lands small on the '
+              'page, moving along as you write.',
+            ),
+            value: s.writingBoxButton,
+            onChanged: (v) => settings.update(s.copyWith(writingBoxButton: v)),
+          ),
+          SwitchListTile(
             title: const Text('Tidy up shapes'),
             subtitle: const Text(
               'Hold the pen still at the end of a circle, rectangle or '

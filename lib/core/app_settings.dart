@@ -132,6 +132,7 @@ class AppSettings {
     this.keepInkOnDelete = true,
     this.twoPages = false,
     this.tidyShapes = true,
+    this.writingBoxButton = true,
     this.textLabels = TextLabelPlace.above,
     this.textPanel = TextPanelPlace.off,
     this.writingGuide = WritingGuide.grey,
@@ -236,6 +237,10 @@ class AppSettings {
   /// ellipse, rectangle or triangle (owner: a switch in Settings).
   final bool tidyShapes;
 
+  /// The writing box's button in the PDF's toolbar (owner: users choose
+  /// whether they want it).
+  final bool writingBoxButton;
+
   /// Recognised text over the handwriting: above, below or off.
   final TextLabelPlace textLabels;
 
@@ -287,6 +292,7 @@ class AppSettings {
     bool? keepInkOnDelete,
     bool? twoPages,
     bool? tidyShapes,
+    bool? writingBoxButton,
     TextLabelPlace? textLabels,
     TextPanelPlace? textPanel,
     WritingGuide? writingGuide,
@@ -327,6 +333,7 @@ class AppSettings {
     keepInkOnDelete: keepInkOnDelete ?? this.keepInkOnDelete,
     twoPages: twoPages ?? this.twoPages,
     tidyShapes: tidyShapes ?? this.tidyShapes,
+    writingBoxButton: writingBoxButton ?? this.writingBoxButton,
     textLabels: textLabels ?? this.textLabels,
     textPanel: textPanel ?? this.textPanel,
     writingGuide: writingGuide ?? this.writingGuide,
@@ -355,6 +362,7 @@ class AppSettings {
     'keepInkOnDelete': keepInkOnDelete,
     'twoPages': twoPages,
     'tidyShapes': tidyShapes,
+    'writingBoxButton': writingBoxButton,
     'textLabels': textLabels.name,
     'textPanel': textPanel.name,
     'writingGuide': writingGuide.name,
@@ -391,6 +399,7 @@ class AppSettings {
     final keepInk = m['keepInkOnDelete'];
     final twoPages = m['twoPages'];
     final tidyShapes = m['tidyShapes'];
+    final writingBoxButton = m['writingBoxButton'];
     final askPageColours = m['askPageColours'];
     final askWhenUnsure = m['askWhenUnsure'];
     final autoPause = m['autoPause'];
@@ -440,6 +449,9 @@ class AppSettings {
       keepInkOnDelete: keepInk is bool ? keepInk : d.keepInkOnDelete,
       twoPages: twoPages is bool ? twoPages : d.twoPages,
       tidyShapes: tidyShapes is bool ? tidyShapes : d.tidyShapes,
+      writingBoxButton: writingBoxButton is bool
+          ? writingBoxButton
+          : d.writingBoxButton,
       textLabels: byName(TextLabelPlace.values, m['textLabels'], d.textLabels),
       textPanel: byName(TextPanelPlace.values, m['textPanel'], d.textPanel),
       writingGuide: byName(
@@ -483,6 +495,7 @@ class AppSettings {
       other.keepInkOnDelete == keepInkOnDelete &&
       other.twoPages == twoPages &&
       other.tidyShapes == tidyShapes &&
+      other.writingBoxButton == writingBoxButton &&
       other.textLabels == textLabels &&
       other.textPanel == textPanel &&
       other.writingGuide == writingGuide &&
@@ -511,6 +524,7 @@ class AppSettings {
     keepInkOnDelete,
     twoPages,
     tidyShapes,
+    writingBoxButton,
     textLabels,
     textPanel,
     writingGuide,

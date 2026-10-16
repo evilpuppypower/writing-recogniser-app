@@ -728,3 +728,10 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - The app learns the user's usual letter height and the usual slant of their lines from finished lines of at least 3 words, within 30° of level. Each line counts once, however often its page is read. The values move 5% of the way per line, faster at first.
 - **Used for:** reading a page's first few words (until it has 12 written strokes, the usual size is used instead of measuring the page), and spacing "Lined to fit your writing" in a document with no writing yet. The slant is learned and shown for now; the writing box will use it next.
 - **Settings → Your writing** shows both and lets the user change them. Learning carries on from what's set, which counts like 20 lines so the next line doesn't sweep it away. "Start learning again" forgets both. A PDF open while the values are changed in Settings doesn't save over them.
+
+## 2026-10-16 — The writing box (owner's approved idea 12; owner: a toolbar button, with a switch for whether it's wanted)
+
+- A toolbar button ("Writing box") opens a strip along the bottom third of the screen. It shows part of the page large, with its ink and paper. Writing there with the pen or highlighter lands on the page small, where an outline shows. It's handy when zoomed out, or for neat small writing.
+- It moves along like a typewriter. When the writing reaches the strip's last fifth, the box moves half its width to the right. At the end of a line it goes to the start of the next, and past the foot of a page onto the next page. Buttons move it back, along, up, down or to the next line, and close it.
+- What's written there is ordinary ink: saved, read and undone like the rest.
+- Settings → "Writing box button" hides the button for users who don't want it (shown by default).
