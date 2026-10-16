@@ -111,6 +111,24 @@ void main() {
     ]);
   });
 
+  test('asks about a new word when the engine had another in mind', () {
+    final p = PersonalWords();
+    expect(apply(p, ['gneiss', 'guess']).unsure, isTrue);
+    // Only capitals or punctuation differ: not really another word.
+    expect(apply(p, ['dog', 'Dog', 'dog,']).unsure, isFalse);
+    // Nothing else offered.
+    expect(apply(p, ['gneiss']).unsure, isFalse);
+    // A word the user writes: trusted.
+    p.used('gneiss');
+    expect(apply(p, ['gneiss', 'guess']).unsure, isFalse);
+    // Swapped to one of their words: underlined, not asked about.
+    for (var i = 0; i < 3; i++) {
+      p.used('basalt');
+    }
+    final r = apply(p, ['basel', 'basalt']);
+    expect((r.text, r.unsure, r.fromYourWords), ('basalt', false, true));
+  });
+
   test('nothing to work with: unchanged', () {
     final p = PersonalWords();
     expect(apply(p, []).candidates, isEmpty);

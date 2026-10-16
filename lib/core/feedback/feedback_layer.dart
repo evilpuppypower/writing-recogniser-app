@@ -14,13 +14,26 @@ class FeedbackContext {
 }
 
 class FeedbackResult {
-  const FeedbackResult(this.candidates, {this.autoReplaced = false});
+  const FeedbackResult(
+    this.candidates, {
+    this.autoReplaced = false,
+    this.fromYourWords = false,
+    this.unsure = false,
+  });
 
   /// Candidates after re-ranking, best first.
   final List<Candidate> candidates;
 
   /// The top word was swapped automatically (shown underlined, undoable).
   final bool autoReplaced;
+
+  /// Swapped to a word the user often writes (not from a correction).
+  final bool fromYourWords;
+
+  /// Worth asking the user about (owner's approved idea 3): a word they've
+  /// never written, read where the engine had a different word in mind
+  /// too.
+  final bool unsure;
 
   String get text => candidates.isEmpty ? '' : candidates.first.text;
 }

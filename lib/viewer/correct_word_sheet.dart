@@ -13,6 +13,11 @@ class UseText extends WordFix {
   final String text;
 }
 
+/// The word was read right (it was shown with a "?").
+class LooksRight extends WordFix {
+  const LooksRight();
+}
+
 /// The ink isn't writing (a drawing, a tick); stop reading it.
 class NotWriting extends WordFix {
   const NotWriting();
@@ -75,11 +80,28 @@ class _CorrectWordSheetState extends State<_CorrectWordSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Read as “${w.text}”', style: theme.textTheme.titleMedium),
+          if (w.unsure && !w.corrected) ...[
+            const SizedBox(height: 4),
+            Text(
+              "Not sure about this one. If it's right, say so: it won't ask "
+              'about this word again.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            FilledButton.tonalIcon(
+              icon: const Icon(Icons.check),
+              label: Text("It's right: “${w.text}”"),
+              onPressed: () => Navigator.pop(context, const LooksRight()),
+            ),
+          ],
           if (w.autoReplaced) ...[
             const SizedBox(height: 4),
             Text(
-              'Changed automatically from “${w.engineReading}” because you '
-              'corrected it before.',
+              w.fromYourWords
+                  ? 'Changed automatically from “${w.engineReading}” because '
+                        "it's a word you often write."
+                  : 'Changed automatically from “${w.engineReading}” because '
+                        'you corrected it before.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 8),

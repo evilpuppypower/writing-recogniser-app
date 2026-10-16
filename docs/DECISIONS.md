@@ -604,3 +604,18 @@ A new feedback layer, `PersonalWords`, sits on top of the correction memory. It 
 - **What counts as a word the user writes:** a word kept on their pages, minus the ones they corrected (their corrections count once, on their own), the ones swapped automatically, and the ones the app wasn't sure of and the user never confirmed (they may be misread).
 - **No waiting at open:** the vocabulary is read away from the screen's thread, and only each word's text is read, not its ink. New writing is read once the vocabulary is in, so it gets the user's words from the start.
 - The thresholds (3 uses, the engine's top 3) are a starting point. The replay on the learning screen can measure them on the owner's own samples.
+
+## 2026-10-16 — Ask when unsure: a "?" on words that may be misread (owner's approved idea 3)
+
+MyScript gives no confidence score, so doubt is judged from what the app knows. A word gets a "?" on its label when all three hold:
+- it's a word the user has never written, and
+- the engine also offered a really different word (not just capitals or punctuation), and
+- it wasn't swapped automatically.
+
+**Tapping the "?"** (one tap; double-tap still works on any label) opens the correction pop-up. It has a new **"It's right"** button, and choosing any reading or typing one also ends the asking.
+- **"It's right"** makes the word one the user writes, so it isn't asked about again and it helps re-ranking. It's logged as an accept (rule 5).
+- **Correcting** is learned as before.
+
+The "?" is saved with the page. Settings, under Recognised text, has **"Ask about words it isn't sure of"** to turn it off.
+
+The correction pop-up now says why a word was swapped: an earlier correction, or a word the user often writes.

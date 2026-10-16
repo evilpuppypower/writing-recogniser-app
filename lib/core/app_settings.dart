@@ -136,6 +136,7 @@ class AppSettings {
     this.writingGuide = WritingGuide.grey,
     this.pageColours = PageColours.light,
     this.askPageColours = true,
+    this.askWhenUnsure = true,
     this.exportConvertRest = ExportConvertRest.auto,
   });
 
@@ -245,6 +246,10 @@ class AppSettings {
   /// are chosen when a PDF comes in, at export and in Settings).
   final bool askPageColours;
 
+  /// Show a "?" on words the app isn't sure about, to confirm or fix with
+  /// one tap (owner's approved idea 3).
+  final bool askWhenUnsure;
+
   /// The export dialog's "Also convert" tick, as last chosen.
   final ExportConvertRest exportConvertRest;
 
@@ -269,6 +274,7 @@ class AppSettings {
     WritingGuide? writingGuide,
     PageColours? pageColours,
     bool? askPageColours,
+    bool? askWhenUnsure,
     ExportConvertRest? exportConvertRest,
   }) => AppSettings(
     appColour: appColour ?? this.appColour,
@@ -305,6 +311,7 @@ class AppSettings {
     writingGuide: writingGuide ?? this.writingGuide,
     pageColours: pageColours ?? this.pageColours,
     askPageColours: askPageColours ?? this.askPageColours,
+    askWhenUnsure: askWhenUnsure ?? this.askWhenUnsure,
     exportConvertRest: exportConvertRest ?? this.exportConvertRest,
   );
 
@@ -329,6 +336,7 @@ class AppSettings {
     'writingGuide': writingGuide.name,
     'pageColours': pageColours.name,
     'askPageColours': askPageColours,
+    'askWhenUnsure': askWhenUnsure,
     'exportConvertRest': exportConvertRest.name,
   };
 
@@ -357,6 +365,7 @@ class AppSettings {
     final keepInk = m['keepInkOnDelete'];
     final twoPages = m['twoPages'];
     final askPageColours = m['askPageColours'];
+    final askWhenUnsure = m['askWhenUnsure'];
 
     return AppSettings(
       appColour: byName(
@@ -412,6 +421,7 @@ class AppSettings {
       askPageColours: askPageColours is bool
           ? askPageColours
           : d.askPageColours,
+      askWhenUnsure: askWhenUnsure is bool ? askWhenUnsure : d.askWhenUnsure,
       exportConvertRest: byName(
         ExportConvertRest.values,
         m['exportConvertRest'],
@@ -443,6 +453,7 @@ class AppSettings {
       other.writingGuide == writingGuide &&
       other.pageColours == pageColours &&
       other.askPageColours == askPageColours &&
+      other.askWhenUnsure == askWhenUnsure &&
       other.exportConvertRest == exportConvertRest;
 
   @override
@@ -467,6 +478,7 @@ class AppSettings {
     writingGuide,
     pageColours,
     askPageColours,
+    askWhenUnsure,
     exportConvertRest,
   ]);
 }

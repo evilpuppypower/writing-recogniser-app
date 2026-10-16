@@ -34,7 +34,17 @@ class RecognizedWord {
     this.engineReadings,
     this.slant,
     this.byLine = false,
+    this.unsure = false,
+    this.fromYourWords = false,
   });
+
+  /// Worth asking the user about (owner's approved idea 3): shown with a
+  /// "?" until they correct it or say it's right.
+  final bool unsure;
+
+  /// Swapped automatically to a word the user often writes (rather than
+  /// from an earlier correction).
+  final bool fromYourWords;
 
   /// Found by an engine reading its whole line (so its strokes are the
   /// engine's word, kept as it split them).
@@ -95,6 +105,8 @@ class RecognizedWord {
     'ink': [for (final s in ink) s.toJson()],
     'readings': ?engineReadings,
     if (byLine) 'byLine': true,
+    if (unsure) 'unsure': true,
+    if (fromYourWords) 'yours': true,
     if (slant case final s?)
       'slant': [
         s.angle,
@@ -128,6 +140,8 @@ class RecognizedWord {
         _ => null,
       },
       byLine: j['byLine'] == true,
+      unsure: j['unsure'] == true,
+      fromYourWords: j['yours'] == true,
       slant: switch (j['slant']) {
         final List v when v.length == 7 => () {
           final n = [for (final x in v) (x as num).toDouble()];
@@ -150,6 +164,7 @@ class RecognizedWord {
     InkBox? box,
     bool? autoReplaced,
     bool? corrected,
+    bool? unsure,
     Object? slant = _keep,
   }) => RecognizedWord(
     text: text ?? this.text,
@@ -165,6 +180,8 @@ class RecognizedWord {
     engineReadings: engineReadings,
     slant: identical(slant, _keep) ? this.slant : slant as Slant?,
     byLine: byLine,
+    unsure: unsure ?? this.unsure,
+    fromYourWords: (autoReplaced ?? this.autoReplaced) && fromYourWords,
   );
 }
 
@@ -230,6 +247,34 @@ class InkTextController extends ChangeNotifier {
     }
   }
 
+  /// The user says [word] on [page] was read right (it was shown with a
+  /// "?"): no more "?", and the word is one they write from now on. Logged
+  /// as an accept (rule 5).
+  void confirm(int page, RecognizedWord word) {
+    final words = _words[page];
+    // As it is now (it may have moved or been read again since the pop-up
+    // opened); nothing to confirm if it now reads differently.
+    final now = words?[word.key];
+    if (words == null || now == null || now.text != word.text) return;
+    words[word.key] = now.copyWith(unsure: false);
+    _notify();
+    _wordsChanged(page);
+    feedback.used(word.text, previousWord: word.previousWord);
+    unawaited(
+      eventLog
+              ?.log(
+                LoggedEvent(
+                  type: 'accept',
+                  at: DateTime.now(),
+                  engine: engine.name,
+                  data: {'page': page, 'text': word.text, 'asked': true},
+                ),
+              )
+              .catchError((_) {}) ??
+          Future.value(),
+    );
+  }
+
   /// The user says [word] on [page] really reads [text]: shows it, saves
   /// the correction with the word's ink (rule 4) and teaches the feedback
   /// layer, so the same misreading is fixed next time.
@@ -245,6 +290,7 @@ class InkTextController extends ChangeNotifier {
       ],
       corrected: true,
       autoReplaced: false,
+      unsure: false,
     );
     _notify();
     _wordsChanged(page);
@@ -838,6 +884,8 @@ class InkTextController extends ChangeNotifier {
       engineText: engineTexts.first,
       engineReadings: engineTexts,
       autoReplaced: fed.autoReplaced,
+      fromYourWords: fed.fromYourWords,
+      unsure: fed.unsure,
       previousWord: previous,
       ink: ink,
       byLine: byLine,

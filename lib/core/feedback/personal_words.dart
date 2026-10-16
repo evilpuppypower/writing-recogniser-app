@@ -57,8 +57,32 @@ class PersonalWords implements FeedbackLayer {
     _refused.add('${_key(engineText)} ${_key(shown)}');
   }
 
+  /// Letters and digits only, lower case: "Dog," and "dog" are the same
+  /// word.
+  static String _letters(String s) =>
+      s.toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), '');
+
   @override
   FeedbackResult apply(List<Candidate> candidates, FeedbackContext context) {
+    final r = _apply(candidates, context);
+    if (r.autoReplaced || r.candidates.isEmpty) return r;
+    // Worth asking about: never written by the user, and the engine had a
+    // really different word in mind too.
+    final shown = r.candidates.first.text;
+    final unsure =
+        usesOf(shown) == 0 &&
+        r.candidates
+            .skip(1)
+            .take(lookAt - 1)
+            .any(
+              (c) =>
+                  _letters(c.text) != _letters(shown) &&
+                  _letters(c.text).isNotEmpty,
+            );
+    return unsure ? FeedbackResult(r.candidates, unsure: true) : r;
+  }
+
+  FeedbackResult _apply(List<Candidate> candidates, FeedbackContext context) {
     final r = inner.apply(candidates, context);
     if (candidates.isEmpty ||
         r.autoReplaced ||
@@ -82,10 +106,14 @@ class PersonalWords implements FeedbackLayer {
       }
     }
     if (best == null) return r;
-    return FeedbackResult([
-      best,
-      for (final c in r.candidates)
-        if (!identical(c, best)) c,
-    ], autoReplaced: true);
+    return FeedbackResult(
+      [
+        best,
+        for (final c in r.candidates)
+          if (!identical(c, best)) c,
+      ],
+      autoReplaced: true,
+      fromYourWords: true,
+    );
   }
 }

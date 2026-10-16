@@ -1147,6 +1147,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     switch (fix) {
       case UseText(:final text):
         await _text.correct(page, word, text);
+      case LooksRight():
+        _text.confirm(page, word);
       case NotWriting():
         // Saved on the strokes, so it lasts when the PDF is reopened.
         _ink.markNotWriting(page, word.key.split(',').toSet());
@@ -1650,11 +1652,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     Positioned.fill(
       child: Builder(
         builder: (context) {
-          final place = SettingsScope.valueOf(context).textLabels;
+          final settings = SettingsScope.valueOf(context);
+          final place = settings.textLabels;
           return place == TextLabelPlace.off
               ? const SizedBox.shrink()
               : PageTextLabels(
                   above: place == TextLabelPlace.above,
+                  showUnsure: settings.askWhenUnsure,
                   pageNumber: page.pageNumber,
                   geometry: _geometryOf(page),
                   viewWidth: pageRect.width,
