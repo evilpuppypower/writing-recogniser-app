@@ -13,7 +13,8 @@ import 'pdf_ink_writer.dart';
 /// as invisible, searchable text over the handwriting (task 1.4b). With
 /// [onlyPages], the new PDF has just those pages (task 1.4c). With
 /// [laidOut], pages are first put in the order the app shows them (see
-/// writeInkIntoPdf). Runs on
+/// writeInkIntoPdf), and [paper] (page as shown -> its paper's lines) is
+/// drawn under the ink. Runs on
 /// pdfrx's PDFium worker, so it never uses PDFium at the same time as the
 /// viewer (PDFium isn't thread-safe).
 Future<Uint8List> exportPdfWithInk({
@@ -25,11 +26,14 @@ Future<Uint8List> exportPdfWithInk({
   bool darkPages = false,
   List<int?>? pageOrder,
   List<(int, double, double)>? laidOut,
+  Map<int, List<ExportLine>> paper = const {},
   List<String>? trace,
 }) async {
+  // Paper first, so the ink is drawn over it.
   final pages = <int, List<List<Object>>>{
-    for (final page in ink.pagesWithInk)
+    for (final page in {...paper.keys, ...ink.pagesWithInk})
       page: [
+        for (final l in paper[page] ?? const <ExportLine>[]) l.toMessage(),
         for (final l in exportLines(ink.strokesOn(page), pressure: pressure))
           l.toMessage(),
       ],

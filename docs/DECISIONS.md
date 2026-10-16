@@ -681,3 +681,14 @@ The owner asked how the lag fix decides which ink to send, and pointed out that 
 - If the saved pages don't fit the PDF file (its number of pages changed) or can't be read, the PDF is shown as it is and pages can't be changed. The saved pages and their ink are kept as they were, not written over.
 - **Export** puts the pages in the order shown first, then draws the ink, so blank pages and copies come out with their own ink. Picking pages and arranging an export count pages as shown.
 - The last page left can't be taken out.
+
+## 2026-10-16 — Paper for blank pages (owner's choice: plain, lined, squared, dotted, and lined to fit their writing)
+
+- Adding a blank page asks for its paper, with a small picture of each. It starts on the paper used last. The page can go "after page N" or "at the end". In "All pages", a blank page's long-press menu has "Change paper".
+- **Lined:** ruled lines 8 mm apart, like ordinary lined paper, starting one and a half lines down. **Squared** and **dotted:** a 5 mm grid.
+- **Lined to fit your writing:** lines a little over twice the user's typical letter height, kept between 4 and 16 mm. The letter height comes from the writing on up to 8 pages of this document, and is remembered for documents with no writing yet; it's 8 mm until there's any.
+- Paper is drawn by the app under the ink, in a soft blue-grey (night colours on dark pages). It isn't ink: it can't be erased or selected and is never read as writing. Exports draw it under the ink as thin lines and round dots.
+
+## 2026-10-16 — What a page-by-page export leaves out, said in place
+
+When pages are picked or arranged, or were added, moved or taken out in the app, the export makes a new PDF page by page. PDFium copies only the pages, so the PDF's contents list and fill-in form boxes don't come along. The export screen says so in a line of small text under "Pages" (owner: no extra box to click through). It doesn't show for a plain export of all pages, which keeps everything.

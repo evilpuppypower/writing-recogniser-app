@@ -224,6 +224,23 @@ class PageLayout {
     );
   }
 
+  /// The blank page at [position] on [paper] (other pages unchanged).
+  PageLayout withPaper(int position, Paper paper, {double? lineGap}) {
+    final p = at(position);
+    if (!p.isBlank) return this;
+    return _with([
+      ...pages.sublist(0, position - 1),
+      LaidOutPage.blank(
+        p.key,
+        paper: paper,
+        width: p.width,
+        height: p.height,
+        lineGap: lineGap,
+      ),
+      ...pages.sublist(position),
+    ]);
+  }
+
   /// Without the page at [position] (never the last page left).
   PageLayout remove(int position) {
     if (pages.length <= 1) return this;
