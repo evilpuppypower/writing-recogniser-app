@@ -75,6 +75,90 @@ void main() {
     expect(s.points, hasLength(5));
   });
 
+  // Owner: tilted shapes should be recognised at their tilt.
+  (double, double) turned((double, double) p, double degrees) {
+    final a = degrees * math.pi / 180;
+    final dx = p.$1 - 200, dy = p.$2 - 450;
+    return (
+      200 + dx * math.cos(a) - dy * math.sin(a),
+      450 + dx * math.sin(a) + dy * math.cos(a),
+    );
+  }
+
+  double sideAngle(List<PageInkPoint> p) =>
+      math.atan2(p[1].y - p[0].y, p[1].x - p[0].x) * 180 / math.pi;
+
+  for (final degrees in <double>[20, 45, -30]) {
+    test(
+      'a box drawn at $degrees degrees becomes a rectangle at that tilt',
+      () {
+        final corners = [
+          for (final c in [
+            (120.0, 490.0),
+            (280.0, 490.0),
+            (280.0, 410.0),
+            (120.0, 410.0),
+          ])
+            turned(c, degrees),
+        ];
+        final s = tidyShape(drawn(polygon(corners)))!;
+        expect(s.kind, ShapeKind.rectangle);
+        expect(s.points, hasLength(5));
+        // Each corner near a corner of the drawn box.
+        for (final p in s.points) {
+          final near = corners
+              .map(
+                (c) => math.sqrt(
+                  math.pow(p.x - c.$1, 2) + math.pow(p.y - c.$2, 2),
+                ),
+              )
+              .reduce(math.min);
+          expect(near, lessThan(5));
+        }
+        // Sides along the tilt (or square to it).
+        final a = (sideAngle(s.points) - degrees) % 90;
+        expect(math.min(a, 90 - a), lessThan(2));
+      },
+    );
+  }
+
+  test('an oval drawn at 30 degrees becomes an ellipse at that tilt', () {
+    final s = tidyShape(
+      drawn(
+        (u) => turned((
+          200 + 90 * math.cos(2 * math.pi * u),
+          450 + 40 * math.sin(2 * math.pi * u),
+        ), 30),
+      ),
+    )!;
+    expect(s.kind, ShapeKind.ellipse);
+    // Its longest reach from the middle points along the tilt.
+    final far = s.points.reduce(
+      (a, b) =>
+          math.pow(a.x - 200, 2) + math.pow(a.y - 450, 2) >
+              math.pow(b.x - 200, 2) + math.pow(b.y - 450, 2)
+          ? a
+          : b,
+    );
+    final angle = math.atan2(far.y - 450, far.x - 200) * 180 / math.pi % 180;
+    expect(angle, closeTo(30, 4));
+  });
+
+  test('a box drawn nearly level stays level', () {
+    final corners = [
+      for (final c in [
+        (120.0, 490.0),
+        (280.0, 490.0),
+        (280.0, 410.0),
+        (120.0, 410.0),
+      ])
+        turned(c, 3),
+    ];
+    final s = tidyShape(drawn(polygon(corners)))!;
+    expect(s.kind, ShapeKind.rectangle);
+    expect(s.points[0].y, closeTo(s.points[1].y, 1e-6));
+  });
+
   test('a triangle becomes a triangle', () {
     final s = tidyShape(drawn(polygon([(100, 400), (200, 560), (300, 400)])))!;
     expect(s.kind, ShapeKind.triangle);
