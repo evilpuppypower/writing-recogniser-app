@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -19,6 +20,7 @@ import '../core/handwriting_search.dart';
 import '../core/ink_export_plan.dart' show ExportWord;
 import '../core/ink_classifier.dart';
 import '../core/event_log.dart';
+import '../core/feedback/vocabulary.dart';
 import '../core/ink_store.dart';
 import '../core/open_timing.dart';
 import '../core/page_coordinates.dart';
@@ -1911,6 +1913,18 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _prepareViewer();
   }
 
+  /// The words kept on every PDF's pages, so the user's own words win
+  /// when the engine isn't sure (owner's approved idea: personal
+  /// re-ranking). Read away from the screen's thread (a lot of text when
+  /// there are many PDFs).
+  Future<List<UsedWord>> _vocabularyOf(InkStore store) async {
+    final pages = <String>[];
+    for (final id in await store.documentsWithInk()) {
+      pages.addAll((await store.loadText(id)).values);
+    }
+    return compute(vocabularyFromPages, pages);
+  }
+
   Future<void> _loadInk() async {
     try {
       final store = await widget.openInkStore();
@@ -1924,6 +1938,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       for (final e in savedText.entries) {
         _text.restore(e.key, e.value);
       }
+      _text.loadVocabularyLater(_vocabularyOf(store));
       final textSaver = TextAutosaver(
         store: store,
         documentId: widget.documentId,
