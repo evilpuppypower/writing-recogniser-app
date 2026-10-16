@@ -228,7 +228,7 @@ class PageLayout {
   PageLayout withPaper(int position, Paper paper, {double? lineGap}) {
     final p = at(position);
     if (!p.isBlank) return this;
-    return PageLayout([
+    return _with([
       ...pages.sublist(0, position - 1),
       LaidOutPage.blank(
         p.key,
@@ -238,7 +238,7 @@ class PageLayout {
         lineGap: lineGap,
       ),
       ...pages.sublist(position),
-    ], pdfPageCount: pdfPageCount);
+    ]);
   }
 
   /// Without the page at [position] (never the last page left).
