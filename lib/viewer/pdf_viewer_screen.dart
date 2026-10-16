@@ -74,6 +74,7 @@ import 'pen_toolbar.dart';
 import 'pen_tools_controller.dart';
 import 'text_panel.dart';
 import 'two_page_layout.dart';
+import 'zoom_out_sizing.dart';
 
 /// The PDF viewer (task 1.1): scroll and zoom with fingers, page number and
 /// "Go to page", a draggable scroll tab, and it reopens each PDF on the page
@@ -2170,6 +2171,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   DocumentState? _saved;
 
   PdfViewerParams _viewerParams() => PdfViewerParams(
+    // Zooms out to half of what fills the screen (owner).
+    sizeDelegateProvider: const ZoomOutSizing(),
     // Text is selected with a long-press and handles (the touch style)
     // whatever touched the screen last. Otherwise, after the pen has
     // been used, pdfrx makes a one-finger drag select text, so fingers
