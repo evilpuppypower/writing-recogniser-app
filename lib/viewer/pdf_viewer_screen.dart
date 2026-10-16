@@ -1269,40 +1269,47 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// How long the user pauses mid-word, learned as they write (owner's
   /// approved idea 5); started from what was learned before.
   WritingRhythm? _rhythm;
-  PageStroke? _lastStroke;
-  int _rhythmSaved = 0;
+  ({int page, PageStroke stroke})? _lastStroke;
+
+  WritingRhythm _rhythmFor(AppSettings settings) =>
+      _rhythm ??= WritingRhythm(startMs: settings.learnedPauseMs);
+
+  /// A stroke the pen has just finished (not an edit, undo or move): is
+  /// it carrying on the word before it, on the same page?
+  void _strokeWritten(int page, PageStroke stroke) {
+    final rhythm = _rhythmFor(SettingsScope.of(context).value);
+    final before = _lastStroke;
+    _lastStroke = (page: page, stroke: stroke);
+    if (before == null ||
+        before.page != page ||
+        before.stroke.points.isEmpty ||
+        stroke.points.isEmpty ||
+        stroke.points.first.t <= before.stroke.points.last.t) {
+      return;
+    }
+    rhythm.wrote(before.stroke, stroke);
+  }
+
+  /// Keeps the pause learned so far (when the PDF closes or the app is put
+  /// away, not while writing: saving settings redraws the whole app).
+  void _saveRhythm() {
+    final rhythm = _rhythm;
+    if (rhythm == null || !mounted) return;
+    final settings = SettingsScope.of(context);
+    if (settings.value.learnedPauseMs == rhythm.pauseMs) return;
+    settings.update(settings.value.copyWith(learnedPauseMs: rhythm.pauseMs));
+  }
 
   void _inkChangedForText(int page) {
     _labelsShown.wake();
-    final settings = SettingsScope.of(context);
-    final strokes = _ink.ink.strokesOn(page);
-    final rhythm = _rhythm ??= WritingRhythm(
-      startMs: settings.value.learnedPauseMs,
-    );
-    // A stroke just written: carrying on the word before it?
-    final last = strokes.isEmpty ? null : strokes.last;
-    if (last != null && !identical(last, _lastStroke)) {
-      final before = _lastStroke;
-      if (before != null &&
-          last.points.isNotEmpty &&
-          before.points.isNotEmpty &&
-          last.points.first.t > before.points.last.t &&
-          rhythm.wrote(before, last) &&
-          (rhythm.pauseMs - _rhythmSaved).abs() >= 50) {
-        _rhythmSaved = rhythm.pauseMs;
-        settings.update(
-          settings.value.copyWith(learnedPauseMs: rhythm.pauseMs),
-        );
-      }
-      _lastStroke = last;
-    }
+    final settings = SettingsScope.of(context).value;
     _text.inkChanged(
       page,
-      strokes,
+      _ink.ink.strokesOn(page),
       Duration(
-        milliseconds: settings.value.autoPause
-            ? rhythm.pauseMs
-            : settings.value.recognitionPauseMs,
+        milliseconds: settings.autoPause
+            ? _rhythmFor(settings).pauseMs
+            : settings.recognitionPauseMs,
       ),
     );
   }
@@ -1395,6 +1402,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void _flushSaves() {
     _autosaver?.flush();
     _textSaver?.flush();
+    _saveRhythm();
   }
 
   late final AppLifecycleListener _lifecycle;
@@ -2036,6 +2044,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         saver.changed(page);
         _inkChangedForText(page);
       };
+      _ink.onStrokeAdded = _strokeWritten;
       for (final page in {...written, ...mixed}) {
         saver.changed(page);
         _inkChangedForText(page);

@@ -640,5 +640,6 @@ The diagnostic report now records each read after a pause: strokes on the page, 
 
 Reading waits after the pen lifts. That wait now adapts to the user. Each time a stroke carries on the word before it (beside it on the same line, under half a letter apart), the pen-up time between the two is kept, up to the last 200. Once 20 have been seen, the pause aims just above nine in ten of them (×1.3, plus 0.15 s). It moves a quarter of the way at a time, so one odd pause doesn't swing it, and it stays between 0.4 and 2.5 s.
 - The space between words, new lines and i-dots don't count, so only real mid-word pauses do.
-- The learned pause is kept between sessions. Settings shows it: "Learn how long I pause" (on by default). Turning it off brings back the fixed slider.
+- Only strokes the pen has just finished count. Moving, recolouring, undoing or erasing ink doesn't, and neither do two strokes on different pages.
+- The learned pause is kept between sessions. It's saved when the PDF closes or the app is put away, not while writing, because saving settings redraws the whole app. Settings shows it: "Learn how long I pause" (on by default). Turning it off brings back the fixed slider.
 - The handwriting test screen uses the same pause.

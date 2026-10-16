@@ -77,7 +77,12 @@ class DocumentInkController extends ChangeNotifier {
     if (_gesture == null) _record(page, before);
     notifyListeners();
     onChanged?.call(page);
+    onStrokeAdded?.call(page, stroke);
   }
+
+  /// Called after the pen finishes a new stroke (not for edits, undo or
+  /// moves), e.g. to learn how the user writes.
+  void Function(int page, PageStroke stroke)? onStrokeAdded;
 
   /// Marks strokes on [page] as not writing (task 2.4c) and saves them.
   /// Not undoable with Undo: [markWriting] reverses it. The undo history
