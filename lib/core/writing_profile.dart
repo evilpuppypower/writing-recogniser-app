@@ -43,8 +43,10 @@ class WritingProfile {
   /// written within 30 degrees of level.
   void learn(Iterable<InkLine> found) {
     for (final l in found) {
-      if (l.words.length < 3) continue;
-      final deg = l.angle * 180 / math.pi;
+      if (l.words.length < 3 || !l.measured) continue;
+      // A line written at a slant knows its angle; a nearly level one is
+      // measured from where its words sit.
+      final deg = (l.angle != 0 ? l.angle : _baseline(l)) * 180 / math.pi;
       if (deg.abs() > 30) continue;
       if (l.letterHeight < minLetter || l.letterHeight > maxLetter) continue;
       _lines++;
@@ -57,20 +59,49 @@ class WritingProfile {
   }
 
   /// Set by the user (Settings): learning carries on from these.
+  /// The slope of the line through the feet of [l]'s words (radians).
+  static double _baseline(InkLine l) {
+    final xs = [for (final w in l.words) (w.box.left + w.box.right) / 2];
+    final ys = [for (final w in l.words) w.box.bottom];
+    final n = xs.length;
+    final mx = xs.reduce((a, b) => a + b) / n;
+    final my = ys.reduce((a, b) => a + b) / n;
+    var sxy = 0.0, sxx = 0.0;
+    for (var i = 0; i < n; i++) {
+      sxy += (xs[i] - mx) * (ys[i] - my);
+      sxx += (xs[i] - mx) * (xs[i] - mx);
+    }
+    return sxx == 0 ? 0 : math.atan(sxy / sxx);
+  }
+
+  /// The words learned from already (a short fingerprint of each word's
+  /// strokes, the newest [_keepSeen]), kept with the profile so a page
+  /// read again, even after reopening, counts once.
+  final _seen = <int>{};
+  static const _keepSeen = 5000;
+
+  static int _fingerprint(String key) {
+    var h = 0x811c9dc5;
+    for (final c in key.codeUnits) {
+      h = ((h ^ c) * 0x01000193) & 0xFFFFFFFF;
+    }
+    return h;
+  }
+
   /// Learns from the lines of [strokes] with at least 3 words not learned
-  /// from before ([seen]: word keys, added to), so a page read again and
-  /// again counts once.
-  void learnNew(
-    List<PageStroke> strokes,
-    Iterable<InkLine> found,
-    Set<String> seen,
-  ) {
+  /// from before.
+  void learnNew(List<PageStroke> strokes, Iterable<InkLine> found) {
     final fresh = <InkLine>[];
     for (final l in found) {
-      final keys = [for (final w in l.words) wordKey(strokes, w)];
-      if (keys.where((k) => !seen.contains(k)).length < 3) continue;
-      seen.addAll(keys);
+      // Assumed sizes teach nothing, and the line is learned once measured.
+      if (!l.measured) continue;
+      final keys = [for (final w in l.words) _fingerprint(wordKey(strokes, w))];
+      if (keys.where((k) => !_seen.contains(k)).length < 3) continue;
+      _seen.addAll(keys);
       fresh.add(l);
+    }
+    while (_seen.length > _keepSeen) {
+      _seen.remove(_seen.first);
     }
     learn(fresh);
   }
@@ -87,10 +118,17 @@ class WritingProfile {
   }
 
   void forget() {
+    _clear();
+    // A PDF open meanwhile mustn't save the old values back.
+    setAt = DateTime.now().millisecondsSinceEpoch;
+  }
+
+  void _clear() {
     _letter = null;
     _slant = null;
     _lines = 0;
     setAt = 0;
+    _seen.clear();
   }
 
   Map<String, Object?> toJson() => {
@@ -98,10 +136,11 @@ class WritingProfile {
     if (_slant != null) 'slant': _slant,
     'lines': _lines,
     if (setAt != 0) 'setAt': setAt,
+    'seen': _seen.toList(),
   };
 
   void load(Object? j) {
-    forget();
+    _clear();
     if (j is! Map) return;
     final l = j['letter'], s = j['slant'], n = j['lines'];
     if (l is num && l.isFinite) {
@@ -111,6 +150,8 @@ class WritingProfile {
     if (n is int && n >= 0) _lines = n;
     final at = j['setAt'];
     if (at is int) setAt = at;
+    final seen = j['seen'];
+    if (seen is List) _seen.addAll(seen.whereType<int>());
   }
 
   /// Where it's kept (SharedPreferences, as JSON).

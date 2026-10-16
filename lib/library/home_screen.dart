@@ -14,6 +14,9 @@ import '../core/paper.dart' show NotebookSize, ruledGap;
 import '../core/page_ink.dart';
 import '../core/recent_pdfs.dart';
 import '../core/stored_copy.dart';
+import '../core/tags.dart';
+import '../storage/sqlite_tag_store.dart';
+import 'tags_sheet.dart';
 import '../handwriting/handwriting_test_screen.dart';
 import '../import/import_progress_screen.dart';
 import '../import/pdf_import_channel.dart';
@@ -58,7 +61,20 @@ class LibraryServices {
     this.pageLayouts = SqlitePageLayoutStore.open,
     this.newNotebookFile = createNotebookFile,
     this.restoreNotebooks = restoreNotebookFiles,
+    this.tags = SqliteTagStore.open,
+    this.handwritingOf = _loadHandwriting,
   });
+
+  /// Tags, and which documents have them (owner: several per document,
+  /// colour-coded).
+  final Future<TagStore> Function() tags;
+
+  /// What's written in a document, as words (to suggest tags from).
+  final Future<String> Function(String id) handwritingOf;
+
+  static Future<String> _loadHandwriting(String id) async => handwritingText(
+    (await (await SqliteInkStore.open()).loadText(id)).values,
+  );
 
   /// Each document's pages (blank pages, notebooks).
   final Future<PageLayoutStore> Function() pageLayouts;
@@ -158,6 +174,12 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Names the user gave notebooks (owner: notebooks can be renamed).
   Map<String, String> _titles = {};
 
+  /// Every tag, each document's tags, and the tag the list is narrowed to.
+  List<Tag> _tagList = const [];
+  Map<String, Set<String>> _docTags = const {};
+  String? _filter;
+  TagStore? _tagStore;
+
   LibraryServices get _s => widget.services;
 
   List<RecentPdf> _recents = [];
@@ -231,6 +253,15 @@ class _HomeScreenState extends State<HomeScreen> {
       (_) => <String, DocumentState>{},
     );
     final withInk = await _s.inkDocuments().catchError((_) => <String>{});
+    var tagList = _tagList;
+    var docTags = _docTags;
+    try {
+      final store = _tagStore ??= await _s.tags();
+      tagList = await store.tags();
+      docTags = await store.documentTags();
+    } catch (_) {
+      // Tags just aren't shown this time.
+    }
     // PDFs you've written on are kept permanently (plan, task 1.3), so the
     // storage limit never removes them.
     final toKeep = [
@@ -250,6 +281,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _copies = copies2;
       _positions = positions;
       _withInk = withInk;
+      _tagList = tagList;
+      _docTags = docTags;
+      if (_filter != null && !tagList.any((t) => t.name == _filter)) {
+        _filter = null;
+      }
     });
   }
 
@@ -275,7 +311,79 @@ class _HomeScreenState extends State<HomeScreen> {
             copy: copiesById[r.cacheId],
           ),
     ];
-    return (pinned: pinned, recent: recent);
+    // Narrowed to one tag (owner: the home screen filters by tag).
+    final f = _filter;
+    if (f == null) return (pinned: pinned, recent: recent);
+    bool has(_Item i) => _docTags[i.cacheId]?.contains(f) ?? false;
+    return (
+      pinned: pinned.where(has).toList(),
+      recent: recent.where(has).toList(),
+    );
+  }
+
+  /// Chooses [item]'s tags (owner: suggested from its name, and from what's
+  /// written in it when that's allowed in Settings).
+  Future<void> _editTags(_Item item) async {
+    TagStore store;
+    try {
+      store = _tagStore ??= await _s.tags();
+    } catch (e) {
+      _message("Couldn't open the tags: $e");
+      return;
+    }
+    if (!mounted) return;
+    final fromContents = SettingsScope.of(context)
+        .value
+        .suggestTagsFromContents;
+    final contents = fromContents
+        ? await _s.handwritingOf(item.cacheId).catchError((_) => '')
+        : '';
+    if (!mounted) return;
+    final current = _docTags[item.cacheId] ?? const <String>{};
+    final result = await showModalBottomSheet<TagsChoice>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => TagsSheet(
+        documentName: item.name,
+        known: _tagList,
+        current: current,
+        suggestions: suggestTags(
+          name: item.name,
+          contents: contents,
+          known: [for (final t in _tagList) t.name],
+          current: current,
+        ),
+      ),
+    );
+    if (result == null) return;
+    try {
+      for (final t in result.newTags) {
+        await store.saveTag(t);
+      }
+      await store.setDocumentTags(item.cacheId, result.names);
+    } catch (e) {
+      _message("Couldn't save the tags: $e");
+    }
+    await _reload();
+  }
+
+  /// A tag's colour, or the tag deleted (long-press on it in the row).
+  Future<void> _editTag(Tag tag) async {
+    final store = _tagStore;
+    if (store == null) return;
+    final result = await showModalBottomSheet<Object>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => TagColourSheet(tag: tag),
+    );
+    try {
+      if (result is int) await store.saveTag(Tag(tag.name, result));
+      if (result == TagColourSheet.delete) await store.deleteTag(tag.name);
+    } catch (e) {
+      _message("Couldn't change the tag: $e");
+    }
+    await _reload();
   }
 
   // ---- Opening -----------------------------------------------------------
@@ -586,6 +694,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
             ListTile(
+              leading: const Icon(Icons.sell_outlined),
+              title: const Text('Tags'),
+              subtitle: _docTags[item.cacheId]?.isNotEmpty ?? false
+                  ? Text((_docTags[item.cacheId]!.toList()..sort()).join(', '))
+                  : null,
+              onTap: () {
+                Navigator.pop(context);
+                _editTags(item);
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.contrast),
               title: const Text('Page colours'),
               subtitle: const Text('Light or dark pages for this PDF'),
@@ -706,6 +825,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+            if (_tagList.isNotEmpty)
+              SliverToBoxAdapter(
+                child: TagFilterRow(
+                  tags: _tagList,
+                  selected: _filter,
+                  onSelected: (name) => setState(() => _filter = name),
+                  onEdit: _editTag,
+                ),
+              ),
             if (items.pinned.isNotEmpty) ...[
               const _SectionHeader('Pinned'),
               _grid(items.pinned),
@@ -751,6 +879,10 @@ class _HomeScreenState extends State<HomeScreen> {
       delegate: SliverChildBuilderDelegate(
         (context, i) => _PdfCard(
           item: items[i],
+          tags: [
+            for (final t in _tagList)
+              if (_docTags[items[i].cacheId]?.contains(t.name) ?? false) t,
+          ],
           position: _positions[items[i].cacheId],
           thumbnails: _s.thumbnails,
           onTap: () => _openItem(items[i]),
@@ -785,9 +917,13 @@ class _PdfCard extends StatelessWidget {
     required this.thumbnails,
     required this.onTap,
     required this.onLongPress,
+    this.tags = const [],
   });
 
   final _Item item;
+
+  /// Its tags, shown as coloured chips under its name.
+  final List<Tag> tags;
 
   /// Where the PDF was left, if it has been opened in the viewer.
   final DocumentState? position;
@@ -870,6 +1006,7 @@ class _PdfCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium,
             ),
+            if (tags.isNotEmpty) TagDots(tags: tags),
             if (lastOpened != null)
               Text(
                 formatDateTime(lastOpened),

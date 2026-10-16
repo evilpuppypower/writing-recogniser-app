@@ -92,6 +92,12 @@ class SqliteInkStore implements InkStore {
       where: 'document_id = ?',
       whereArgs: [documentId],
     );
+    // And its tags (the tags themselves stay for other documents).
+    await _db.delete(
+      'document_tags',
+      where: 'document_id = ?',
+      whereArgs: [documentId],
+    );
   }
 
   @override

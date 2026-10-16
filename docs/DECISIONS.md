@@ -721,17 +721,29 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 ## 2026-10-16 — Shape tidy-up: a switch, and learning how exact to be (owner)
 
 - Settings → "Tidy up shapes" turns it on or off (on by default). Holding the pen still at the end of a line still straightens it either way.
-- When a tidied shape is undone or erased within 20 s, shapes of that kind must be closer to a neat shape than that one was before they're tidied again. That's 90% of how far off it was, never stricter than 1.5% of its size on average (usually 5%). Each tidied shape that's kept brings it a tenth of the way back. What it learned is kept on the tablet between sessions.
+- The second time a tidied shape of a kind is undone or erased within 20 s, shapes of that kind must be closer to a neat shape than those were before they're tidied again. That's 90% of the rougher one's error, never stricter than 1.5% of its size on average (usually 5%); one take-back could be a slip. Each tidied shape that's kept brings it a quarter of the way back. Every shape tidied in those 20 s counts, not only the last. What it learned is kept on the tablet. Settings → "Forget what it learned about shapes" starts again.
 
 ## 2026-10-16 — Your writing: usual size and slant, learned and editable (owner)
 
-- The app learns the user's usual letter height and the usual slant of their lines from finished lines of at least 3 words, within 30° of level. Each line counts once, however often its page is read. The values move 5% of the way per line, faster at first.
+- The app learns the user's usual letter height and the usual slant of their lines from finished lines of at least 3 words, within 30° of level. A level line's slant is measured from where its words sit. Each line counts once, however often its page is read, even after reopening (a fingerprint of the newest 5000 words learned from is kept). Lines whose size was assumed from the usual one teach nothing. The values move 5% of the way per line, faster at first.
 - **Used for:** reading a page's first few words (until it has 12 written strokes, the usual size is used instead of measuring the page), and spacing "Lined to fit your writing" in a document with no writing yet. The slant is learned and shown for now; the writing box will use it next.
 - **Settings → Your writing** shows both and lets the user change them. Learning carries on from what's set, which counts like 20 lines so the next line doesn't sweep it away. "Start learning again" forgets both. A PDF open while the values are changed in Settings doesn't save over them.
 
 ## 2026-10-16 — The writing box (owner's approved idea 12; owner: a toolbar button, with a switch for whether it's wanted)
 
 - A toolbar button ("Writing box") opens a strip along the bottom third of the screen. It shows part of the page large, with its ink and paper. Writing there with the pen or highlighter lands on the page small, where an outline shows. It's handy when zoomed out, or for neat small writing.
+- The outline on the page always matches the strip's shape, the box never goes below the last page, and the strip shows the page dark when pages are dark.
 - It moves along like a typewriter. When the writing reaches the strip's last fifth, the box moves half its width to the right. At the end of a line it goes to the start of the next, and past the foot of a page onto the next page. Buttons move it back, along, up, down or to the next line, and close it.
 - What's written there is ordinary ink: saved, read and undone like the rest.
 - Settings → "Writing box button" hides the button for users who don't want it (shown by default).
+
+## 2026-10-16 — Tags (owner: several per document, colour-coded, suggested; PDFs and notebooks share them)
+
+- Long-press a card and choose "Tags". The document's tags can be taken off, suggestions added with a tap, other tags added, and new tags made with a colour (8 to choose from).
+- **Suggestions:**
+  - Known tags whose name appears in the document's name, or at least twice in its writing.
+  - Then words from its name, leaving out words like "final", "notes", "pdf" and month names.
+  - Then words its writing uses at least 4 times.
+  - Suggestions from the writing can be turned off in Settings, "Suggest tags from what's in a document". It's all read on the tablet. Printed text isn't used yet; that comes with reading scanned PDFs.
+- The home screen gets a row of tags. Tap one to see only its documents. Long-press one to change its colour or delete it from every document. Cards show their tags as coloured dots and names.
+- Kept in `tags` and `document_tags` tables (database version 12). A document's tags go when it's deleted. The tags themselves stay for other documents.

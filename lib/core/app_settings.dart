@@ -133,6 +133,7 @@ class AppSettings {
     this.twoPages = false,
     this.tidyShapes = true,
     this.writingBoxButton = true,
+    this.suggestTagsFromContents = true,
     this.textLabels = TextLabelPlace.above,
     this.textPanel = TextPanelPlace.off,
     this.writingGuide = WritingGuide.grey,
@@ -241,6 +242,10 @@ class AppSettings {
   /// whether they want it).
   final bool writingBoxButton;
 
+  /// Tags are also suggested from what's written in a document, not only
+  /// its name (read on the tablet only).
+  final bool suggestTagsFromContents;
+
   /// Recognised text over the handwriting: above, below or off.
   final TextLabelPlace textLabels;
 
@@ -293,6 +298,7 @@ class AppSettings {
     bool? twoPages,
     bool? tidyShapes,
     bool? writingBoxButton,
+    bool? suggestTagsFromContents,
     TextLabelPlace? textLabels,
     TextPanelPlace? textPanel,
     WritingGuide? writingGuide,
@@ -334,6 +340,8 @@ class AppSettings {
     twoPages: twoPages ?? this.twoPages,
     tidyShapes: tidyShapes ?? this.tidyShapes,
     writingBoxButton: writingBoxButton ?? this.writingBoxButton,
+    suggestTagsFromContents:
+        suggestTagsFromContents ?? this.suggestTagsFromContents,
     textLabels: textLabels ?? this.textLabels,
     textPanel: textPanel ?? this.textPanel,
     writingGuide: writingGuide ?? this.writingGuide,
@@ -363,6 +371,7 @@ class AppSettings {
     'twoPages': twoPages,
     'tidyShapes': tidyShapes,
     'writingBoxButton': writingBoxButton,
+    'suggestTagsFromContents': suggestTagsFromContents,
     'textLabels': textLabels.name,
     'textPanel': textPanel.name,
     'writingGuide': writingGuide.name,
@@ -400,6 +409,7 @@ class AppSettings {
     final twoPages = m['twoPages'];
     final tidyShapes = m['tidyShapes'];
     final writingBoxButton = m['writingBoxButton'];
+    final suggestTags = m['suggestTagsFromContents'];
     final askPageColours = m['askPageColours'];
     final askWhenUnsure = m['askWhenUnsure'];
     final autoPause = m['autoPause'];
@@ -452,6 +462,9 @@ class AppSettings {
       writingBoxButton: writingBoxButton is bool
           ? writingBoxButton
           : d.writingBoxButton,
+      suggestTagsFromContents: suggestTags is bool
+          ? suggestTags
+          : d.suggestTagsFromContents,
       textLabels: byName(TextLabelPlace.values, m['textLabels'], d.textLabels),
       textPanel: byName(TextPanelPlace.values, m['textPanel'], d.textPanel),
       writingGuide: byName(
@@ -496,6 +509,7 @@ class AppSettings {
       other.twoPages == twoPages &&
       other.tidyShapes == tidyShapes &&
       other.writingBoxButton == writingBoxButton &&
+      other.suggestTagsFromContents == suggestTagsFromContents &&
       other.textLabels == textLabels &&
       other.textPanel == textPanel &&
       other.writingGuide == writingGuide &&
@@ -525,6 +539,7 @@ class AppSettings {
     twoPages,
     tidyShapes,
     writingBoxButton,
+    suggestTagsFromContents,
     textLabels,
     textPanel,
     writingGuide,
