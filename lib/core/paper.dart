@@ -30,7 +30,12 @@ List<PaperMark> paperMarks(
       return const [];
     case Paper.lined:
     case Paper.linedToFit:
-      final gap = paper == Paper.linedToFit ? (lineGap ?? ruledGap) : ruledGap;
+      // A saved gap that makes no sense (never written today) can't make
+      // endless lines.
+      final fit = lineGap ?? ruledGap;
+      final gap = paper == Paper.linedToFit && fit.isFinite && fit >= 2
+          ? fit
+          : ruledGap;
       // Starts one and a half lines down, like a notebook's header space.
       return [
         for (var y = height - gap * 1.5; y > gap * 0.5; y -= gap)
@@ -77,8 +82,8 @@ String paperName(Paper paper) => switch (paper) {
 /// The colour of paper lines: a soft blue-grey, like a notebook's.
 const paperArgb = 0xFFB4C3D6;
 
-/// [page]'s paper as lines for an export (dots as lines of no length,
-/// which PDF draws as round dots).
+/// [page]'s paper as lines for an export (dots as very short lines with
+/// round ends: some PDF apps skip lines of no length).
 List<ExportLine> paperExportLines(LaidOutPage page) {
   final paper = page.paper;
   if (paper == null || paper == Paper.plain) return const [];
@@ -90,7 +95,9 @@ List<ExportLine> paperExportLines(LaidOutPage page) {
       lineGap: page.lineGap,
     ))
       ExportLine(
-        points: [x1, y1, x2, y2],
+        points: x1 == x2 && y1 == y2
+            ? [x1 - 0.01, y1, x1 + 0.01, y2]
+            : [x1, y1, x2, y2],
         width: x1 == x2 && y1 == y2 ? 1.8 : 0.6,
         colorArgb: paperArgb,
       ),

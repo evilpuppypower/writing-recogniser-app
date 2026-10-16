@@ -1,3 +1,5 @@
+import 'dart:ui' show PointMode;
+
 import 'package:flutter/material.dart';
 
 import '../core/night_colours.dart';
@@ -22,8 +24,9 @@ void paintPaper(
     ..style = PaintingStyle.stroke;
   final dot = Paint()
     ..color = colour
-    ..style = PaintingStyle.fill;
-  final r = (0.9 * s).clamp(0.6, 4.0);
+    ..strokeCap = StrokeCap.round
+    ..strokeWidth = (1.8 * s).clamp(1.2, 8.0);
+  final dots = <Offset>[];
   for (final (x1, y1, x2, y2) in paperMarks(
     paper,
     page.width,
@@ -32,7 +35,7 @@ void paintPaper(
   )) {
     final a = Offset(rect.left + x1 * s, rect.top + (page.height - y1) * s);
     if (x1 == x2 && y1 == y2) {
-      canvas.drawCircle(a, r, dot);
+      dots.add(a);
     } else {
       canvas.drawLine(
         a,
@@ -41,6 +44,8 @@ void paintPaper(
       );
     }
   }
+  // All the dots in one go (a dotted page has thousands).
+  if (dots.isNotEmpty) canvas.drawPoints(PointMode.points, dots, dot);
 }
 
 /// [page]'s paper over [child] (a small picture of the page).

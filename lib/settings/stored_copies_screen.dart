@@ -4,6 +4,7 @@ import '../core/stored_copy.dart';
 import '../core/transfer_estimate.dart';
 import '../import/pdf_import_channel.dart';
 import '../storage/sqlite_ink_store.dart';
+import '../storage/sqlite_page_layout_store.dart';
 import 'settings_controller.dart';
 
 /// Lists the stored PDF copies so the user can pin or delete them one by one.
@@ -15,7 +16,15 @@ class StoredCopiesScreen extends StatefulWidget {
     this.setPinned = PdfImportChannel.setPinned,
     this.inkDocuments = _inkDocuments,
     this.deleteInk = _deleteInk,
+    this.notebookIds = _notebookIds,
   });
+
+  static Future<List<String>> _notebookIds() async =>
+      (await SqlitePageLayoutStore.open()).notebooks();
+
+  /// Library ids of notebooks (owner: notebooks without a PDF): deleting
+  /// one deletes what's written in it too, as it can't be opened again.
+  final Future<List<String>> Function() notebookIds;
 
   static Future<Set<String>> _inkDocuments() async =>
       (await SqliteInkStore.open()).documentsWithInk();
@@ -57,6 +66,10 @@ class _StoredCopiesScreenState extends State<StoredCopiesScreen> {
 
   Future<void> _delete(StoredCopy copy) async {
     final settings = SettingsScope.of(context);
+    final notebook = (await widget.notebookIds().catchError((_) => <String>[]))
+        .contains(copy.id);
+    if (!mounted) return;
+    if (notebook) return _deleteNotebook(copy);
     final hasInk = (await widget.inkDocuments().catchError((_) => <String>{}))
         .contains(copy.id);
     if (!mounted) return;
@@ -94,6 +107,39 @@ class _StoredCopiesScreenState extends State<StoredCopiesScreen> {
           ),
         ),
       );
+    _reload();
+  }
+
+  /// A notebook goes with everything in it (and its pages), so it doesn't
+  /// come back (see restoreNotebookFiles).
+  Future<void> _deleteNotebook(StoredCopy copy) async {
+    final name = copy.displayName.replaceAll(RegExp(r'\.pdf$'), '');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete $name?'),
+        content: const Text(
+          'The notebook and everything written in it will be deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await widget.deleteInk(copy.id); // its pages too
+    await widget.deleteCopy(copy);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('Deleted $name')));
     _reload();
   }
 

@@ -106,14 +106,14 @@ class LibraryServices {
   final Future<List<PageStroke>> Function(String id) firstPageInk;
 
   static Future<List<PageStroke>> _loadFirstPageInk(String id) async {
-    // The page shown first, which isn't the PDF's page 1 when pages were
-    // added or moved (or in a notebook).
     var key = 1;
     try {
       final layout = PageLayout.fromJson(
         await (await SqlitePageLayoutStore.open()).load(id),
       );
-      if (layout != null && layout.length > 0) key = layout.keyAt(1);
+      // The picture is of the PDF's page 1; a notebook's is of its first
+      // blank page.
+      if (layout != null && layout.notebook) key = layout.keyAt(1);
     } catch (_) {}
     return (await (await SqliteInkStore.open()).load(id)).strokesOn(key);
   }
@@ -152,6 +152,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  /// Library ids of notebooks (no Unpin: they're always kept).
+  Set<String> _notebooks = {};
+
   LibraryServices get _s => widget.services;
 
   List<RecentPdf> _recents = [];
@@ -207,7 +210,9 @@ class _HomeScreenState extends State<HomeScreen> {
     // Notebooks' files are only an empty page each: put back any the
     // system cleared, so every notebook shows (its writing is kept apart).
     try {
-      await _s.restoreNotebooks(await (await _s.pageLayouts()).notebooks());
+      final notebooks = await (await _s.pageLayouts()).notebooks();
+      _notebooks = notebooks.toSet();
+      await _s.restoreNotebooks(notebooks);
     } catch (_) {}
     // Either can fail (e.g. in tests, or if storage is unreadable); the
     // page then just shows fewer items.
@@ -516,7 +521,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   'limit',
                 ),
               )
-            else if (item.cached)
+            else if (item.cached && !_notebooks.contains(item.cacheId))
               ListTile(
                 leading: Icon(
                   item.pinned ? Icons.push_pin_outlined : Icons.push_pin,

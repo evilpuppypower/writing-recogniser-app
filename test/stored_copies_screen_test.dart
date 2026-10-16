@@ -14,6 +14,7 @@ void main() {
   late SettingsController settings;
   late Set<String> inkIds;
   late List<String> inkDeleted;
+  late List<String> notebooks;
 
   Future<void> pumpScreen(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1600, 2560);
@@ -31,6 +32,7 @@ void main() {
             },
             inkDocuments: () async => inkIds,
             deleteInk: (id) async => inkDeleted.add(id),
+            notebookIds: () async => notebooks,
             setPinned: (c, pinned, keep) async {
               pinCalls.add((c.id, pinned, keep));
               copies = [
@@ -57,6 +59,7 @@ void main() {
     deleted = [];
     inkIds = {};
     inkDeleted = [];
+    notebooks = [];
     pinCalls = [];
     copies = [
       StoredCopy(
@@ -103,6 +106,24 @@ void main() {
     await tester.pumpAndSettle();
     expect(pinCalls, [('${400 * mb}_1_Textbook.pdf', true, 4)]);
     expect(find.byTooltip('Pin (always keep this copy)'), findsNothing);
+  });
+
+  testWidgets('a notebook goes with everything in it, so it stays gone', (
+    tester,
+  ) async {
+    // Even with ink kept by default, and with nothing written in it.
+    notebooks = ['${400 * mb}_1_Textbook.pdf'];
+    await pumpScreen(tester);
+    await tester.tap(find.byTooltip('Delete this copy').last);
+    await tester.pumpAndSettle();
+    expect(
+      find.text('The notebook and everything written in it will be deleted.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    expect(deleted, ['${400 * mb}_1_Textbook.pdf']);
+    expect(inkDeleted, ['${400 * mb}_1_Textbook.pdf']);
   });
 
   testWidgets('deleting one copy asks first', (tester) async {

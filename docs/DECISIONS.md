@@ -697,5 +697,6 @@ When pages are picked or arranged, or were added, moved or taken out in the app,
 
 - "New notebook" on the home screen asks for the paper, then opens a notebook with one blank A4 page. Pages are added, copied, moved and taken out as in any PDF.
 - It's kept like a PDF so everything else works the same: a stored copy, pinned so it's never trimmed, holding one empty page the app makes itself. Its pages are blank pages of our own on top of that file. It's named "Notebook" with the date and time it was made.
-- Android may clear the app's cache folder, where stored copies live. A notebook's file is only an empty page, and its writing is kept in the database, so the home screen puts back any missing notebook file each time it loads. Deleting a notebook (Settings, stored PDFs) deletes its pages too, so it doesn't come back.
-- The home screen's picture of each PDF now shows the ink of the page shown first, which isn't the PDF's page 1 when pages were added or moved, or in a notebook.
+- Android may clear the app's cache folder, where stored copies live. A notebook's file is only an empty page, and its writing is kept in the database, so the home screen puts back any missing notebook file each time it loads. Deleting a notebook (Settings, stored PDFs) deletes it with everything written in it, whatever the "keep my ink" setting, since it can't be opened again; "Delete ALL" deletes notebooks too. So a deleted notebook doesn't come back. Notebooks have no Unpin.
+- A notebook's picture on the home screen shows the ink of its first page. Other PDFs' pictures still show the PDF's page 1 with its ink.
+- Paper dots are exported as very short lines with round ends, since some PDF apps skip lines of no length.

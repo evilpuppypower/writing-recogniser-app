@@ -24,6 +24,13 @@ void main() {
       expect(lines.first.$2 - lines[1].$2, closeTo(40, 1e-9));
     });
 
+    test('a line gap that makes no sense falls back to ruled lines', () {
+      for (final bad in [0.0, -5.0, double.nan, double.infinity]) {
+        final lines = paperMarks(Paper.linedToFit, 595, 842, lineGap: bad);
+        expect(lines.first.$2 - lines[1].$2, closeTo(ruledGap, 1e-9));
+      }
+    });
+
     test('squared and dotted on a 5 mm grid', () {
       final squared = paperMarks(Paper.squared, 100, 100);
       expect(squared.where((m) => m.$1 == m.$3), isNotEmpty); // upright
@@ -53,7 +60,7 @@ void main() {
         const LaidOutPage.blank(1, paper: Paper.dotted, width: 50, height: 50),
       );
       expect(dots, isNotEmpty);
-      expect(dots.first.points[0], dots.first.points[2]);
+      expect(dots.first.points[2] - dots.first.points[0], closeTo(0.02, 1e-9));
       expect(dots.first.colorArgb, paperArgb);
       expect(paperExportLines(const LaidOutPage.pdf(1)), isEmpty);
     });
