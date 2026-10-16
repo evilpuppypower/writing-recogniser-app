@@ -20,7 +20,7 @@ class GroupingParams {
     this.lineReach = 8,
     this.newSessionMs = 60000,
     this.lineDrift = 0.75,
-    this.carryOnMs = 15000,
+    this.carryOnMs = 8000,
   });
 
   /// Writing carries on past printed text when its next stroke starts

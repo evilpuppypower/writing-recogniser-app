@@ -90,6 +90,14 @@ void main() {
     });
   });
 
+  test('a 10 second pause past printed text starts a new note', () {
+    final strokes = [...word(10, 300), ...word(30, 300)];
+    _t += 10000;
+    strokes.addAll([...word(200, 300), ...word(220, 300)]);
+    final printed = PrintedText(printedLine(44, 196, 300, h: 6));
+    expect(groupStrokes(strokes, printed: printed), hasLength(2));
+  });
+
   group('reading order', () {
     test('notes in two margins each follow on from their own column', () {
       // Left and right margin notes, written in turn, lines interleaved
