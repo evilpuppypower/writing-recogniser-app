@@ -23,6 +23,7 @@ import 'open_times_screen.dart';
 import 'replay_screen.dart';
 import 'stored_copies_screen.dart';
 import 'your_writing_screen.dart';
+import 'backup_screen.dart';
 import 'dictionary_screen.dart';
 import '../storage/sqlite_page_layout_store.dart';
 
@@ -563,6 +564,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               MaterialPageRoute<void>(
                 builder: (_) => const YourWritingScreen(),
               ),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.backup_outlined),
+            title: const Text('Backups'),
+            subtitle: const Text(
+              'Everything in one file, locked with your password: back up, '
+              'or restore on this tablet or a new one.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const BackupScreen()),
             ),
           ),
           SwitchListTile(

@@ -16,6 +16,7 @@ import '../core/recent_pdfs.dart';
 import '../core/stored_copy.dart';
 import '../core/tags.dart';
 import '../storage/sqlite_tag_store.dart';
+import '../platform/backup_channel.dart';
 import 'library_search_screen.dart';
 import 'library_search_service.dart';
 import 'tags_sheet.dart';
@@ -66,7 +67,14 @@ class LibraryServices {
     this.tags = SqliteTagStore.open,
     this.handwritingOf = _loadHandwriting,
     this.librarySearch = LibrarySearchService.open,
+    this.restoreProblem = _restoreProblem,
   });
+
+  /// Why the last restore couldn't be put in place, or null.
+  final Future<String?> Function() restoreProblem;
+
+  static Future<String?> _restoreProblem() =>
+      const AndroidBackupService().restoreProblem();
 
   /// What the search of every document looks through.
   final Future<LibrarySearchService> Function() librarySearch;
@@ -203,6 +211,29 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _reload();
     _reportLastCrash();
+    _reportRestoreProblem();
+  }
+
+  /// A restore that couldn't be put in place (nothing changed): says so.
+  Future<void> _reportRestoreProblem() async {
+    final problem = await _s.restoreProblem().catchError((_) => null);
+    if (problem == null || !mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('The backup wasn\'t restored'),
+        content: Text(
+          '$problem\n\nEverything is as it was before. You can try '
+          'restoring again in Settings → Backups.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// If the app crashed last time, offers the details so the owner can

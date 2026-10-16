@@ -764,3 +764,22 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - **Results:** documents whose name or tags match come first, then those with the most matches. Each page shows where the words are, in bold, with some text around them. Tapping a page opens the document at that page with the words searched. Tapping the document opens it where it was left.
 - **Scanned PDFs** have no printed text to read until OCR (later in the build order) adds it.
 - **Doesn't get in the way:** reading waits while a document opened from the results is open, so it doesn't slow that document down. A PDF that can't be opened (damaged, or locked with a password) counts as having no printed text, so it isn't tried every time. If a PDF file changed so its saved page changes no longer fit, its pages are counted as the viewer shows them (the PDF as it is).
+
+## 2026-10-16 — Backups, part 1: back up and restore by hand (owner: answers 9 and 10)
+
+- **What's in a backup:** everything. That's the database (ink, recognised text, corrections, learning, tags, page changes, event log), the settings, and every stored PDF and notebook. It's one file, saved wherever the user picks with Android's own file picker (this tablet, a USB stick, or a cloud provider's folder). The app makes no network calls: if a cloud folder is picked, the provider's own app moves the file.
+- **Always encrypted, with a password and a recovery key:**
+  - AES-256-GCM, in 1 MiB chunks. Each chunk is bound to the file's header and to its place, so a backup that's changed, cut short or put together from pieces is refused.
+  - The password key uses PBKDF2-HMAC-SHA256 with 600,000 rounds. The recovery key is 20 random bytes, shown once as 32 letters and digits in groups of 4.
+  - **Envelope encryption:** a backup key is made once and kept on the tablet, sealed by Android's hardware key store, so later (and scheduled) backups need no password. Every backup has its own file key, sealed with the backup key. The backup key is sealed twice in every backup's header, by the password and by the recovery key, so either opens it on any tablet.
+  - Changing the password gives a new recovery key. Older backups still open with the old ones (said in place).
+  - Only standard algorithms, written in plain Java (`BackupCrypto.java`, `BackupFile.java`), so the format was tested off the tablet and can be read on Windows later.
+- **Every backup is checked straight after it's saved:** it's read back from where it was saved and every file checked against its SHA-256, so a backup that couldn't be restored is found then, not when it's needed.
+- **Restore** unpacks and checks everything into a separate folder first, so nothing on the tablet changes if it fails or is stopped.
+  - It's put in place only when the user taps "Restart the app now". Leaving the screen asks "Restart" or "Don't restore", so a restore is never left waiting to replace later work.
+  - On restart, before anything opens the database, what's there is moved aside and the backup moved in. If any step fails, everything is moved back, nothing changes, and the app says so when it opens.
+  - The restored backup's key comes with it, so the same password opens new backups made after.
+- **The header** (readable, but bound into the encryption) holds only the format, when it was made (in UTC), the build number and the sealed keys. The files inside carry no times.
+- **The MyScript keys** are in the settings, sealed by this tablet's key store, so they only work again on the same tablet. On a new tablet they need entering again after a restore (the restore box says so).
+- **Not in a backup:** thumbnails (made again), and the temporary copy of the database made for the backup.
+- **Part 2 (next):** automatic backups every few days into a chosen folder, and a reminder.
