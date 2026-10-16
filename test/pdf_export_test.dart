@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdfium_dart/pdfium_dart.dart' as pdfium;
+import 'package:writing_recogniser/core/blank_pdf.dart' as app;
 import 'package:writing_recogniser/core/ink_export_plan.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/core/page_ranges.dart';
@@ -623,6 +624,79 @@ void main() {
         throwsA(isA<PdfExportException>()),
         reason: 'none of the PDF\'s own pages',
       );
+    });
+
+    test('pages as shown: blank pages, copies and moved pages, with ink', () {
+      // Owner: blank pages like any notes app. Shown: page 2, a blank A5
+      // page, page 1, and a copy of page 1, each with its own ink.
+      final src = blankPdf(lib, dir, 2);
+      final line = exportLines([
+        pen([(10, 10, 0.5), (20, 20, 0.5)]),
+      ], pressure: PressureResponse.none);
+      final bytes = writeInkIntoPdf(
+        lib,
+        src,
+        {
+          2: line,
+          4: [...line, ...line],
+        },
+        laidOut: const [(2, 0, 0), (0, 420, 595), (1, 0, 0), (1, 0, 0)],
+      );
+      final out = File('${dir.path}/shown.pdf')..writeAsBytesSync(bytes);
+      final path = out.path.toNativeUtf8();
+      final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+      malloc.free(path);
+      expect(lib.FPDF_GetPageCount(doc), 4);
+      int objects(int i) {
+        final page = lib.FPDF_LoadPage(doc, i);
+        final n = lib.FPDFPage_CountObjects(page);
+        lib.FPDF_ClosePage(page);
+        return n;
+      }
+
+      // Ink on the blank page and on the copy, not on the original.
+      expect([objects(0), objects(1), objects(2), objects(3)], [0, 1, 0, 2]);
+      final w = calloc<Double>(), h = calloc<Double>();
+      lib.FPDF_GetPageSizeByIndex(doc, 1, w, h);
+      expect((w.value, h.value), (420.0, 595.0));
+      calloc
+        ..free(w)
+        ..free(h);
+      lib.FPDF_CloseDocument(doc);
+      // And picked from as shown.
+      final some = writeInkIntoPdf(
+        lib,
+        src,
+        {2: line},
+        laidOut: const [(2, 0, 0), (0, 420, 595), (1, 0, 0)],
+        onlyPages: {2},
+      );
+      final f2 = File('${dir.path}/some.pdf')..writeAsBytesSync(some);
+      final p2 = f2.path.toNativeUtf8();
+      final d2 = lib.FPDF_LoadDocument(p2.cast(), nullptr);
+      malloc.free(p2);
+      expect(lib.FPDF_GetPageCount(d2), 1);
+      final page = lib.FPDF_LoadPage(d2, 0);
+      expect(lib.FPDFPage_CountObjects(page), 1);
+      lib.FPDF_ClosePage(page);
+      lib.FPDF_CloseDocument(d2);
+    });
+
+    test('the app\'s own blank pages open in PDFium at their sizes', () {
+      final file = File('${dir.path}/own-blank.pdf')
+        ..writeAsBytesSync(app.blankPdf([(595, 842), (300.5, 200)]));
+      final path = file.path.toNativeUtf8();
+      final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+      malloc.free(path);
+      expect(doc, isNot(nullptr));
+      expect(lib.FPDF_GetPageCount(doc), 2);
+      final w = calloc<Double>(), h = calloc<Double>();
+      lib.FPDF_GetPageSizeByIndex(doc, 1, w, h);
+      expect((w.value, h.value), (300.5, 200.0));
+      calloc
+        ..free(w)
+        ..free(h);
+      lib.FPDF_CloseDocument(doc);
     });
 
     test('a file that is not a PDF gives a plain error', () {

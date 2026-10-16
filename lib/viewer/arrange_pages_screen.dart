@@ -10,12 +10,20 @@ Future<List<int?>?> arrangePages(
   required int pageCount,
   List<int?>? start,
   Widget Function(int page)? thumbnail,
+  String note =
+      'Drag the handle to move a page. Only the exported copy '
+      'changes: your PDF stays as it is.',
+  String where = 'in the export',
+  String leaveOut = 'Leave this page out',
 }) => Navigator.of(context).push<List<int?>>(
   MaterialPageRoute(
     builder: (_) => _ArrangePagesScreen(
       pageCount: pageCount,
       start: start ?? [for (var n = 1; n <= pageCount; n++) n],
       thumbnail: thumbnail,
+      note: note,
+      where: where,
+      leaveOut: leaveOut,
     ),
   ),
 );
@@ -25,7 +33,19 @@ class _ArrangePagesScreen extends StatefulWidget {
     required this.pageCount,
     required this.start,
     required this.thumbnail,
+    required this.note,
+    required this.where,
+    required this.leaveOut,
   });
+
+  /// Shown above the list.
+  final String note;
+
+  /// After each page's place, e.g. "3 in the export".
+  final String where;
+
+  /// The remove button's tooltip.
+  final String leaveOut;
 
   final int pageCount;
   final List<int?> start;
@@ -73,12 +93,9 @@ class _ArrangePagesScreenState extends State<_ArrangePagesScreen> {
       ),
       body: Column(
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Text(
-              'Drag the handle to move a page. Only the exported copy '
-              'changes: your PDF stays as it is.',
-            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Text(widget.note),
           ),
           Expanded(
             child: ReorderableListView.builder(
@@ -107,7 +124,7 @@ class _ArrangePagesScreenState extends State<_ArrangePagesScreen> {
                               const Icon(Icons.description_outlined)),
                   ),
                   title: Text(n == null ? 'Blank page' : 'Page $n'),
-                  subtitle: Text('${i + 1} in the export'),
+                  subtitle: Text('${i + 1} ${widget.where}'),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -122,7 +139,7 @@ class _ArrangePagesScreenState extends State<_ArrangePagesScreen> {
                         ),
                       ),
                       IconButton(
-                        tooltip: 'Leave this page out',
+                        tooltip: widget.leaveOut,
                         icon: const Icon(Icons.delete_outline),
                         onPressed: () => setState(() => _pages.removeAt(i)),
                       ),

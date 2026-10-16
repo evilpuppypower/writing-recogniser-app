@@ -80,6 +80,12 @@ class SqliteInkStore implements InkStore {
       where: 'document_id = ?',
       whereArgs: [documentId],
     );
+    // And its pages of the user's own.
+    await _db.delete(
+      'page_layouts',
+      where: 'document_id = ?',
+      whereArgs: [documentId],
+    );
   }
 
   @override

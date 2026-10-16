@@ -668,3 +668,14 @@ The owner asked how the lag fix decides which ink to send, and pointed out that 
   - The words "just before" that help the engine come from the writing above in the same column, not from whatever is at that height elsewhere on the page. A note in one margin no longer takes a note in the other margin as its context, and writing below a printed paragraph starts fresh. A line follows the one above it when there are at most 6 of its letters of space between, so small writing on widely spaced lines keeps its context. Lines written at the same slant are measured across the slant.
 - On a page of 1000 words, choosing the ink to send takes about 20 to 35 ms in the tests, and printed text adds little to grouping. Printed text is only looked at for lines a stroke is level with, so many margin notes beside a full printed page stay quick.
 - Printed text is read when the page is first written on, so it's ready by the first pause.
+
+## 2026-10-16 — Blank pages, and adding, copying, taking out and moving pages (owner's choice: like any notes app)
+
+- **The PDF is never changed** (CLAUDE.md rule 6). Each document keeps its own list of the pages it shows, in order (a `page_layouts` table, database version 10). The list holds the PDF's own pages, copies of them, and blank pages of our own. No list means the PDF is shown as it is, exactly as before.
+- **Every page has a lasting key.** The PDF's own pages keep their page number as their key, so everything saved before this change stays where it was. Pages of our own get keys from 1000001 up. Ink, recognised text and bookmarks are saved under each page's key, and the viewer counts pages as shown. Adding, moving or taking out a page only changes the list, never the saved ink.
+- **Showing it:** the viewer puts the shown pages together as one document. The PDF's own pages come from its file and blank pages from a small blank PDF the app makes itself. The PDF's contents list still goes to the right pages.
+- **Adding:** a "+" button ("Add a blank page after this one") adds a page the size of the current page. In "All pages", long-press a page to add a blank page after it, duplicate it with its ink, or take it out. The "Rearrange pages" button drags pages into order.
+- **Taking a page out:** a page of our own, or a copy, is deleted with its ink. One of the PDF's own pages is only hidden: its ink is kept, and "Put back" in "All pages" shows it again where it was.
+- **After a change**, everything is saved and the PDF opens again on the right page. Tracking pages that move while they're shown would touch every part of the viewer. Opening again keeps it simple and safe, at the cost of a moment's wait.
+- **Export** puts the pages in the order shown first, then draws the ink, so blank pages and copies come out with their own ink. Picking pages and arranging an export count pages as shown.
+- The last page left can't be taken out.
