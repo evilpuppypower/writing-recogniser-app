@@ -14,32 +14,35 @@ class SqlitePrintedTextStore implements PrintedTextStore {
   final Database _db;
 
   @override
-  Future<Map<int, String>?> load(String documentId) async {
+  Future<PrintedPages?> load(String documentId) async {
     final read = await _db.query(
       'printed_documents',
       where: 'document_id = ?',
       whereArgs: [documentId],
     );
     if (read.isEmpty) return null;
-    return {
-      for (final r in await _db.query(
-        'printed_text',
-        where: 'document_id = ?',
-        whereArgs: [documentId],
-      ))
-        r['page']! as int: r['text']! as String,
-    };
+    return (
+      pages: {
+        for (final r in await _db.query(
+          'printed_text',
+          where: 'document_id = ?',
+          whereArgs: [documentId],
+        ))
+          r['page']! as int: r['text']! as String,
+      },
+      pageCount: read.first['pages']! as int,
+    );
   }
 
   @override
-  Future<void> save(String documentId, Map<int, String> pages) =>
+  Future<void> save(String documentId, PrintedPages printed) =>
       _db.transaction((t) async {
         await t.delete(
           'printed_text',
           where: 'document_id = ?',
           whereArgs: [documentId],
         );
-        for (final e in pages.entries) {
+        for (final e in printed.pages.entries) {
           await t.insert('printed_text', {
             'document_id': documentId,
             'page': e.key,
@@ -48,7 +51,7 @@ class SqlitePrintedTextStore implements PrintedTextStore {
         }
         await t.insert('printed_documents', {
           'document_id': documentId,
-          'pages': pages.length,
+          'pages': printed.pageCount,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       });
 

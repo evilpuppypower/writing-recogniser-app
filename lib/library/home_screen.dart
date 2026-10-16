@@ -189,6 +189,9 @@ class _HomeScreenState extends State<HomeScreen> {
   LibraryServices get _s => widget.services;
 
   List<RecentPdf> _recents = [];
+
+  /// The library has been read at least once.
+  bool _loadedOnce = false;
   List<StoredCopy> _copies = [];
   Map<String, DocumentState> _positions = {};
 
@@ -283,6 +286,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (!mounted) return;
     setState(() {
+      _loadedOnce = true;
       _recents = recents;
       _copies = copies2;
       _positions = positions;
@@ -407,12 +411,31 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Searches every document (owner, 2026-10-16), whatever the tag filter.
   Future<void> _searchAll() async {
-    final items = [..._itemsUnfiltered.pinned, ..._itemsUnfiltered.recent];
+    // Every stored copy and every recent PDF (also unpinned copies no
+    // longer in Recent).
+    final all = _itemsUnfiltered;
+    final items = [...all.pinned, ...all.recent];
+    final listed = {for (final i in items) i.cacheId};
+    final recentById = {for (final r in _recents) r.cacheId: r};
+    for (final c in _copies) {
+      if (listed.add(c.id)) {
+        items.add(
+          _Item(
+            name: _titles[c.id] ?? recentById[c.id]?.name ?? c.displayName,
+            cacheId: c.id,
+            recent: recentById[c.id],
+            copy: c,
+          ),
+        );
+      }
+    }
     final byId = {for (final i in items) i.cacheId: i};
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => LibrarySearchScreen(
           service: _s.librarySearch,
+          // Until the library has loaded, what isn't listed isn't gone.
+          complete: _loadedOnce,
           entries: [
             for (final i in items)
               SearchEntry(

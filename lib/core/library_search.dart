@@ -94,8 +94,9 @@ List<DocumentMatch> searchLibrary(
         if (_tidy(t).toLowerCase().contains(q)) t,
     ];
     final pages = <PageMatch>[];
-    for (final p in d.pages) {
-      final m = _find(p, q, around);
+    final prepared = _prepare(d);
+    for (var i = 0; i < d.pages.length; i++) {
+      final m = _find(d.pages[i], prepared[i], q, around);
       if (m != null) pages.add(m);
     }
     if (!inName && tags.isEmpty && pages.isEmpty) continue;
@@ -125,21 +126,62 @@ List<DocumentMatch> searchLibrary(
   return out;
 }
 
-PageMatch? _find(PageText p, String q, int around) {
-  final text = _tidy(p.text);
-  final lower = text.toLowerCase();
+/// A page's text, tidied and in lower case, worked out once per document
+/// (not on every key typed).
+final _prepared = Expando<List<List<(String, String)>>>();
+
+/// Separates a page's handwriting as written from the same with shorthand
+/// written out ([pageHandwriting]), so a phrase never runs from one into
+/// the other.
+const shorthandSeparator = ' ';
+
+List<List<(String, String)>> _prepare(SearchableDocument d) =>
+    _prepared[d] ??= [
+      for (final p in d.pages)
+        [
+          for (final part in p.text.split(shorthandSeparator))
+            if (_tidy(part) case final t when t.isNotEmpty)
+              (t, t.toLowerCase()),
+        ],
+    ];
+
+PageMatch? _find(
+  PageText p,
+  List<(String, String)> parts,
+  String q,
+  int around,
+) {
+  // The part where it's found most often (as written, or written out).
+  (String, String)? best;
+  var count = 0;
+  for (final part in parts) {
+    var n = 0;
+    for (
+      var at = part.$2.indexOf(q);
+      at >= 0;
+      at = part.$2.indexOf(q, at + q.length)
+    ) {
+      n++;
+    }
+    if (n > count) {
+      count = n;
+      best = part;
+    }
+  }
+  if (best == null) return null;
+  final (text, lower) = best;
   // Lower case can change a text's length (rarely): then it's shown in
   // lower case, so the places line up.
   final shown = lower.length == text.length ? text : lower;
   final first = lower.indexOf(q);
-  if (first < 0) return null;
-  var count = 0;
-  for (var at = first; at >= 0; at = lower.indexOf(q, at + q.length)) {
-    count++;
-  }
   final end = first + q.length;
-  final from = (first - around).clamp(0, first);
-  final to = (end + around).clamp(end, shown.length);
+  var from = (first - around).clamp(0, first);
+  var to = (end + around).clamp(end, shown.length);
+  // Not in the middle of a character made of two code units (an emoji).
+  bool low(int i) =>
+      i < shown.length && (shown.codeUnitAt(i) & 0xFC00) == 0xDC00;
+  if (from > 0 && low(from)) from--;
+  if (to < shown.length && low(to)) to++;
   return PageMatch(
     page: p.page,
     kind: p.kind,
@@ -150,24 +192,28 @@ PageMatch? _find(PageText p, String q, int around) {
   );
 }
 
+/// [s] with each run of spaces and line breaks made one space.
+String tidySearch(String s) => _tidy(s);
+
 String _tidy(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim();
 
 /// A page's handwriting as text: the words read (as saved by the viewer,
 /// [wordsJson]), except those converted to typed text, which count by their
-/// typed text (as edited), and text boxes. [expand] writes shorthand out,
-/// so either form is found.
+/// typed text (as edited), and text boxes. [expand] writes shorthand out:
+/// the page with it written out follows, after [shorthandSeparator], so
+/// either form is found.
 String pageHandwriting({
   String? wordsJson,
   List<PageStroke> strokes = const [],
   String Function(String)? expand,
 }) {
   final parts = <String>[];
+  final expanded = <String>[];
   void add(String t) {
     final s = t.trim();
     if (s.isEmpty) return;
     parts.add(s);
-    final full = expand?.call(s);
-    if (full != null && full != s) parts.add(full);
+    expanded.add(expand?.call(s) ?? s);
   }
 
   final converted = convertedStrokeIds(strokes);
@@ -195,7 +241,8 @@ String pageHandwriting({
   for (final s in strokes) {
     if (s.isTextBox) add(s.typedText ?? '');
   }
-  return parts.join(' ');
+  final written = parts.join(' '), full = expanded.join(' ');
+  return full == written ? written : '$written$shorthandSeparator$full';
 }
 
 /// [byKey] (saved under each page's lasting key) by where each page is

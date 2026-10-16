@@ -258,6 +258,10 @@ class _PdfViewerHostState extends State<PdfViewerScreen> {
       saveFile: w.saveFile,
       shareFile: w.shareFile,
       reopenedForPages: _opened > 0 || w.reopenedForPages,
+      // Opened from search: only the first time (after its pages change,
+      // it stays where it is).
+      openAtPage: _opened == 0 ? w.openAtPage : null,
+      openWithSearch: _opened == 0 ? w.openWithSearch : null,
       onPagesChanged: () {
         if (mounted) setState(() => _opened++);
       },
@@ -290,6 +294,8 @@ class _PdfViewerPages extends PdfViewerScreen {
     required super.saveFile,
     required super.shareFile,
     required super.reopenedForPages,
+    super.openAtPage,
+    super.openWithSearch,
     required this.onPagesChanged,
   });
 

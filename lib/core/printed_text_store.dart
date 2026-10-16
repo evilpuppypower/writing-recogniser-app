@@ -3,13 +3,17 @@
 /// Pure Dart: the SQLite implementation lives in lib/storage.
 library;
 
+/// A PDF's printed text by its own page numbers (pages without any left
+/// out), and how many pages it has (0 if it couldn't be opened), so saved
+/// page changes are checked against the file as the viewer does.
+typedef PrintedPages = ({Map<int, String> pages, int pageCount});
+
 abstract class PrintedTextStore {
-  /// [documentId]'s printed text by its own page numbers (pages without
-  /// any left out), or null if it hasn't been read yet.
-  Future<Map<int, String>?> load(String documentId);
+  /// [documentId]'s printed text, or null if it hasn't been read yet.
+  Future<PrintedPages?> load(String documentId);
 
   /// Keeps [documentId]'s printed text (marks it read, even if empty).
-  Future<void> save(String documentId, Map<int, String> pages);
+  Future<void> save(String documentId, PrintedPages printed);
 
   /// The documents read so far.
   Future<Set<String>> documents();
@@ -19,15 +23,17 @@ abstract class PrintedTextStore {
 }
 
 class MemoryPrintedTextStore implements PrintedTextStore {
-  final _docs = <String, Map<int, String>>{};
+  final _docs = <String, PrintedPages>{};
 
   @override
-  Future<Map<int, String>?> load(String documentId) async =>
-      _docs[documentId] == null ? null : {..._docs[documentId]!};
+  Future<PrintedPages?> load(String documentId) async => _docs[documentId];
 
   @override
-  Future<void> save(String documentId, Map<int, String> pages) async =>
-      _docs[documentId] = {...pages};
+  Future<void> save(String documentId, PrintedPages printed) async =>
+      _docs[documentId] = (
+        pages: {...printed.pages},
+        pageCount: printed.pageCount,
+      );
 
   @override
   Future<Set<String>> documents() async => _docs.keys.toSet();

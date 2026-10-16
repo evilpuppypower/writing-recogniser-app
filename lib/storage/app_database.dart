@@ -180,7 +180,7 @@ class AppDatabase {
       await db.execute('''
         CREATE TABLE printed_documents (
           document_id TEXT PRIMARY KEY, -- read (even if it has no text)
-          pages INTEGER NOT NULL        -- pages with text
+          pages INTEGER NOT NULL        -- the PDF's page count
         )
       ''');
     }

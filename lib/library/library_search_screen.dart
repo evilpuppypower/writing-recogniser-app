@@ -41,9 +41,14 @@ class LibrarySearchScreen extends StatefulWidget {
     required this.entries,
     required this.service,
     required this.onOpen,
+    this.complete = true,
   });
 
   final List<SearchEntry> entries;
+
+  /// [entries] is the whole library, so printed text kept for documents
+  /// not in it can be forgotten.
+  final bool complete;
   final Future<LibrarySearchService> Function() service;
 
   /// Opens a document, at [page] if given, with [query] searched in it.
@@ -60,6 +65,9 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
   /// What's ready to search, by document id.
   final _docs = <String, SearchableDocument>{};
   bool _loading = true;
+
+  /// Documents loaded so far (while loading).
+  int _loaded = 0;
   String _query = '';
   List<DocumentMatch> _results = const [];
   Timer? _typing;
@@ -111,6 +119,8 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
     }
     final toRead = <SearchEntry>[];
     for (final e in widget.entries) {
+      if (!mounted) return;
+      setState(() => _loaded++);
       final hand = await service
           .handwriting(e.id)
           .catchError((_) => <PageText>[]);
@@ -130,11 +140,13 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
       _docs[e.id] = _doc(e, [...hand, ...printed]);
       if (!mounted) return;
     }
-    unawaited(
-      service
-          .keepOnly({for (final e in widget.entries) e.id})
-          .catchError((_) {}),
-    );
+    if (widget.complete && widget.entries.isNotEmpty) {
+      unawaited(
+        service
+            .keepOnly({for (final e in widget.entries) e.id})
+            .catchError((_) {}),
+      );
+    }
     setState(() {
       _loading = false;
       _search();
@@ -165,18 +177,24 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
         _readingAt = i + 1;
       });
       final ok = await service
-          .readPrinted(e.id, e.path!, (page, pages) {
-            if (!mounted || pages == 0) return;
-            estimate.update(
-              bytesDone: done + (e.size * page / pages).round(),
-              elapsed: DateTime.now().difference(started),
-            );
-            setState(() {
-              _fraction =
-                  estimate.fraction ?? (i + page / pages) / entries.length;
-              _left = estimate.remaining;
-            });
-          }, () => _stop || !mounted)
+          .readPrinted(
+            e.id,
+            e.path!,
+            (page, pages) {
+              if (!mounted || pages == 0) return;
+              estimate.update(
+                bytesDone: done + (e.size * page / pages).round(),
+                elapsed: DateTime.now().difference(started),
+              );
+              setState(() {
+                _fraction =
+                    estimate.fraction ?? (i + page / pages) / entries.length;
+                _left = estimate.remaining;
+              });
+            },
+            () => _stop || !mounted,
+            pause: () => _paused?.future ?? Future.value(),
+          )
           .catchError((_) => false);
       done += e.size;
       if (!mounted) return;
@@ -207,17 +225,26 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
 
   void _search() => _results = searchLibrary(_docs.values, _query);
 
+  /// Set while a document opened from here is open: reading printed text
+  /// waits, so it doesn't slow the document down.
+  Completer<void>? _paused;
+
   Future<void> _open(String id, int? page) async {
-    await widget.onOpen(id, page, _query);
-    // What's written may have changed there.
+    final pause = _paused ??= Completer<void>();
+    try {
+      await widget.onOpen(id, page, tidySearch(_query));
+    } finally {
+      _paused = null;
+      pause.complete();
+    }
+    // What's written, and its pages, may have changed there.
     final service = _service;
     final e = widget.entries.where((e) => e.id == id).firstOrNull;
     if (service == null || e == null || !mounted) return;
     final hand = await service.handwriting(id).catchError((_) => <PageText>[]);
-    final printed = [
-      for (final p in _docs[id]?.pages ?? const <PageText>[])
-        if (p.kind == FoundIn.printed) p,
-    ];
+    final printed =
+        await service.savedPrinted(id).catchError((_) => null) ??
+        const <PageText>[];
     if (!mounted) return;
     setState(() {
       _docs[id] = _doc(e, [...hand, ...printed]);
@@ -301,14 +328,18 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
 
   Widget _body(ThemeData theme) {
     if (_loading) {
-      return const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 12),
-            Text('Getting your documents ready…'),
-          ],
+      final n = widget.entries.length;
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Getting your documents ready… ($_loaded of $n)'),
+              const SizedBox(height: 12),
+              LinearProgressIndicator(value: n == 0 ? null : _loaded / n),
+            ],
+          ),
         ),
       );
     }

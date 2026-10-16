@@ -13,11 +13,13 @@ import '../storage/sqlite_page_layout_store.dart';
 import '../storage/sqlite_printed_text_store.dart';
 
 /// Reads a PDF's printed text, page by page ([onPage] after each, with the
-/// page count); stops early (returning null) once [stop] says so.
-typedef PrintedTextReader = Future<Map<int, String>?> Function(
+/// page count), waiting on [pause] before each page; stops early
+/// (returning null) once [stop] says so.
+typedef PrintedTextReader = Future<PrintedPages?> Function(
   String path,
   void Function(int done, int total) onPage,
   bool Function() stop,
+  Future<void> Function() pause,
 );
 
 /// Gathers what the home screen's search looks through: each document's
@@ -54,9 +56,16 @@ class LibrarySearchService {
   final PersonalDictionary? dictionary;
   final PrintedTextReader readPdf;
 
-  Future<PageLayout?> _layout(String id) async {
+  /// [id]'s own pages, checked against the PDF's page count when it's
+  /// known, as the viewer does (saved pages that don't fit the file are
+  /// ignored and the PDF is shown as it is).
+  Future<PageLayout?> _layout(String id, {PrintedPages? saved}) async {
     try {
-      return PageLayout.fromJson(await layouts.load(id));
+      final count = (saved ?? await printed.load(id))?.pageCount ?? 0;
+      return PageLayout.fromJson(
+        await layouts.load(id),
+        count == 0 ? null : count,
+      );
     } catch (_) {
       return null;
     }
@@ -87,9 +96,9 @@ class LibrarySearchService {
   Future<List<PageText>?> savedPrinted(String id) async {
     final saved = await printed.load(id);
     if (saved == null) return null;
-    final layout = await _layout(id);
+    final layout = await _layout(id, saved: saved);
     return [
-      for (final e in printedByPosition(saved, layout).entries)
+      for (final e in printedByPosition(saved.pages, layout).entries)
         (page: e.key, kind: FoundIn.printed, text: e.value),
     ];
   }
@@ -100,16 +109,18 @@ class LibrarySearchService {
     String id,
     String path,
     void Function(int done, int total) onPage,
-    bool Function() stop,
-  ) async {
-    final pages = await readPdf(path, onPage, stop);
+    bool Function() stop, {
+    Future<void> Function()? pause,
+  }) async {
+    final pages = await readPdf(path, onPage, stop, pause ?? () async {});
     if (pages == null) return false;
     await printed.save(id, pages);
     return true;
   }
 
   /// Marks [id] read with no printed text (a notebook's pages are blank).
-  Future<void> noPrinted(String id) => printed.save(id, const {});
+  Future<void> noPrinted(String id) =>
+      printed.save(id, (pages: const {}, pageCount: 0));
 
   /// Forgets the printed text of documents no longer in the library.
   Future<void> keepOnly(Set<String> ids) async {
@@ -119,28 +130,38 @@ class LibrarySearchService {
   }
 }
 
-/// [PrintedTextReader] with PDFium (pdfrx).
-Future<Map<int, String>?> readPrintedText(
+/// [PrintedTextReader] with PDFium (pdfrx), which reads PDFs in its own
+/// background worker. A PDF that can't be opened (damaged, or locked with
+/// a password) counts as having no printed text, so it isn't tried again
+/// every time.
+Future<PrintedPages?> readPrintedText(
   String path,
   void Function(int done, int total) onPage,
   bool Function() stop,
+  Future<void> Function() pause,
 ) async {
-  final doc = await PdfDocument.openFile(path);
+  final PdfDocument doc;
+  try {
+    doc = await PdfDocument.openFile(path);
+  } catch (_) {
+    return (pages: const <int, String>{}, pageCount: 0);
+  }
   try {
     final out = <int, String>{};
     final n = doc.pages.length;
     for (var i = 0; i < n; i++) {
+      await pause();
       if (stop()) return null;
       try {
         final text = (await doc.pages[i].loadText())?.fullText ?? '';
-        final tidy = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+        final tidy = tidySearch(text);
         if (tidy.isNotEmpty) out[i + 1] = tidy;
       } catch (_) {
         // A page that can't be read is just not searched.
       }
       onPage(i + 1, n);
     }
-    return out;
+    return (pages: out, pageCount: n);
   } finally {
     await doc.dispose();
   }

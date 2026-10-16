@@ -79,6 +79,40 @@ void main() {
       expect(pageHandwriting(wordsJson: 'not json'), '');
     });
 
+    test('shorthand: a phrase as written or written out, counted once', () {
+      final d = PersonalDictionary()..addShorthand('brb', 'be right back');
+      final text = pageHandwriting(
+        wordsJson: words(['brb', 'see', 'brb']),
+        expand: d.expand,
+      );
+      final doc = SearchableDocument(
+        id: 'd',
+        name: 'd',
+        pages: [(page: 1, kind: FoundIn.handwriting, text: text)],
+      );
+      expect(searchLibrary([doc], 'brb see').single.pages.single.count, 1);
+      expect(searchLibrary([doc], 'back see').single.pages.single.count, 1);
+      expect(searchLibrary([doc], 'brb').single.pages.single.count, 2);
+      // Not across the two.
+      expect(searchLibrary([doc], 'brb be right'), isEmpty);
+    });
+
+    test('a snippet never splits an emoji', () {
+      final text = '${'a' * 39}\u{1F600}x match';
+      final m = searchLibrary(
+        [
+          SearchableDocument(
+            id: 'e',
+            name: 'e',
+            pages: [(page: 1, kind: FoundIn.printed, text: text)],
+          ),
+        ],
+        'match',
+        around: 8,
+      ).single.pages.single;
+      expect(m.before.runes.every((r) => r < 0xD800 || r > 0xDFFF), isTrue);
+    });
+
     test('pages by where they are shown', () {
       final layout = PageLayout(const [
         LaidOutPage.pdf(2),
@@ -110,10 +144,11 @@ void main() {
     test('read once, kept, and forgotten', () async {
       final s = SqlitePrintedTextStore(db);
       expect(await s.load('a'), isNull);
-      await s.save('a', {1: 'hello', 3: 'there'});
-      await s.save('nb', const {});
-      expect(await s.load('a'), {1: 'hello', 3: 'there'});
-      expect(await s.load('nb'), isEmpty);
+      await s.save('a', (pages: {1: 'hello', 3: 'there'}, pageCount: 4));
+      await s.save('nb', (pages: const {}, pageCount: 0));
+      expect((await s.load('a'))!.pages, {1: 'hello', 3: 'there'});
+      expect((await s.load('a'))!.pageCount, 4);
+      expect((await s.load('nb'))!.pages, isEmpty);
       expect(await s.documents(), {'a', 'nb'});
       await s.forget('a');
       expect(await s.load('a'), isNull);
@@ -127,11 +162,12 @@ void main() {
         ink: ink,
         layouts: MemoryPageLayoutStore(),
         printed: MemoryPrintedTextStore(),
-        readPdf: (path, onPage, stop) async {
+        readPdf: (path, onPage, stop, pause) async {
           reads++;
+          await pause();
           if (stop()) return null;
           onPage(1, 1);
-          return {1: 'printed words'};
+          return (pages: {1: 'printed words'}, pageCount: 1);
         },
       );
       expect((await service.handwriting('a')).single.text, 'osmosis');
@@ -141,6 +177,22 @@ void main() {
       expect(await service.readPrinted('a', 'f', (_, _) {}, () => false), true);
       expect((await service.savedPrinted('a'))!.single.text, 'printed words');
       expect(reads, 2);
+      // Pages of its own that don't fit the PDF any more are ignored, as
+      // the viewer does.
+      final layouts = MemoryPageLayoutStore();
+      await layouts.save(
+        'a',
+        PageLayout(const [
+          LaidOutPage.pdf(2),
+          LaidOutPage.pdf(1),
+        ], pdfPageCount: 2),
+      );
+      final checked = LibrarySearchService(
+        ink: ink,
+        layouts: layouts,
+        printed: service.printed,
+      );
+      expect((await checked.savedPrinted('a'))!.single.page, 1);
       await service.keepOnly({'b'});
       expect(await service.savedPrinted('a'), isNull);
     });
@@ -150,7 +202,7 @@ void main() {
     tester,
   ) async {
     final printed = MemoryPrintedTextStore();
-    final reading = Completer<Map<int, String>?>();
+    final reading = Completer<PrintedPages?>();
     final opened = <(String, int?, String)>[];
     late LibrarySearchService service;
     await tester.runAsync(() async {
@@ -164,7 +216,7 @@ void main() {
         ink: ink,
         layouts: MemoryPageLayoutStore(),
         printed: printed,
-        readPdf: (path, onPage, stop) {
+        readPdf: (path, onPage, stop, pause) {
           onPage(1, 2);
           return reading.future;
         },
@@ -185,7 +237,7 @@ void main() {
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     for (
       var i = 0;
-      i < 20 && find.byType(LinearProgressIndicator).evaluate().isEmpty;
+      i < 20 && find.textContaining('Reading printed').evaluate().isEmpty;
       i++
     ) {
       await tester.runAsync(
@@ -198,7 +250,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 250));
     expect(find.text('Page 2 · handwriting'), findsOneWidget);
 
-    reading.complete({1: 'chlorophyll is green'});
+    reading.complete((pages: {1: 'chlorophyll is green'}, pageCount: 2));
     for (
       var i = 0;
       i < 20 && find.byType(LinearProgressIndicator).evaluate().isNotEmpty;
@@ -210,7 +262,7 @@ void main() {
       await tester.pump();
     }
     expect(find.textContaining('Reading printed text'), findsNothing);
-    expect(await printed.load('n'), isEmpty);
+    expect((await printed.load('n'))!.pages, isEmpty);
     await tester.enterText(find.byType(TextField), 'chlorophyll');
     await tester.pump(const Duration(milliseconds: 250));
     expect(find.text('Page 1 · printed'), findsOneWidget);
