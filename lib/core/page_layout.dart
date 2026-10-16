@@ -100,6 +100,7 @@ class PageLayout {
     List<LaidOutPage> pages, {
     required this.pdfPageCount,
     int nextKey = firstOwnKey,
+    this.notebook = false,
   }) : pages = List.unmodifiable(pages),
        nextKey = _above(pages, nextKey);
 
@@ -108,7 +109,34 @@ class PageLayout {
     : pages = List.unmodifiable([
         for (var n = 1; n <= pdfPageCount; n++) LaidOutPage.pdf(n),
       ]),
-      nextKey = firstOwnKey;
+      nextKey = firstOwnKey,
+      notebook = false;
+
+  /// A notebook (owner: notebooks without a PDF): one blank page of
+  /// [paper]. Its PDF is a single empty page of the app's own, never
+  /// shown.
+  factory PageLayout.newNotebook({
+    required Paper paper,
+    double width = 595,
+    double height = 842,
+    double? lineGap,
+  }) => PageLayout(
+    [
+      LaidOutPage.blank(
+        firstOwnKey,
+        paper: paper,
+        width: width,
+        height: height,
+        lineGap: lineGap,
+      ),
+    ],
+    pdfPageCount: 1,
+    notebook: true,
+  );
+
+  /// A notebook: its PDF is the app's own empty page, so it has no pages
+  /// of its own to put back.
+  final bool notebook;
 
   /// The key the next new page gets: never one used before in this
   /// document, so a page taken out can't hand its ink to a new one.
@@ -125,6 +153,7 @@ class PageLayout {
     pages,
     pdfPageCount: pdfPageCount,
     nextKey: nextKey ?? this.nextKey,
+    notebook: notebook,
   );
 
   /// Keys of pages of our own start here, well past any PDF's page count.
@@ -165,6 +194,7 @@ class PageLayout {
   /// The PDF's own pages not shown (removed by the user; they can be put
   /// back), in their own order. Copies don't count.
   List<int> get hiddenPdfPages {
+    if (notebook) return const [];
     final shown = {for (final p in pages) p.key};
     return [
       for (var n = 1; n <= pdfPageCount; n++)
@@ -276,6 +306,7 @@ class PageLayout {
   String toJson() => jsonEncode({
     'n': pdfPageCount,
     'x': nextKey,
+    if (notebook) 'nb': true,
     'pages': [for (final p in pages) p.toJson()],
   });
 
@@ -312,6 +343,7 @@ class PageLayout {
         pages,
         pdfPageCount: pdfPageCount,
         nextKey: (j['x'] as int?) ?? firstOwnKey,
+        notebook: j['nb'] == true,
       );
     }
   }
@@ -324,6 +356,9 @@ abstract class PageLayoutStore {
 
   /// Saves [layout] (a plain one too: it remembers [PageLayout.nextKey]).
   Future<void> save(String documentId, PageLayout layout);
+
+  /// The ids of notebooks (see [PageLayout.notebook]).
+  Future<List<String>> notebooks();
 }
 
 /// A [PageLayoutStore] in memory (tests, or when the database can't open).
@@ -337,4 +372,10 @@ class MemoryPageLayoutStore implements PageLayoutStore {
   Future<void> save(String documentId, PageLayout layout) async {
     _layouts[documentId] = layout.toJson();
   }
+
+  @override
+  Future<List<String>> notebooks() async => [
+    for (final e in _layouts.entries)
+      if (PageLayout.fromJson(e.value)?.notebook ?? false) e.key,
+  ];
 }

@@ -68,6 +68,24 @@ void main() {
       expect(keys(b), [1, k2]);
     });
 
+    test('a notebook: one blank page, nothing of a PDF to put back', () {
+      final nb = PageLayout.newNotebook(paper: Paper.dotted);
+      expect(nb.notebook, isTrue);
+      expect(nb.at(1).isBlank, isTrue);
+      expect(nb.hiddenPdfPages, isEmpty);
+      final (more, _) = nb.insert(
+        2,
+        paper: Paper.lined,
+        width: 595,
+        height: 842,
+      );
+      expect(more.notebook, isTrue);
+      final back = PageLayout.fromJson(more.toJson(), 1)!;
+      expect(back.notebook, isTrue);
+      expect(back.length, 2);
+      expect(back.hiddenPdfPages, isEmpty);
+    });
+
     test('kept as JSON, and not trusted when it doesn\'t fit', () {
       final (l, k) = PageLayout.of(2).insert(
         1,

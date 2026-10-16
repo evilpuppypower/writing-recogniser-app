@@ -5,12 +5,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/app_settings.dart';
 import 'package:writing_recogniser/core/document_state.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
+import 'package:writing_recogniser/core/page_layout.dart';
 import 'package:writing_recogniser/core/recent_pdfs.dart';
 import 'package:writing_recogniser/core/stored_copy.dart';
 import 'package:writing_recogniser/import/pdf_import_channel.dart';
 import 'package:writing_recogniser/library/home_screen.dart';
 import 'package:writing_recogniser/library/recent_store.dart';
 import 'package:writing_recogniser/library/thumbnails.dart';
+import 'package:writing_recogniser/viewer/pdf_viewer_screen.dart';
 import 'package:writing_recogniser/settings/settings_controller.dart';
 
 class FakeRecentStore extends RecentStore {
@@ -61,6 +63,9 @@ void main() {
   Map<String, DocumentState> positions = {};
   Set<String> withInk = {};
   var crashCleared = false;
+  late MemoryPageLayoutStore layouts;
+  late List<List<String>> restored;
+  late List<String> notebookNames;
 
   Future<void> pumpHome(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1600, 2560);
@@ -84,6 +89,14 @@ void main() {
               readingPositions: () async => positions,
               inkDocuments: () async => withInk,
               clearLastCrash: () async => crashCleared = true,
+              pageLayouts: () async => layouts,
+              restoreNotebooks: (ids) async => restored.add([...ids]),
+              newNotebookFile: (name) async {
+                notebookNames.add(name);
+                final id = '1_2_$name.pdf';
+                copies = [...copies, stored('2_$name.pdf', pinned: true)];
+                return (id: id, path: '/nowhere/$id');
+              },
             ),
           ),
         ),
@@ -101,6 +114,34 @@ void main() {
     crash = null;
     positions = {};
     crashCleared = false;
+    layouts = MemoryPageLayoutStore();
+    restored = [];
+    notebookNames = [];
+  });
+
+  testWidgets('a new notebook: its paper, then it opens', (tester) async {
+    await pumpHome(tester);
+    await tester.tap(find.text('New notebook'));
+    await tester.pumpAndSettle();
+    expect(find.text('Lined to fit your writing'), findsOneWidget);
+    await tester.tap(find.text('Lined'));
+    await tester.pump();
+    await tester.tap(find.text('Create'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(notebookNames, hasLength(1));
+    expect(notebookNames.single, startsWith('Notebook '));
+    final id = '1_2_${notebookNames.single}.pdf';
+    final layout = PageLayout.fromJson(await layouts.load(id))!;
+    expect(layout.notebook, isTrue);
+    expect(layout.length, 1);
+    expect(layout.at(1).paper, Paper.lined);
+    expect(layout.hiddenPdfPages, isEmpty);
+    expect(await layouts.notebooks(), [id]);
+    // Notebook files the system cleared are put back each time the list
+    // is read.
+    expect(restored.last, [id]);
+    expect(find.byType(PdfViewerScreen), findsOneWidget);
   });
 
   testWidgets('after a crash, offers the details once and clears them', (

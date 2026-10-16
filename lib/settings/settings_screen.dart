@@ -21,6 +21,7 @@ import 'learning_screen.dart';
 import 'open_times_screen.dart';
 import 'replay_screen.dart';
 import 'stored_copies_screen.dart';
+import '../storage/sqlite_page_layout_store.dart';
 
 /// App settings: scroll tab appearance and how many imported PDFs to keep.
 class SettingsScreen extends StatefulWidget {
@@ -33,6 +34,7 @@ class SettingsScreen extends StatefulWidget {
     this.loadPenTools = PenToolsController.load,
     this.inkDocuments = _inkDocuments,
     this.deleteAllInk = _deleteAllInk,
+    this.deleteNotebooks = _deleteNotebooks,
     this.loadDiagnostics = _loadDiagnostics,
     this.saveFile = saveFileAs,
   });
@@ -50,6 +52,16 @@ class SettingsScreen extends StatefulWidget {
   static Future<Set<String>> _inkDocuments() async =>
       (await SqliteInkStore.open()).documentsWithInk();
 
+  /// Notebooks go with every copy (they can't be opened again), with
+  /// what's written in them.
+  static Future<void> _deleteNotebooks() async {
+    final layouts = await SqlitePageLayoutStore.open();
+    final ink = await SqliteInkStore.open();
+    for (final id in await layouts.notebooks()) {
+      await ink.deleteDocument(id);
+    }
+  }
+
   static Future<void> _deleteAllInk() async {
     final store = await SqliteInkStore.open();
     for (final id in await store.documentsWithInk()) {
@@ -65,6 +77,7 @@ class SettingsScreen extends StatefulWidget {
   final Future<PenToolsController> Function() loadPenTools;
   final Future<Set<String>> Function() inkDocuments;
   final Future<void> Function() deleteAllInk;
+  final Future<void> Function() deleteNotebooks;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -217,6 +230,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (ok ?? false) {
       await widget.clearCache();
+      await widget.deleteNotebooks().catchError((_) {});
       if (deleteInk && inkCount > 0) await widget.deleteAllInk();
       _refreshCache();
     }

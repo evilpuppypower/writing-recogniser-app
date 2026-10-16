@@ -31,4 +31,16 @@ class SqlitePageLayoutStore implements PageLayoutStore {
       'layout': layout.toJson(),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
+
+  @override
+  Future<List<String>> notebooks() async => [
+    for (final r in await _db.query(
+      'page_layouts',
+      columns: ['document_id', 'layout'],
+      where: 'layout LIKE ?',
+      whereArgs: ['%"nb":true%'],
+    ))
+      if (PageLayout.fromJson(r['layout'] as String?)?.notebook ?? false)
+        r['document_id']! as String,
+  ];
 }
