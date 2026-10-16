@@ -24,6 +24,7 @@ import '../core/event_log.dart';
 import '../core/feedback/vocabulary.dart';
 import '../core/ink_store.dart';
 import '../core/nearby_classifier.dart';
+import '../core/writing_rhythm.dart';
 import '../core/open_timing.dart';
 import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
@@ -1265,13 +1266,43 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// pause, so the log doesn't keep growing).
   final _reads = ReadSummary();
 
+  /// How long the user pauses mid-word, learned as they write (owner's
+  /// approved idea 5); started from what was learned before.
+  WritingRhythm? _rhythm;
+  PageStroke? _lastStroke;
+  int _rhythmSaved = 0;
+
   void _inkChangedForText(int page) {
     _labelsShown.wake();
+    final settings = SettingsScope.of(context);
+    final strokes = _ink.ink.strokesOn(page);
+    final rhythm = _rhythm ??= WritingRhythm(
+      startMs: settings.value.learnedPauseMs,
+    );
+    // A stroke just written: carrying on the word before it?
+    final last = strokes.isEmpty ? null : strokes.last;
+    if (last != null && !identical(last, _lastStroke)) {
+      final before = _lastStroke;
+      if (before != null &&
+          last.points.isNotEmpty &&
+          before.points.isNotEmpty &&
+          last.points.first.t > before.points.last.t &&
+          rhythm.wrote(before, last) &&
+          (rhythm.pauseMs - _rhythmSaved).abs() >= 50) {
+        _rhythmSaved = rhythm.pauseMs;
+        settings.update(
+          settings.value.copyWith(learnedPauseMs: rhythm.pauseMs),
+        );
+      }
+      _lastStroke = last;
+    }
     _text.inkChanged(
       page,
-      _ink.ink.strokesOn(page),
+      strokes,
       Duration(
-        milliseconds: SettingsScope.of(context).value.recognitionPauseMs,
+        milliseconds: settings.value.autoPause
+            ? rhythm.pauseMs
+            : settings.value.recognitionPauseMs,
       ),
     );
   }

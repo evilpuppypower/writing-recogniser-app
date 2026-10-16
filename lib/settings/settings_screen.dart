@@ -398,36 +398,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(),
           const _Header('Handwriting'),
-          ListTile(
-            title: Text(
-              'Recognise after a '
-              '${(s.recognitionPauseMs / 1000).toStringAsFixed(1)} s pause',
+          SwitchListTile(
+            title: const Text('Learn how long I pause'),
+            subtitle: Text(
+              s.autoPause
+                  ? 'Waits ${(s.learnedPauseMs / 1000).toStringAsFixed(1)} s '
+                        'after you lift the pen, learned from how long you '
+                        'pause in the middle of words. Keeps adjusting as you '
+                        'write.'
+                  : 'Off: uses the pause you set below.',
             ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Slider(
-                  value: s.recognitionPauseMs.toDouble(),
-                  min: AppSettings.minRecognitionPauseMs.toDouble(),
-                  max: AppSettings.maxRecognitionPauseMs.toDouble(),
-                  divisions:
-                      (AppSettings.maxRecognitionPauseMs -
-                          AppSettings.minRecognitionPauseMs) ~/
-                      100,
-                  label:
-                      '${(s.recognitionPauseMs / 1000).toStringAsFixed(1)} s',
-                  onChanged: (v) => settings.update(
-                    s.copyWith(recognitionPauseMs: v.round()),
-                  ),
-                ),
-                const Text(
-                  'How long after you lift the pen before your writing is '
-                  'turned into text. Shorter feels quicker but may cut words '
-                  'in half if you pause mid-word.',
-                ),
-              ],
-            ),
+            value: s.autoPause,
+            onChanged: (v) => settings.update(s.copyWith(autoPause: v)),
           ),
+          if (!s.autoPause)
+            ListTile(
+              title: Text(
+                'Recognise after a '
+                '${(s.recognitionPauseMs / 1000).toStringAsFixed(1)} s pause',
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Slider(
+                    value: s.recognitionPauseMs.toDouble(),
+                    min: AppSettings.minRecognitionPauseMs.toDouble(),
+                    max: AppSettings.maxRecognitionPauseMs.toDouble(),
+                    divisions:
+                        (AppSettings.maxRecognitionPauseMs -
+                            AppSettings.minRecognitionPauseMs) ~/
+                        100,
+                    label:
+                        '${(s.recognitionPauseMs / 1000).toStringAsFixed(1)} s',
+                    onChanged: (v) => settings.update(
+                      s.copyWith(recognitionPauseMs: v.round()),
+                    ),
+                  ),
+                  const Text(
+                    'How long after you lift the pen before your writing is '
+                    'turned into text. Shorter feels quicker but may cut words '
+                    'in half if you pause mid-word.',
+                  ),
+                ],
+              ),
+            ),
           ListTile(
             title: const Text('Writing hand'),
             subtitle: Column(

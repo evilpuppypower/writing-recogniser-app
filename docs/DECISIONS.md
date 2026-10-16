@@ -635,3 +635,10 @@ The diagnostic report now records each read after a pause: strokes on the page, 
 - **Arranging an export:** the export's Pages choice gains **Arrange pages**. Pages can be dragged into a new order, left out, or have blank pages added after them. A blank page is the size of the page before it (the first page's size at the very start), and dark in a dark export. An arranged export is a new PDF made from the pages, so it doesn't carry over the original's contents list or form fields; plain exports still do.
 - Only the exported copy changes: the PDF and the app's own pages stay as they are (rule 6). So bookmarks and ink never move, and the question of bookmarks following moved pages doesn't come up.
 - Blank pages to write on inside the app aren't built. They'd mean the app's pages no longer match the PDF's own, which needs an owner decision first.
+
+## 2026-10-16 — A reading pause that learns how the user writes (owner's approved idea 5)
+
+Reading waits after the pen lifts. That wait now adapts to the user. Each time a stroke carries on the word before it (beside it on the same line, under half a letter apart), the pen-up time between the two is kept, up to the last 200. Once 20 have been seen, the pause aims just above nine in ten of them (×1.3, plus 0.15 s). It moves a quarter of the way at a time, so one odd pause doesn't swing it, and it stays between 0.4 and 2.5 s.
+- The space between words, new lines and i-dots don't count, so only real mid-word pauses do.
+- The learned pause is kept between sessions. Settings shows it: "Learn how long I pause" (on by default). Turning it off brings back the fixed slider.
+- The handwriting test screen uses the same pause.

@@ -331,6 +331,19 @@ void main() {
 
   testWidgets('recognition pause slider changes the setting', (tester) async {
     await pumpScreen(tester);
+    // Learned automatically at first; the slider is for when that's off.
+    final learn = find.text('Learn how long I pause');
+    await tester.scrollUntilVisible(
+      learn,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Recognise after a 0.8 s pause'), findsNothing);
+    await tester.ensureVisible(learn);
+    await tester.pumpAndSettle();
+    await tester.tap(learn);
+    await tester.pumpAndSettle();
+    expect(settings.value.autoPause, isFalse);
     final title = find.text('Recognise after a 0.8 s pause');
     await tester.scrollUntilVisible(
       title,
