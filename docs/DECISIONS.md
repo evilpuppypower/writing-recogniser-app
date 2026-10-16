@@ -632,6 +632,6 @@ The diagnostic report now records each read after a pause: strokes on the page, 
 ## 2026-10-16 — Page tools: a pages grid, and arranging pages in exports (owner's choice: page tools)
 
 - **All pages** (a new grid button next to Contents): every page small, with its ink and its bookmark ribbon, and dark when the PDF's pages are dark. Tap a page to go there. "With ink or bookmarks" shows only those pages. It opens near the page you're on.
-- **Arranging an export:** the export's Pages choice gains **Arrange pages**. Pages can be dragged into a new order, left out, or have blank pages added after them, and a page can appear more than once. A blank page is the size of the page before it, and dark in a dark export.
+- **Arranging an export:** the export's Pages choice gains **Arrange pages**. Pages can be dragged into a new order, left out, or have blank pages added after them. A blank page is the size of the page before it (the first page's size at the very start), and dark in a dark export. An arranged export is a new PDF made from the pages, so it doesn't carry over the original's contents list or form fields; plain exports still do.
 - Only the exported copy changes: the PDF and the app's own pages stay as they are (rule 6). So bookmarks and ink never move, and the question of bookmarks following moved pages doesn't come up.
 - Blank pages to write on inside the app aren't built. They'd mean the app's pages no longer match the PDF's own, which needs an owner decision first.

@@ -64,7 +64,7 @@ class _PagesScreenState extends State<_PagesScreen> {
       // As the grid lays them out: as many columns of at most [_extent]
       // as fit, 12 apart, inside 12 of padding.
       final width = MediaQuery.sizeOf(context).width - 24;
-      final perRow = ((width + 12) / (_extent + 12)).ceil().clamp(1, 1000);
+      final perRow = (width / (_extent + 12)).ceil().clamp(1, 1000);
       final cell = (width - (perRow - 1) * 12) / perRow;
       final row = (widget.currentPage - 1) ~/ perRow;
       _scroll.jumpTo(
@@ -205,6 +205,17 @@ class PageThumbnail extends StatelessWidget {
       decoration: const BoxDecoration(color: Colors.white),
     );
     if (dark) pdf = ColorFiltered(colorFilter: _night, child: pdf);
+    // The page and its ink share one box of the page's own shape, so the
+    // ink sits on the page whatever space the thumbnail is given.
+    return Center(
+      child: AspectRatio(
+        aspectRatio: page.width / page.height,
+        child: _stack(context, pdf),
+      ),
+    );
+  }
+
+  Widget _stack(BuildContext context, Widget pdf) {
     return Stack(
       fit: StackFit.expand,
       children: [

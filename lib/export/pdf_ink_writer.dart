@@ -381,7 +381,14 @@ Uint8List _arranged(
   final width = calloc<Double>(), height = calloc<Double>();
   try {
     var at = 0;
-    var size = (612.0, 792.0); // US Letter until a page says otherwise
+    // A blank page is the size of the page before it; one at the start is
+    // the size of the first of the PDF's own pages in the export.
+    var size = (612.0, 792.0);
+    final first = wanted.firstWhere((n) => n != null, orElse: () => null);
+    if (first != null &&
+        lib.FPDF_GetPageSizeByIndex(doc, first - 1, width, height) != 0) {
+      size = (width.value, height.value);
+    }
     for (var i = 0; i < wanted.length;) {
       final n = wanted[i];
       if (n == null) {

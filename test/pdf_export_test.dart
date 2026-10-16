@@ -26,10 +26,12 @@ String blankPdf(
   Directory dir,
   int pages, {
   int quarterTurns = 0,
+  double width = 612,
+  double height = 792,
 }) {
   final doc = lib.FPDF_CreateNewDocument();
   for (var i = 0; i < pages; i++) {
-    final page = lib.FPDFPage_New(doc, i, 612, 792);
+    final page = lib.FPDFPage_New(doc, i, width, height);
     if (quarterTurns != 0) lib.FPDFPage_SetRotation(page, quarterTurns);
     lib.FPDF_ClosePage(page);
   }
@@ -600,6 +602,22 @@ void main() {
         ..free(w)
         ..free(h);
       lib.FPDF_CloseDocument(doc);
+      // A blank page first: the size of the PDF's own pages (A4 here).
+      final a4 = blankPdf(lib, dir, 1, width: 595, height: 842);
+      final first = File('${dir.path}/a4.pdf')
+        ..writeAsBytesSync(
+          writeInkIntoPdf(lib, a4, const {}, pageOrder: [null, 1]),
+        );
+      final p2 = first.path.toNativeUtf8();
+      final doc2 = lib.FPDF_LoadDocument(p2.cast(), nullptr);
+      malloc.free(p2);
+      final w2 = calloc<Double>(), h2 = calloc<Double>();
+      lib.FPDF_GetPageSizeByIndex(doc2, 0, w2, h2);
+      expect((w2.value, h2.value), (595.0, 842.0));
+      calloc
+        ..free(w2)
+        ..free(h2);
+      lib.FPDF_CloseDocument(doc2);
       expect(
         () => writeInkIntoPdf(lib, src, const {}, pageOrder: [null, 7]),
         throwsA(isA<PdfExportException>()),
