@@ -322,7 +322,14 @@ class InkTextController extends ChangeNotifier {
 
   static bool _slantChanged(Slant? a, Slant? b) => a == null || b == null
       ? (a == null) != (b == null)
-      : (a.angle - b.angle).abs() > 3 * math.pi / 180;
+      : _turnBetween(a.angle, b.angle) > 3 * math.pi / 180;
+
+  /// The turn from one direction to another (radians, 0..pi): writing at
+  /// 179 degrees and at -179 degrees is only 2 degrees apart.
+  static double _turnBetween(double a, double b) {
+    final d = (a - b).abs() % (2 * math.pi);
+    return math.min(d, 2 * math.pi - d);
+  }
 
   static String _lastWord(String text) {
     final parts = text.trim().split(RegExp(r'\s+'));
