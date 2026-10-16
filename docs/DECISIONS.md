@@ -700,3 +700,7 @@ When pages are picked or arranged, or were added, moved or taken out in the app,
 - Android may clear the app's cache folder, where stored copies live. A notebook's file is only an empty page, and its writing is kept in the database, so the home screen puts back any missing notebook file each time it loads. Deleting a notebook (Settings, stored PDFs) deletes it with everything written in it, whatever the "keep my ink" setting, since it can't be opened again; "Delete ALL" deletes notebooks too. So a deleted notebook doesn't come back. Notebooks have no Unpin.
 - A notebook's picture on the home screen shows the ink of its first page. Other PDFs' pictures still show the PDF's page 1 with its ink.
 - Paper dots are exported as very short lines with round ends, since some PDF apps skip lines of no length.
+
+## 2026-10-16 — Zooming out to half (owner)
+
+Any PDF can be zoomed out to half of the zoom that fills the screen with the page, which was the smallest before. It opens at the same zoom as before. More pages are drawn at once when zoomed out, so very long PDFs may take a moment longer to draw at the smallest zoom.
