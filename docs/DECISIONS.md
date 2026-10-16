@@ -747,3 +747,11 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
   - Suggestions from the writing can be turned off in Settings, "Suggest tags from what's in a document". It's all read on the tablet. Printed text isn't used yet; that comes with reading scanned PDFs.
 - The home screen gets a row of tags. Tap one to see only its documents. Long-press one to change its colour or delete it from every document. Cards show their tags as coloured dots and names.
 - Kept in `tags` and `document_tags` tables (database version 12). A document's tags go when it's deleted. The tags themselves stay for other documents.
+
+## 2026-10-16 — My words and shorthand (owner: a personal dictionary, added to from Settings and from the PDF)
+
+- **My words:** names, terms and spellings of the user's own. They count as words the user often writes, so they're preferred when the engine isn't sure (see personal re-ranking).
+- **Shorthand:** e.g. "w/" for "with". The handwriting and its label stay as written. Converting to typed text writes it out in full (on the page and in exports), and search finds it by either form.
+- **Learned:** when the same word is corrected the same way twice and it looks like shorthand, it's learned, and a message says so. That means at most 5 characters, at least 2 shorter than the correction, the same first letter, and its letters appearing in order in the correction. Learned shorthand is marked in the list and can be removed; once removed, it isn't learned again from earlier corrections.
+- **Adding:** Settings → "My words and shorthand" adds and removes both. The correction pop-up has "Add to my words" and "“…” is my shorthand for…".
+- Kept on the tablet with the app's settings. A PDF open while the list is changed in Settings only adds its own additions on top, so nothing removed in Settings comes back.

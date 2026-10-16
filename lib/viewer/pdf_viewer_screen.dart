@@ -33,6 +33,7 @@ import '../core/nearby_classifier.dart';
 import '../core/personal_ink_kinds.dart';
 import '../core/shape_learning.dart';
 import '../core/writing_profile.dart';
+import '../core/feedback/personal_dictionary.dart';
 import '../core/shapes.dart' show ShapeKind;
 import '../core/blank_pdf.dart';
 import '../core/laid_out_stores.dart';
@@ -424,7 +425,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       for (final w in words)
         if (!w.key.split(',').any(done.contains)) w,
     ];
-    final map = typedTextByLine(fresh);
+    // Shorthand written out in full (owner: personal dictionary).
+    final map = typedTextByLine(fresh)
+      ..updateAll((_, t) => _dictionary.expand(t));
     final count = map.values.fold(0, (n, t) => n + t.split(' ').length);
     if (map.isEmpty) {
       messenger.showSnackBar(
@@ -1383,6 +1386,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         }
         if (w.key.split(',').any(converted.contains)) continue;
         out.add((page: page, line: w.line, box: w.box, text: w.text));
+        // Shorthand found by what it stands for too.
+        final full = _dictionary.expand(w.text);
+        if (full != w.text) {
+          out.add((page: page, line: w.line, box: w.box, text: full));
+        }
       }
       for (final s in strokes) {
         if (!s.isTextBox || s.points.length < 2) continue;
@@ -1628,6 +1636,75 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         );
       },
     );
+  }
+
+  /// The user's own words and shorthand (owner: personal dictionary).
+  final _dictionary = PersonalDictionary();
+
+  Future<void> _loadDictionary() async {
+    try {
+      final raw = await SharedPreferencesAsync().getString(
+        PersonalDictionary.prefsKey,
+      );
+      if (raw != null) _dictionary.load(jsonDecode(raw));
+    } catch (_) {}
+    _useMyWords(_dictionary.words);
+  }
+
+  /// The user's own words count as words they often write (preferred when
+  /// the engine isn't sure).
+  void _useMyWords(Iterable<String> words) {
+    for (final w in words) {
+      for (var i = 0; i < 3; i++) {
+        _text.feedback.used(w);
+      }
+    }
+  }
+
+  /// What was added here since the PDF opened (saved on top of what's
+  /// saved, so changes made in Settings meanwhile are kept).
+  final _addedWords = <String>[];
+  final _addedShort = <(String, String, bool)>[];
+
+  void _addMyWord(String word) {
+    _dictionary.addWord(word);
+    _addedWords.add(word);
+    _useMyWords([word]);
+    _saveDictionary();
+  }
+
+  void _addShorthand(String short, String full, {bool learned = false}) {
+    _dictionary.addShorthand(short, full, learned: learned);
+    _addedShort.add((short, full, learned));
+    _saveDictionary();
+  }
+
+  void _saveDictionary() {
+    try {
+      unawaited(
+        () async {
+          final prefs = SharedPreferencesAsync();
+          final raw = await prefs.getString(PersonalDictionary.prefsKey);
+          final merged = PersonalDictionary();
+          if (raw != null) merged.load(jsonDecode(raw));
+          for (final w in _addedWords) {
+            merged.addWord(w);
+          }
+          for (final (short, full, learned) in _addedShort) {
+            merged.addShorthand(short, full, learned: learned);
+          }
+          final json = {
+            ...merged.toJson(),
+            // Corrections seen towards learning shorthand: this PDF's.
+            'seen': _dictionary.toJson()['seen'],
+          };
+          await prefs.setString(PersonalDictionary.prefsKey, jsonEncode(json));
+          _addedWords.clear();
+          _addedShort.clear();
+          _dictionary.load(json);
+        }().catchError((_) {}),
+      );
+    } catch (_) {}
   }
 
   /// The user's usual letter size and slant (owner's approved idea 6),
@@ -2204,6 +2281,31 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     switch (fix) {
       case UseText(:final text):
         await _text.correct(page, word, text);
+        // Corrected the same way twice, shorthand is learned ("w/" ->
+        // "with").
+        if (_dictionary.learnFromCorrection(word.text, text)) {
+          final learned = _dictionary.shorthand[word.text.trim().toLowerCase()];
+          if (learned != null) {
+            _addedShort.add((word.text, learned.full, true));
+          }
+          _saveDictionary();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Learned: “${word.text}” is your shorthand for “$text”. '
+                  'It\'s written out in typed text and found by search.',
+                ),
+              ),
+            );
+          }
+        } else {
+          _saveDictionary();
+        }
+      case AddToMyWords(word: final w):
+        _addMyWord(w);
+      case AddShorthand(:final short, :final full):
+        _addShorthand(short, full);
       case LooksRight():
         _text.confirm(page, word);
       case NotWriting():
@@ -3067,6 +3169,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     unawaited(_loadInkKinds());
     unawaited(_loadShapeLearning());
     unawaited(_loadProfile());
+    unawaited(_loadDictionary());
     _ink.addListener(_checkTidiedShape);
     _text.printedText = _printedOf;
     _coloursLoaded = _loadColours();
@@ -3404,10 +3507,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       if (choice.searchable) text.addAll(read);
       // Owner's choice 1b: the rest converted too, in the export only.
       if (choice.convertRest) {
-        exportInk = inkWithRestConverted(_ink.ink, [
-          for (final p in _ink.ink.pagesWithInk)
-            if (choice.pages == null || choice.pages!.contains(p)) p,
-        ], _text.wordsOn);
+        exportInk = inkWithRestConverted(
+          _ink.ink,
+          [
+            for (final p in _ink.ink.pagesWithInk)
+              if (choice.pages == null || choice.pages!.contains(p)) p,
+          ],
+          _text.wordsOn,
+          expand: _dictionary.expand,
+        );
       }
     }
     // Converted handwriting as visible typed text (task 2.3d).

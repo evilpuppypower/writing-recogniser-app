@@ -35,6 +35,49 @@ Future<WordFix?> _open(WidgetTester tester, RecognizedWord w) async {
 }
 
 void main() {
+  testWidgets('add the word to my words, or say it is my shorthand', (
+    tester,
+  ) async {
+    Future<WordFix?> pick(Future<void> Function() act) async {
+      WordFix? got;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async =>
+                  got = await showCorrectWordSheet(context, _w),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await act();
+      await tester.pumpAndSettle();
+      return got;
+    }
+
+    final added = await pick(() async {
+      await tester.ensureVisible(find.text('Add to my words'));
+      await tester.tap(find.text('Add to my words'));
+    });
+    expect(added, isA<AddToMyWords>().having((f) => f.word, 'word', 'for'));
+    final short = await pick(() async {
+      await tester.ensureVisible(find.text('“for” is my shorthand for…'));
+      await tester.tap(find.text('“for” is my shorthand for…'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'forward');
+      await tester.tap(find.text('Add'));
+    });
+    expect(
+      short,
+      isA<AddShorthand>()
+          .having((f) => f.short, 'short', 'for')
+          .having((f) => f.full, 'full', 'forward'),
+    );
+  });
+
   testWidgets('tap an alternative', (tester) async {
     WordFix? got;
     await tester.pumpWidget(
