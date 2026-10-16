@@ -84,10 +84,8 @@ class _ArrangePagesScreenState extends State<_ArrangePagesScreen> {
             child: ReorderableListView.builder(
               buildDefaultDragHandles: false,
               itemCount: _pages.length,
-              onReorder: (from, to) => setState(() {
-                if (to > from) to--;
-                _pages.insert(to, _pages.removeAt(from));
-              }),
+              onReorderItem: (from, to) =>
+                  setState(() => _pages.insert(to, _pages.removeAt(from))),
               itemBuilder: (context, i) {
                 final p = _pages[i];
                 final n = p.page;

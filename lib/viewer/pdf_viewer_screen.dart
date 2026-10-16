@@ -162,6 +162,7 @@ class PdfViewerScreen extends StatefulWidget {
     Map<int, List<ExportWord>> text,
     Set<int>? onlyPages,
     bool darkPages,
+    List<int?>? pageOrder,
     List<String>? trace,
   })
   exportPdf;
@@ -2181,6 +2182,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           : ExportHandwriting.ink,
       anyConverted: _hasTyped,
       darkNow: _dark,
+      thumbnail: _controller.isReady
+          ? (n) => PageThumbnail(
+              document: _controller.document,
+              page: _controller.document.pages[n - 1],
+              ink: _ink.ink.strokesOn(n),
+              geometry: _geometryOf(_controller.document.pages[n - 1]),
+              dark: _dark,
+            )
+          : null,
       convertRest: switch (SettingsScope.of(context).value.exportConvertRest) {
         ExportConvertRest.on => true,
         ExportConvertRest.off => false,
@@ -2268,6 +2278,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       'handwriting': mode.name,
       'searchable': choice.searchable,
       'darkPages': choice.darkPages,
+      'pagesArranged': choice.pageOrder?.length,
+      'blankPages': choice.pageOrder?.where((n) => n == null).length,
       'convertRest': choice.convertRest,
       'pagesInPdf': _pageCount,
       'pagesChosen': choice.pages?.length,
@@ -2286,6 +2298,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         text: text,
         onlyPages: choice.pages,
         darkPages: choice.darkPages,
+        pageOrder: choice.pageOrder,
         trace: trace,
       );
     } catch (e) {
@@ -2310,7 +2323,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final took = (watch.elapsedMilliseconds / 1000).toStringAsFixed(1);
     // So a wrong page choice shows straight away.
     final all = _pageCount;
-    final n = choice.pages?.where((p) => all == null || p <= all).length ?? all;
+    final n =
+        choice.pageOrder?.length ??
+        choice.pages?.where((p) => all == null || p <= all).length ??
+        all;
     final pageCount = n == null ? 'all pages' : '$n page${n == 1 ? '' : 's'}';
     bool saved;
     try {
