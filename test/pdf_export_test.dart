@@ -490,7 +490,30 @@ void main() {
     });
 
     test('dark pages: every page dark, ink light, as on screen', () {
-      final src = blankPdf(lib, dir, 2);
+      // A page with printed content: a thick black line and a word of
+      // text, saved into the page itself (a light export).
+      final printed = writeInkIntoPdf(
+        lib,
+        blankPdf(lib, dir, 2),
+        {
+          1: exportLines([
+            PageStroke(
+              points: [
+                for (var x = 100; x <= 500; x += 10)
+                  PageInkPoint(x.toDouble(), 200, 0, 0.5),
+              ],
+              colorArgb: 0xFF000000,
+              width: 30,
+            ),
+          ], pressure: PressureResponse.none),
+        },
+        text: {
+          1: [const ExportWord('basalt', 100, 600, 200, 620)],
+        },
+      );
+      final src = (File(
+        '${dir.path}/printed.pdf',
+      )..writeAsBytesSync(printed)).path;
       final bytes = writeInkIntoPdf(lib, src, {
         1: exportLines([
           PageStroke(
@@ -528,6 +551,18 @@ void main() {
       expect(pixel(1, 300, 300), 0x202124);
       // Black ink comes out white on it.
       expect(pixel(0, 300, 400), 0xFFFFFF);
+      // And so does what was printed on the page: still there, reversed.
+      expect(pixel(0, 300, 200), 0xFFFFFF);
+      // Its text can still be found.
+      final page = lib.FPDF_LoadPage(doc, 0);
+      final text = lib.FPDFText_LoadPage(page);
+      final n = lib.FPDFText_CountChars(text);
+      final chars = String.fromCharCodes([
+        for (var i = 0; i < n; i++) lib.FPDFText_GetUnicode(text, i),
+      ]);
+      expect(chars, contains('basalt'));
+      lib.FPDFText_ClosePage(text);
+      lib.FPDF_ClosePage(page);
       lib.FPDF_CloseDocument(doc);
     });
 

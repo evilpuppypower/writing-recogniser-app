@@ -103,44 +103,21 @@ Uint8List writeInkIntoPdf(
         // Saved ink is relative to the visible page's bottom-left corner;
         // some PDFs don't put that corner at (0, 0).
         var dx = 0.0, dy = 0.0;
-        if (lib.FPDF_GetPageBoundingBox(page, box) != 0) {
+        final hasBox = lib.FPDF_GetPageBoundingBox(page, box) != 0;
+        if (hasBox) {
           dx = box.ref.left;
           dy = box.ref.bottom;
         }
         if (darkPages) {
-          // As on screen (see paintDarkPage): the colours reversed, then
-          // black lifted to a soft dark grey, over the page's own content
-          // and under the ink. First a white page under everything: a
-          // PDF page is see-through where nothing is printed, and
-          // reversing see-through changes nothing.
-          for (final (colour, mode, under) in [
-            (0xFFFFFF, nullptr, true),
-            (0xFFFFFF, difference, false),
-            (0x202124, lighten, false),
-          ]) {
-            final rect = lib.FPDFPageObj_CreateNewRect(
-              box.ref.left,
-              box.ref.bottom,
-              box.ref.right - box.ref.left,
-              box.ref.top - box.ref.bottom,
-            );
-            lib.FPDFPageObj_SetFillColor(
-              rect,
-              colour >> 16 & 0xFF,
-              colour >> 8 & 0xFF,
-              colour & 0xFF,
-              255,
-            );
-            lib.FPDFPath_SetDrawMode(rect, 1, 0); // fill, no stroke
-            if (mode != nullptr) {
-              lib.FPDFPageObj_SetBlendMode(rect, mode.cast());
-            }
-            if (under) {
-              lib.FPDFPage_InsertObjectAtIndex(page, rect, 0);
-            } else {
-              lib.FPDFPage_InsertObject(page, rect);
-            }
+          if (!hasBox) {
+            // No box: the page's own size, from its corner.
+            box.ref
+              ..left = 0
+              ..bottom = 0
+              ..right = lib.FPDF_GetPageWidthF(page)
+              ..top = lib.FPDF_GetPageHeightF(page);
           }
+          _darken(lib, doc, page, n, box.ref, difference, lighten);
         }
         for (final line in lines) {
           final p = line.points;
@@ -201,6 +178,57 @@ Uint8List writeInkIntoPdf(
   } finally {
     lib.FPDF_CloseDocument(doc);
   }
+}
+
+/// Turns page [n] (open as [page]) dark, as on screen (see paintDarkPage):
+/// its colours reversed, then black lifted to a soft dark grey. The page's
+/// own content is wrapped up as one object (its text still searchable)
+/// and put on a white page: a PDF page is see-through where nothing is
+/// printed, and reversing see-through would change nothing. Ink added
+/// afterwards goes on top.
+void _darken(
+  pdfium.PDFium lib,
+  pdfium.FPDF_DOCUMENT doc,
+  pdfium.FPDF_PAGE page,
+  int n,
+  pdfium.FS_RECTF box,
+  Pointer<Utf8> difference,
+  Pointer<Utf8> lighten,
+) {
+  final xobject = lib.FPDF_NewXObjectFromPage(doc, doc, n - 1);
+  if (xobject == nullptr) return; // left light rather than lost
+  final content = lib.FPDF_NewFormObjectFromXObject(xobject);
+  lib.FPDF_CloseXObject(xobject);
+  if (content == nullptr) return;
+  for (var i = lib.FPDFPage_CountObjects(page) - 1; i >= 0; i--) {
+    final obj = lib.FPDFPage_GetObject(page, i);
+    if (lib.FPDFPage_RemoveObject(page, obj) != 0) {
+      lib.FPDFPageObj_Destroy(obj);
+    }
+  }
+  pdfium.FPDF_PAGEOBJECT rect(int colour, Pointer<Utf8>? mode) {
+    final r = lib.FPDFPageObj_CreateNewRect(
+      box.left,
+      box.bottom,
+      box.right - box.left,
+      box.top - box.bottom,
+    );
+    lib.FPDFPageObj_SetFillColor(
+      r,
+      colour >> 16 & 0xFF,
+      colour >> 8 & 0xFF,
+      colour & 0xFF,
+      255,
+    );
+    lib.FPDFPath_SetDrawMode(r, 1, 0); // fill, no stroke
+    if (mode != null) lib.FPDFPageObj_SetBlendMode(r, mode.cast());
+    return r;
+  }
+
+  lib.FPDFPage_InsertObject(page, rect(0xFFFFFF, null));
+  lib.FPDFPage_InsertObject(page, content);
+  lib.FPDFPage_InsertObject(page, rect(0xFFFFFF, difference));
+  lib.FPDFPage_InsertObject(page, rect(0x202124, lighten));
 }
 
 /// Adds [w] to [page]: invisible text stretched over the word's box, so

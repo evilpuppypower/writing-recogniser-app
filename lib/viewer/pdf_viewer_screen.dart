@@ -388,6 +388,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   PageColours? _ownColours;
   DocumentColoursStore? _coloursStore;
 
+  Future<void> _coloursLoaded = Future.value();
+
   Future<void> _loadColours() async {
     PageColours? own;
     try {
@@ -397,14 +399,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     } catch (_) {
       _coloursStore = MemoryDocumentColoursStore();
     }
+    if (mounted && own != null) setState(() => _ownColours = own);
+  }
+
+  /// A PDF imported for the very first time (never opened before, so not
+  /// one whose stored copy was removed and brought back): asks how its
+  /// pages should look, once its first page is showing.
+  Future<void> _askColoursIfNew() async {
+    await _coloursLoaded;
     if (!mounted) return;
-    if (own != null) setState(() => _ownColours = own);
-    // Just imported for the first time: ask.
     final settings = context
         .getInheritedWidgetOfExactType<SettingsScope>()
         ?.notifier;
     if (widget.importTook == null ||
-        own != null ||
+        _saved != null ||
+        _ownColours != null ||
         settings == null ||
         !settings.value.askPageColours) {
       return;
@@ -1464,6 +1473,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
     if (!mounted) return;
     _showOpenMessage(timing);
+    unawaited(_askColoursIfNew());
   }
 
   void _showOpenMessage(OpenTiming? timing) {
@@ -1862,7 +1872,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     super.initState();
     _frames.start();
     _bookmarksLoaded = _loadBookmarks();
-    unawaited(_loadColours());
+    _coloursLoaded = _loadColours();
     // A selection belongs to the Select tool.
     _tools.addListener(() {
       if (_tools.value.mode != PenMode.lasso) _selection.value = null;
