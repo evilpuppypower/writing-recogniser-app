@@ -12,6 +12,7 @@ import '../core/feedback/personal_words.dart';
 import '../core/feedback/vocabulary.dart';
 import '../core/ink.dart';
 import '../core/ink_classifier.dart';
+import '../core/nearby_classifier.dart';
 import '../core/page_ink.dart';
 import '../core/page_recognition.dart';
 import '../core/recognition/recognizer.dart';
@@ -610,6 +611,8 @@ class InkTextController extends ChangeNotifier {
       if (_disposed) return;
     }
     _running.add(page);
+    final watch = Stopwatch()..start();
+    var sortMs = 0, engineCalls = 0;
     var dirty = false;
     var complete = true; // every word was read (none failed)
     try {
@@ -624,6 +627,7 @@ class InkTextController extends ChangeNotifier {
       final sorted = await classifier.classify([
         for (final i in inkOnly) strokes[i],
       ]);
+      sortMs = watch.elapsedMilliseconds;
       final allKinds = List.filled(strokes.length, InkKind.drawing);
       for (var k = 0; k < inkOnly.length && k < sorted.length; k++) {
         allKinds[inkOnly[k]] = sorted[k];
@@ -714,6 +718,7 @@ class InkTextController extends ChangeNotifier {
         final sent = DateTime.now().millisecondsSinceEpoch;
         List<LineWord>? got;
         try {
+          engineCalls++;
           got = await lineEngine!.recognizeLine(
             ink,
             RecognitionContext(
@@ -808,6 +813,7 @@ class InkTextController extends ChangeNotifier {
         final sent = DateTime.now().millisecondsSinceEpoch;
         List<Candidate> candidates;
         try {
+          engineCalls++;
           candidates = await engine.recognize(
             ink,
             RecognitionContext(
@@ -851,9 +857,22 @@ class InkTextController extends ChangeNotifier {
         _seen[page] = seen;
       }
       if (dirty) _wordsChanged(page);
+      final c = classifier;
+      onRead?.call({
+        'strokes': strokes.length,
+        'sortMs': sortMs,
+        if (c is NearbyClassifier) 'sorted': c.lastSent,
+        'engineCalls': engineCalls,
+        'totalMs': watch.elapsedMilliseconds,
+        'queued': _again.contains(page),
+      });
       if (_again.remove(page) && !_disposed) unawaited(_run(page));
     }
   }
+
+  /// Told how long each read took after a pause (sizes and times only),
+  /// for the diagnostic report.
+  void Function(Map<String, Object?> timings)? onRead;
 
   /// Keeps what the engine read for [word] (after the feedback layer,
   /// task 2.6, re-ranks or swaps it using the user's corrections), and logs

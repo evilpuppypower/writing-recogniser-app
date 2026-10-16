@@ -22,6 +22,7 @@ import '../core/ink_classifier.dart';
 import '../core/event_log.dart';
 import '../core/feedback/vocabulary.dart';
 import '../core/ink_store.dart';
+import '../core/nearby_classifier.dart';
 import '../core/open_timing.dart';
 import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
@@ -181,7 +182,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// The recognised text of the handwriting (task 2.3).
   late final InkTextController _text = InkTextController(
     engine: widget.makeRecognizer(),
-    classifier: widget.makeClassifier(),
+    // Only new strokes and the ink around them are sorted (owner: lag
+    // after writing 50 words).
+    classifier: NearbyClassifier(widget.makeClassifier()),
     documentId: widget.documentId,
   );
 
@@ -1900,6 +1903,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       onHide: _flushSaves,
       onPause: _flushSaves,
     );
+    // How long reading takes after each pause, for the diagnostic report
+    // (sizes and times only).
+    _text.onRead = (timings) => _logDiagnostic('reading', timings);
     _loadInk();
     widget
         .openCorrections()

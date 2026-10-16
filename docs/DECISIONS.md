@@ -619,3 +619,11 @@ MyScript gives no confidence score, so doubt is judged from what the app knows. 
 The "?" is saved with the page. Settings, under Recognised text, has **"Ask about words it isn't sure of"** to turn it off.
 
 The correction pop-up now says why a word was swapped: an earlier correction, or a word the user often writes.
+
+## 2026-10-16 — Lag after writing: only new ink is sorted again (owner: "insane lag after writing 50 words", build 66)
+
+The diagnostic report showed the screen itself drawing smoothly the whole time, with frames of about 5 ms. The lag was in reading instead. At every pause, every stroke on the page was sent to MyScript's writing-or-drawing sorting ("Raw Content"), and the new word was read only after that. Sorting a whole page takes longer with every stroke, so the text came later and later.
+
+Now each stroke's answer is kept, and a pause sends only the new strokes plus the ink within 3 letter heights of them, so a new word can still change how its neighbours are sorted. A page seen for the first time is still sorted whole, once. A test with 540 strokes, the size in the report, checks that one more letter sends fewer than 40.
+
+The diagnostic report now records each read after a pause: strokes on the page, how many were sorted, sorting time, engine calls, total time, and whether more writing was waiting. Sizes and times only.
