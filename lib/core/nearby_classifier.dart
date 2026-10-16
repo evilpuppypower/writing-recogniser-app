@@ -95,7 +95,8 @@ class NearbyClassifier implements InkClassifier {
     final lineBoxes = [for (final l in lines) l.box];
     final pageLetter = typicalLetterHeight([for (final b in boxes) ?b]);
     for (final i in fresh) {
-      final b = boxes[i]!;
+      final b = boxes[i];
+      if (b == null) continue; // erased to nothing: no place on the page
       final l = lineOf[i];
       double letter;
       if (l != null) {

@@ -561,15 +561,12 @@ List<InkLine> _group(
   double? sideGap(_Line line, InkBox b, int start, double h) {
     final l = line.box, gap = b.horizontalGap(l);
     if (printed == null || printed.isEmpty || gap <= 0) return gap;
+    // Only the line's own height band: cheap, and printed text above or
+    // below the line doesn't count.
     final band = line.band(h);
     final left = b.left >= l.right ? l.right : b.right;
     final right = b.left >= l.right ? b.left : l.left;
-    final print = printed.covered(
-      left,
-      right,
-      math.min(band.bottom, b.bottom),
-      math.max(band.top, b.top),
-    );
+    final print = printed.covered(left, right, band.bottom, band.top);
     if (print < h * 0.5) return gap;
     final carriedOn = start >= line.end && start - line.end <= params.carryOnMs;
     return carriedOn ? gap - print : null;
@@ -601,13 +598,14 @@ List<InkLine> _group(
     final start = strokes[i].points.first.t;
     for (final line in best == null ? lines : const <_Line>[]) {
       final h = math.max(letter, line.letter ?? letter);
+      // The cheap checks first: printed text is only looked at for lines
+      // the stroke is level with.
+      final o = b.verticalOverlap(line.band(line.letter ?? letter));
+      if (o < bestOverlap) continue;
       final gap = sideGap(line, b, start, h);
       if (gap == null || gap > params.lineReach * h) continue;
-      final o = b.verticalOverlap(line.band(line.letter ?? letter));
-      if (o >= bestOverlap) {
-        bestOverlap = o;
-        best = line;
-      }
+      bestOverlap = o;
+      best = line;
     }
     // Carrying on a line after scrolling (owner's report): writing just to
     // the right of where a line ends joins it even if it drifts a little up
@@ -617,13 +615,11 @@ List<InkLine> _group(
       for (final line in lines) {
         final h = line.letter ?? letter;
         final l = line.box;
-        final side = b.left - l.right <= 0
-            ? b.left - l.right
-            : sideGap(line, b, start, h);
-        if (side == null) continue;
-        final gap = side;
-        if (gap < -h || gap > params.lineReach * h) continue;
+        final along = b.left - l.right;
+        if (along < -h) continue;
         if ((b.centerY - l.centerY).abs() > h * params.lineDrift) continue;
+        final gap = along <= 0 ? along : sideGap(line, b, start, h);
+        if (gap == null || gap > params.lineReach * h) continue;
         if (gap < bestGap) {
           bestGap = gap;
           best = line;

@@ -142,6 +142,77 @@ void main() {
     });
   });
 
+  group('reading order, more', () {
+    test('small writing on widely spaced lines keeps its context', () {
+      // Letters 6 high on lines 28 apart (about 1 cm).
+      final strokes = [
+        for (var l = 0; l < 4; l++) ...word(100, 700 - l * 28.0, h: 6),
+      ];
+      final lines = groupStrokes(strokes);
+      expect(lines, hasLength(4));
+      expect(followsOn(lines), [null, 0, 1, 2]);
+    });
+
+    test('lines written at a slant follow on from each other', () {
+      // Three parallel lines at 30 degrees, about 360 long, 25 apart
+      // (letters 10 high).
+      const angle = math.pi / 6;
+      final strokes = <PageStroke>[];
+      var t = 5000000;
+      for (var l = 0; l < 3; l++) {
+        for (var w = 0; w < 8; w++) {
+          for (var k = 0; k < 4; k++) {
+            final x = 100.0 + w * 46 + k * 7, y = 700.0 - l * 25;
+            strokes.add(
+              PageStroke(
+                points: [
+                  for (final p in [
+                    PageInkPoint(x, y, t),
+                    PageInkPoint(x + 3, y + 10, t + 40),
+                    PageInkPoint(x + 6, y, t + 80),
+                  ])
+                    levelPoint(p, -angle, 100, 700),
+                ],
+              ),
+            );
+            t += 200;
+          }
+        }
+      }
+      final lines = groupStrokes(strokes);
+      expect(lines, hasLength(3));
+      expect(lines.every((l) => l.angle > 0.4), isTrue);
+      expect(followsOn(lines), [null, 0, 1]);
+    });
+  });
+
+  test('many margin notes beside a full printed page group quickly', () {
+    // 200 short notes down the left margin, then a line in the right
+    // margin, on a page of printed text.
+    final strokes = <PageStroke>[];
+    for (var n = 0; n < 200; n++) {
+      strokes.addAll(word(5, 780 - n * 3.8, h: 3));
+      _t += 120000;
+    }
+    for (var w = 0; w < 20; w++) {
+      strokes.addAll(word(560 + w * 1.0, 400, h: 3, letters: 1));
+    }
+    final printed = PrintedText([
+      for (var l = 0; l < 60; l++)
+        for (var ch = 0; ch < 85; ch++)
+          InkBox(
+            40.0 + ch * 6,
+            30.0 + l * 12.5,
+            45.0 + ch * 6,
+            38.0 + l * 12.5,
+          ),
+    ]);
+    groupStrokes(strokes, printed: printed);
+    final sw = Stopwatch()..start();
+    groupStrokes(strokes, printed: printed);
+    expect(sw.elapsedMilliseconds, lessThan(1000));
+  });
+
   group('sorting writing from drawing near new strokes', () {
     test('a new word sends its whole line, however long', () {
       final strokes = [

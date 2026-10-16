@@ -165,8 +165,9 @@ RecognitionPlan planRecognition(
 
 /// For each of [lines] (top first, as [groupStrokes] gives them), the line
 /// it follows on from, or null when it starts a new note: the nearest line
-/// above it that shares some of its width, with no more than 4 letters of
-/// space between and no [printed] text in that space. Lines that don't
+/// above it that shares some of its width, with no more than 6 letters of
+/// space between and no [printed] text in that space. Lines written at the
+/// same slant are measured across the slant instead. Lines that don't
 /// follow anything (a note in another margin, writing below a printed
 /// paragraph) start with no earlier text. Each line is followed by at
 /// most one other.
@@ -182,21 +183,10 @@ List<int?> followsOn(List<InkLine> lines, {PrintedText? printed}) {
       if (taken.contains(k)) continue;
       final a = boxes[k];
       final h = math.max(lines[k].letterHeight, lines[l].letterHeight);
-      final gap = a.bottom - b.top;
-      if (gap > h * 4 || gap >= bestGap) continue;
-      // Below it (allowing a little overlap: tall and low letters).
-      if (b.centerY >= a.bottom || a.centerY <= b.top) continue;
-      final shared = math.min(a.right, b.right) - math.max(a.left, b.left);
-      if (shared <= 0) continue;
-      if (printed != null && !printed.isEmpty && gap > 0) {
-        final between = InkBox(
-          math.max(a.left, b.left),
-          b.top,
-          math.min(a.right, b.right),
-          a.bottom,
-        );
-        if (printed.within(between).isNotEmpty) continue;
-      }
+      final gap = _slanted(lines[k], lines[l])
+          ? _gapAcross(lines[k], a, lines[l], b, h)
+          : _gapBelow(a, b, printed);
+      if (gap == null || gap > h * 6 || gap >= bestGap) continue;
       best = k;
       bestGap = gap;
     }
@@ -206,6 +196,50 @@ List<int?> followsOn(List<InkLine> lines, {PrintedText? printed}) {
     }
   }
   return out;
+}
+
+/// Both written at about the same slant (not level).
+bool _slanted(InkLine a, InkLine b) =>
+    a.angle.abs() > 0.05 &&
+    b.angle.abs() > 0.05 &&
+    (a.angle - b.angle).abs() < 0.15;
+
+/// The space from level line box [a] down to [b] below it, or null when
+/// [b] isn't below it, they share none of their width, or [printed] text
+/// lies between.
+double? _gapBelow(InkBox a, InkBox b, PrintedText? printed) {
+  final gap = a.bottom - b.top;
+  // Below it (allowing a little overlap: tall and low letters).
+  if (b.centerY >= a.bottom || a.centerY <= b.top) return null;
+  final shared = math.min(a.right, b.right) - math.max(a.left, b.left);
+  if (shared <= 0) return null;
+  if (printed != null && !printed.isEmpty && gap > 0) {
+    final between = InkBox(
+      math.max(a.left, b.left),
+      b.top,
+      math.min(a.right, b.right),
+      a.bottom,
+    );
+    if (printed.within(between).isNotEmpty) return null;
+  }
+  return gap;
+}
+
+/// For lines at a slant (their boxes on the page are much taller than
+/// their letters): the space from [la] to [lb], measured across the slant,
+/// or null when [lb] isn't the next line along from it.
+double? _gapAcross(InkLine la, InkBox a, InkLine lb, InkBox b, double h) {
+  final angle = (la.angle + lb.angle) / 2;
+  final c = math.cos(angle), s = math.sin(angle);
+  final dx = (a.left + a.right) / 2 - (b.left + b.right) / 2;
+  final dy = a.centerY - b.centerY;
+  final across = dy * c - dx * s; // how far [a] is "above" [b]
+  final along = (dx * c + dy * s).abs();
+  if (across < h * 0.5) return null;
+  // Side by side along the slant rather than one under the other.
+  double length(InkBox x) => x.width * c.abs() + x.height * s.abs();
+  if (along > (length(a) + length(b)) / 2) return null;
+  return across - h;
 }
 
 /// One piece of ink the user marked "This isn't writing" (task 2.4c),

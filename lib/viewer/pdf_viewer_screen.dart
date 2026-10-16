@@ -800,8 +800,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// Each page's printed text, once read (owner: writing in the margins
   /// works its way around the printed text). Read in the background the
-  /// first time a page's writing is read; until then grouped from the
-  /// ink alone.
+  /// first time the page is written on; until then grouped from the ink
+  /// alone.
   final _printed = <int, PrintedText>{};
   final _printedLoading = <int>{};
 
@@ -809,8 +809,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final known = _printed[page];
     if (known != null || !_printedLoading.add(page)) return known;
     unawaited(() async {
+      final PdfDocument doc;
       try {
-        final doc = _controller.document;
+        doc = _controller.document;
+      } catch (_) {
+        _printedLoading.remove(page); // not ready yet: asked again later
+        return;
+      }
+      try {
         if (page < 1 || page > doc.pages.length) return;
         final raw = await doc.pages[page - 1].loadText();
         if (raw == null) {
@@ -1350,6 +1356,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// A stroke the pen has just finished (not an edit, undo or move): is
   /// it carrying on the word before it, on the same page?
   void _strokeWritten(int page, PageStroke stroke) {
+    // Ready by the time the pen pauses and the page's writing is read.
+    _printedOf(page);
     // Which pens are used most (owner's approved idea 9).
     if (stroke.points.isNotEmpty) {
       _tools.noteUse(
