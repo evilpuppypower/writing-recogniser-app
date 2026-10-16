@@ -21,7 +21,12 @@ class GroupingParams {
     this.newSessionMs = 60000,
     this.lineDrift = 0.75,
     this.carryOnMs = 8000,
+    this.usualLetter,
   });
+
+  /// The user's usual letter height in points (see WritingProfile): used
+  /// while a page has too little writing to measure its own.
+  final double? usualLetter;
 
   /// Writing carries on past printed text when its next stroke starts
   /// within this long of the line's last one (see [groupStrokes]).
@@ -157,7 +162,12 @@ List<InkLine> groupStrokes(
   ];
   if (idx.isEmpty) return const [];
   final boxes = {for (final i in idx) i: InkBox.of(strokes[i])};
-  final letter = typicalLetterHeight(boxes.values);
+  // A page's first few strokes say little about the writing's size: the
+  // user's usual size until there's more to go on.
+  final usual = params.usualLetter;
+  final letter = usual != null && idx.length < 12
+      ? usual
+      : typicalLetterHeight(boxes.values);
   final slanted = _slantedRuns(strokes, idx, boxes, letter, params);
   final inRun = {for (final r in slanted) ...r.strokes};
   final result = _group(
@@ -639,7 +649,11 @@ List<InkLine> _group(
   // Words: within a line, left to right, split at wide gaps.
   final result = <InkLine>[];
   for (final line in lines) {
-    final lineLetter = line.letter ?? letter;
+    // Too little writing to measure: the user's usual size (see
+    // GroupingParams.usualLetter).
+    final lineLetter = params.usualLetter != null && idx.length < 12
+        ? letter
+        : line.letter ?? letter;
     final order = [...line.strokes]
       ..sort((a, c) => boxes[a]!.left.compareTo(boxes[c]!.left));
     final words = <InkWord>[];

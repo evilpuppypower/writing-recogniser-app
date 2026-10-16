@@ -158,6 +158,7 @@ void main() {
         await v7.execute('DROP TABLE bookmarks');
         await v7.execute('DROP TABLE document_colours');
         await v7.execute('DROP TABLE page_layouts');
+        await v7.execute('DROP TABLE document_views');
         await v7.setVersion(6);
         await v7.close();
         final upgraded = await AppDatabase.open(

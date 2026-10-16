@@ -317,7 +317,18 @@ class PageInkLayer extends StatefulWidget {
     this.wordsRead,
     this.isRead,
     this.onTextTap,
+    this.tidyShape,
+    this.onShapeTidied,
   });
+
+  /// Whether a closed shape of this kind, this far off, is tidied (owner:
+  /// a switch in Settings, and learning how exact shapes should be). Null:
+  /// always.
+  final bool Function(ShapeKind kind, double error)? tidyShape;
+
+  /// A tidied shape was written as [stroke].
+  final void Function(PageStroke stroke, ShapeKind kind, double error)?
+  onShapeTidied;
 
   /// With the Text tool: the pen tapped here (PDF page coordinates), to
   /// place or edit a text box.
@@ -466,6 +477,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   /// The tidy shape the stroke snapped to (it stays put until the pen
   /// lifts), or null.
   List<PageInkPoint>? _shape;
+  (ShapeKind, double)? _shapeKind;
 
   void _restartSnapTimer(Offset at) {
     _stillAt = at;
@@ -480,9 +492,11 @@ class _PageInkLayerState extends State<PageInkLayer> {
     // ellipse, rectangle or triangle it's closest to (pen only).
     if (_style.tool == InkTool.pen) {
       final shape = tidyShape(pts);
-      if (shape != null) {
+      if (shape != null &&
+          (widget.tidyShape?.call(shape.kind, shape.error) ?? true)) {
         _snapped = true;
         _shape = shape.points;
+        _shapeKind = (shape.kind, shape.error);
         _active.value = shape.points;
         HapticFeedback.selectionClick();
         return;
@@ -664,6 +678,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
       _active.value = [_pointOf(e)];
       _snapped = false;
       _shape = null;
+      _shapeKind = null;
       _restartSnapTimer(e.localPosition);
     }
   }
@@ -897,6 +912,11 @@ class _PageInkLayerState extends State<PageInkLayer> {
     }
     _drawHeld(); // keep the order the strokes were written in
     widget.controller.add(widget.pageNumber, stroke);
+    final tidied = _shapeKind;
+    _shapeKind = null;
+    if (shape != null && tidied != null) {
+      widget.onShapeTidied?.call(stroke, tidied.$1, tidied.$2);
+    }
     if (widget.isRead == null) {
       _showGuide(stroke);
     } else if (stroke.tool == InkTool.pen) {
@@ -962,6 +982,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
     _snapTimer?.cancel();
     _snapped = false;
     _shape = null;
+    _shapeKind = null;
     _lassoing = false;
     if (_erasing) widget.controller.endGesture();
     _erasing = false;

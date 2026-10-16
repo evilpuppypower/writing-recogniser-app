@@ -21,6 +21,7 @@ import 'learning_screen.dart';
 import 'open_times_screen.dart';
 import 'replay_screen.dart';
 import 'stored_copies_screen.dart';
+import 'your_writing_screen.dart';
 import '../storage/sqlite_page_layout_store.dart';
 
 /// App settings: scroll tab appearance and how many imported PDFs to keep.
@@ -536,6 +537,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             PressureExample(response: s.pressureResponse),
           ],
+          ListTile(
+            leading: const Icon(Icons.straighten),
+            title: const Text('Your writing'),
+            subtitle: const Text(
+              'Your usual letter size and slant, as learned. Change them '
+              'if they\'re not right.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const YourWritingScreen(),
+              ),
+            ),
+          ),
+          SwitchListTile(
+            title: const Text('Writing box button'),
+            subtitle: const Text(
+              'A button in the PDF\'s toolbar that opens a strip along the '
+              'bottom: write large there, and the ink lands small on the '
+              'page, moving along as you write.',
+            ),
+            value: s.writingBoxButton,
+            onChanged: (v) => settings.update(s.copyWith(writingBoxButton: v)),
+          ),
+          SwitchListTile(
+            title: const Text('Tidy up shapes'),
+            subtitle: const Text(
+              'Hold the pen still at the end of a circle, rectangle or '
+              'triangle to make it neat. Undo or erase a tidied shape '
+              'straight away and shapes like it are only tidied when '
+              'drawn closer to it.',
+            ),
+            value: s.tidyShapes,
+            onChanged: (v) => settings.update(s.copyWith(tidyShapes: v)),
+          ),
           ListTile(
             title: Text(
               s.arrowHookMs == 0

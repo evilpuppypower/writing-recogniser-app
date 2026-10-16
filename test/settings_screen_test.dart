@@ -324,6 +324,8 @@ void main() {
       200,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.ensureVisible(find.text('Ask before deleting a single copy'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Ask before deleting a single copy'));
     await tester.pumpAndSettle();
     expect(settings.value.confirmDeleteCopy, isTrue);

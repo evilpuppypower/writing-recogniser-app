@@ -86,6 +86,12 @@ class SqliteInkStore implements InkStore {
       where: 'document_id = ?',
       whereArgs: [documentId],
     );
+    // And how it was last shown.
+    await _db.delete(
+      'document_views',
+      where: 'document_id = ?',
+      whereArgs: [documentId],
+    );
   }
 
   @override
