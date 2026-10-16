@@ -13,6 +13,7 @@ import '../core/feedback/vocabulary.dart';
 import '../core/ink.dart';
 import '../core/ink_classifier.dart';
 import '../core/nearby_classifier.dart';
+import '../core/personal_ink_kinds.dart';
 import '../core/page_ink.dart';
 import '../core/page_recognition.dart';
 import '../core/recognition/recognizer.dart';
@@ -632,9 +633,12 @@ class InkTextController extends ChangeNotifier {
       for (var k = 0; k < inkOnly.length && k < sorted.length; k++) {
         allKinds[inkOnly[k]] = sorted[k];
       }
+      // The user's own marks teach what they draw and what they write
+      // (owner's approved idea 7).
+      final mine = personalKinds?.apply(strokes, allKinds) ?? allKinds;
       final kinds = reconcileKinds(
         strokes,
-        allKinds,
+        mine,
         // Already the shape check's answer: not worked out twice (it's the
         // slowest step on a heavily written page).
         shape:
@@ -869,6 +873,10 @@ class InkTextController extends ChangeNotifier {
       if (_again.remove(page) && !_disposed) unawaited(_run(page));
     }
   }
+
+  /// What this user draws and writes, learned from their marks (null: not
+  /// used).
+  PersonalInkKinds? personalKinds;
 
   /// Told how long each read took after a pause (sizes and times only),
   /// for the diagnostic report.

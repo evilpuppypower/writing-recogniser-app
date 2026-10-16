@@ -650,3 +650,10 @@ Reading waits after the pen lifts. That wait now adapts to the user. Each time a
 - **Your most used:** the pen and highlighter panels start with the user's most used styles of that tool (colour, thickness, arrowhead), up to 4, each used at least 5 times. The one in use isn't repeated. Counts come from strokes the pen has just finished, not from edits. Thickness is counted to a tenth of a point. The 24 most used styles are kept between sessions, saved every 10 strokes and when the PDF closes.
 - The pen panel now scrolls when the screen is short (it could overflow with the new row, e.g. on a tablet held sideways).
 - Favourites stay as they were: pinned by the user, never changed automatically.
+
+## 2026-10-16 — Learning what the user draws and what they write (owner's approved idea 7)
+
+Each time the user marks ink "This isn't writing", or says ink is writing ("This is writing", "Read as one word"), the marked pen strokes teach a small personal model. It keeps four numbers per stroke and no ink: height, width and length compared with the letters on the page, and how straight the stroke is. When a later stroke closely matches at least 3 of the most recent marks and they all agree, it's sorted their way. That happens before the existing second look at how strokes were sorted, so a mark like the user's own ticks or crosses stops being read as a letter.
+- The newest marks win, so changing one's mind takes effect.
+- Strokes the user marked themselves are never overridden.
+- Up to 400 examples are kept on the tablet.
