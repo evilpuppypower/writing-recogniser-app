@@ -817,16 +817,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           line.letterHeight,
     ];
     final letter = typicalLineLetter(heights);
-    final prefs = SharedPreferencesAsync();
     if (letter != null) {
       final gap = lineGapFor(letter);
       try {
-        await prefs.setDouble(_fitGapKey, gap);
+        await SharedPreferencesAsync().setDouble(_fitGapKey, gap);
       } catch (_) {}
       return gap;
     }
     try {
-      return await prefs.getDouble(_fitGapKey) ?? ruledGap;
+      return await SharedPreferencesAsync().getDouble(_fitGapKey) ?? ruledGap;
     } catch (_) {
       return ruledGap;
     }

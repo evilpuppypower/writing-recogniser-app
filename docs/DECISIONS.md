@@ -692,3 +692,10 @@ The owner asked how the lag fix decides which ink to send, and pointed out that 
 ## 2026-10-16 — What a page-by-page export leaves out, said in place
 
 When pages are picked or arranged, or were added, moved or taken out in the app, the export makes a new PDF page by page. PDFium copies only the pages, so the PDF's contents list and fill-in form boxes don't come along. The export screen says so in a line of small text under "Pages" (owner: no extra box to click through). It doesn't show for a plain export of all pages, which keeps everything.
+
+## 2026-10-16 — Notebooks without a PDF (owner's choice)
+
+- "New notebook" on the home screen asks for the paper, then opens a notebook with one blank A4 page. Pages are added, copied, moved and taken out as in any PDF.
+- It's kept like a PDF so everything else works the same: a stored copy, pinned so it's never trimmed, holding one empty page the app makes itself. Its pages are blank pages of our own on top of that file. It's named "Notebook" with the date and time it was made.
+- Android may clear the app's cache folder, where stored copies live. A notebook's file is only an empty page, and its writing is kept in the database, so the home screen puts back any missing notebook file each time it loads. Deleting a notebook (Settings, stored PDFs) deletes its pages too, so it doesn't come back.
+- The home screen's picture of each PDF now shows the ink of the page shown first, which isn't the PDF's page 1 when pages were added or moved, or in a notebook.

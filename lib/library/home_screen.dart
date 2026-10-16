@@ -4,10 +4,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_settings.dart' show PageColours;
 import '../core/document_colours.dart';
 import '../core/document_state.dart';
+import '../core/page_layout.dart';
+import '../core/paper.dart' show ruledGap;
 import '../core/page_ink.dart';
 import '../core/recent_pdfs.dart';
 import '../core/stored_copy.dart';
@@ -20,9 +23,12 @@ import '../settings/settings_screen.dart';
 import '../storage/sqlite_document_colours_store.dart';
 import '../storage/sqlite_document_store.dart';
 import '../storage/sqlite_ink_store.dart';
+import '../storage/sqlite_page_layout_store.dart';
 import '../viewer/page_colours_dialog.dart';
+import '../viewer/paper_painter.dart' show PaperChooser;
 import '../viewer/pdf_viewer_screen.dart';
 import 'locate_copy.dart';
+import 'notebooks.dart';
 import 'recent_store.dart';
 import 'thumbnails.dart';
 
@@ -49,7 +55,20 @@ class LibraryServices {
     this.fileExists = _fileExists,
     this.firstPageInk = _loadFirstPageInk,
     this.documentColours = SqliteDocumentColoursStore.open,
+    this.pageLayouts = SqlitePageLayoutStore.open,
+    this.newNotebookFile = createNotebookFile,
+    this.restoreNotebooks = restoreNotebookFiles,
   });
+
+  /// Each document's pages (blank pages, notebooks).
+  final Future<PageLayoutStore> Function() pageLayouts;
+
+  /// Makes a new notebook's file (owner: notebooks without a PDF).
+  final Future<({String id, String path})> Function(String name)
+  newNotebookFile;
+
+  /// Puts back notebook files the system cleared away.
+  final Future<void> Function(Iterable<String> ids) restoreNotebooks;
 
   /// Each PDF's own page colours (owner: dark pages are chosen per PDF).
   final Future<DocumentColoursStore> Function() documentColours;
@@ -86,8 +105,18 @@ class LibraryServices {
   /// The ink saved on page 1 of a PDF (for its home-page picture).
   final Future<List<PageStroke>> Function(String id) firstPageInk;
 
-  static Future<List<PageStroke>> _loadFirstPageInk(String id) async =>
-      (await (await SqliteInkStore.open()).load(id)).strokesOn(1);
+  static Future<List<PageStroke>> _loadFirstPageInk(String id) async {
+    // The page shown first, which isn't the PDF's page 1 when pages were
+    // added or moved (or in a notebook).
+    var key = 1;
+    try {
+      final layout = PageLayout.fromJson(
+        await (await SqlitePageLayoutStore.open()).load(id),
+      );
+      if (layout != null && layout.length > 0) key = layout.keyAt(1);
+    } catch (_) {}
+    return (await (await SqliteInkStore.open()).load(id)).strokesOn(key);
+  }
 }
 
 /// One PDF card on the home page.
@@ -175,6 +204,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _reload() async {
+    // Notebooks' files are only an empty page each: put back any the
+    // system cleared, so every notebook shows (its writing is kept apart).
+    try {
+      await _s.restoreNotebooks(await (await _s.pageLayouts()).notebooks());
+    } catch (_) {}
     // Either can fail (e.g. in tests, or if storage is unreadable); the
     // page then just shows fewer items.
     final recents = await _s.recents.load().catchError((_) => <RecentPdf>[]);
@@ -341,6 +375,61 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (pdf == null || !mounted) return;
     await _openPicked(pdf);
+  }
+
+  /// A notebook without a PDF (owner's choice): asks for its paper, then
+  /// opens it on its first blank page.
+  Future<void> _newNotebook() async {
+    SharedPreferencesAsync? prefs;
+    try {
+      prefs = SharedPreferencesAsync();
+    } catch (_) {} // remembered choices just aren't used
+    var last = Paper.plain;
+    try {
+      final name = await prefs?.getString('paper.last');
+      last = Paper.values.firstWhere(
+        (p) => p.name == name,
+        orElse: () => Paper.plain,
+      );
+    } catch (_) {}
+    if (!mounted) return;
+    final chosen = await showModalBottomSheet<({Paper paper, bool atEnd})>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) =>
+          PaperChooser(title: 'New notebook', start: last, doneLabel: 'Create'),
+    );
+    if (chosen == null || !mounted) return;
+    final tapped = DateTime.now();
+    double? gap;
+    if (chosen.paper == Paper.linedToFit) {
+      try {
+        gap = await prefs?.getDouble('paper.fitGap');
+      } catch (_) {}
+      gap ??= ruledGap;
+    }
+    try {
+      await prefs?.setString('paper.last', chosen.paper.name);
+    } catch (_) {}
+    final name = 'Notebook ${formatDateTime(tapped).replaceAll(':', '.')}';
+    final ({String id, String path}) file;
+    try {
+      file = await _s.newNotebookFile(name);
+      await (await _s.pageLayouts()).save(
+        file.id,
+        PageLayout.newNotebook(paper: chosen.paper, lineGap: gap),
+      );
+    } catch (e) {
+      _message("Couldn't make the notebook: $e");
+      return;
+    }
+    await _reload();
+    if (!mounted) return;
+    await Navigator.of(context)
+        .push(_viewerRoute('$name.pdf', file.id, file.path, null, tapped));
+    await _reload();
+    await _refreshThumbnail(file.id);
   }
 
   Future<void> _openItem(_Item item) async {
@@ -541,6 +630,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           icon: const Icon(Icons.folder_open),
                           label: const Text('Open a PDF from this tablet'),
                           onPressed: _openFromDevice,
+                        ),
+                        const SizedBox(height: 12),
+                        FilledButton.tonalIcon(
+                          icon: const Icon(Icons.edit_note),
+                          label: const Text('New notebook'),
+                          onPressed: _newNotebook,
                         ),
                         const SizedBox(height: 12),
                         OutlinedButton.icon(

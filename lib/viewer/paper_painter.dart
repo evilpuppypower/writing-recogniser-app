@@ -85,10 +85,14 @@ class PaperChooser extends StatefulWidget {
     required this.start,
     this.afterPage,
     this.dark = false,
+    this.doneLabel = 'Done',
   });
 
   final String title;
   final Paper start;
+
+  /// The button's label without [afterPage].
+  final String doneLabel;
   final int? afterPage;
   final bool dark;
 
@@ -205,7 +209,7 @@ class _PaperChooserState extends State<PaperChooser> {
                 ] else
                   FilledButton(
                     onPressed: () => done(false),
-                    child: const Text('Done'),
+                    child: Text(widget.doneLabel),
                   ),
               ],
             ),
