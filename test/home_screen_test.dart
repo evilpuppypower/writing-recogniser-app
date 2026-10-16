@@ -8,6 +8,7 @@ import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/core/page_layout.dart';
 import 'package:writing_recogniser/core/recent_pdfs.dart';
 import 'package:writing_recogniser/core/stored_copy.dart';
+import 'package:writing_recogniser/core/tags.dart';
 import 'package:writing_recogniser/import/pdf_import_channel.dart';
 import 'package:writing_recogniser/library/home_screen.dart';
 import 'package:writing_recogniser/library/recent_store.dart';
@@ -66,6 +67,7 @@ void main() {
   late MemoryPageLayoutStore layouts;
   late List<List<String>> restored;
   late List<String> notebookNames;
+  late MemoryTagStore tagStore;
 
   Future<void> pumpHome(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1600, 2560);
@@ -90,6 +92,8 @@ void main() {
               inkDocuments: () async => withInk,
               clearLastCrash: () async => crashCleared = true,
               pageLayouts: () async => layouts,
+              tags: () async => tagStore,
+              handwritingOf: (id) async => '',
               restoreNotebooks: (ids) async => restored.add([...ids]),
               newNotebookFile: (name) async {
                 notebookNames.add(name);
@@ -126,6 +130,38 @@ void main() {
     layouts = MemoryPageLayoutStore();
     restored = [];
     notebookNames = [];
+    tagStore = MemoryTagStore();
+  });
+
+  testWidgets('tags: added from a suggestion, then the list filtered', (
+    tester,
+  ) async {
+    copies = [
+      stored('Cell Biology.pdf', pinned: true),
+      stored('Maths.pdf', pinned: true),
+    ];
+    await pumpHome(tester);
+    await tester.longPress(find.text('Cell Biology.pdf'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Tags'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Biology'));
+    await tester.pump();
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    expect(await tagStore.documentTags(), {
+      '1_1_Cell Biology.pdf': {'Biology'},
+    });
+    // The tag row, and only that PDF when it's chosen.
+    final chip = find.widgetWithText(ChoiceChip, 'Biology');
+    expect(chip, findsOneWidget);
+    await tester.tap(chip);
+    await tester.pumpAndSettle();
+    expect(find.text('Maths.pdf'), findsNothing);
+    expect(find.text('Cell Biology.pdf'), findsOneWidget);
+    await tester.tap(find.widgetWithText(ChoiceChip, 'All'));
+    await tester.pumpAndSettle();
+    expect(find.text('Maths.pdf'), findsOneWidget);
   });
 
   testWidgets('a new notebook: its paper, then it opens', (tester) async {

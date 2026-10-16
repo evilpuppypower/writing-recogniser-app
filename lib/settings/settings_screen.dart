@@ -552,6 +552,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           SwitchListTile(
+            title: const Text('Suggest tags from what\'s in a document'),
+            subtitle: const Text(
+              'Tags are suggested from a document\'s name, and also from '
+              'your writing in it. It\'s all read on this tablet.',
+            ),
+            value: s.suggestTagsFromContents,
+            onChanged: (v) =>
+                settings.update(s.copyWith(suggestTagsFromContents: v)),
+          ),
+          SwitchListTile(
             title: const Text('Writing box button'),
             subtitle: const Text(
               'A button in the PDF\'s toolbar that opens a strip along the '

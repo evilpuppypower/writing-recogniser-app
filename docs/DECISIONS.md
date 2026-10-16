@@ -735,3 +735,14 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - It moves along like a typewriter. When the writing reaches the strip's last fifth, the box moves half its width to the right. At the end of a line it goes to the start of the next, and past the foot of a page onto the next page. Buttons move it back, along, up, down or to the next line, and close it.
 - What's written there is ordinary ink: saved, read and undone like the rest.
 - Settings → "Writing box button" hides the button for users who don't want it (shown by default).
+
+## 2026-10-16 — Tags (owner: several per document, colour-coded, suggested; PDFs and notebooks share them)
+
+- Long-press a card and choose "Tags". The document's tags can be taken off, suggestions added with a tap, other tags added, and new tags made with a colour (8 to choose from).
+- **Suggestions:**
+  - Known tags whose name appears in the document's name, or at least twice in its writing.
+  - Then words from its name, leaving out words like "final", "notes", "pdf" and month names.
+  - Then words its writing uses at least 4 times.
+  - Suggestions from the writing can be turned off in Settings, "Suggest tags from what's in a document". It's all read on the tablet. Printed text isn't used yet; that comes with reading scanned PDFs.
+- The home screen gets a row of tags. Tap one to see only its documents. Long-press one to change its colour or delete it from every document. Cards show their tags as coloured dots and names.
+- Kept in `tags` and `document_tags` tables (database version 12). A document's tags go when it's deleted. The tags themselves stay for other documents.

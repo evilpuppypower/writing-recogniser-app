@@ -7,7 +7,7 @@ class AppDatabase {
   AppDatabase._();
 
   static const fileName = 'writing_recogniser.db';
-  static const version = 11;
+  static const version = 12;
 
   /// Opens (and creates or upgrades) the database. [factory] and [path] can
   /// be overridden for tests.
@@ -147,6 +147,22 @@ class AppDatabase {
         CREATE TABLE document_views (
           document_id TEXT PRIMARY KEY, -- library id (as in page_ink)
           view TEXT NOT NULL            -- DocumentView.toJson
+        )
+      ''');
+    }
+    if (from < 12) {
+      // Tags (owner, 2026-10-16): several per document, colour-coded.
+      await db.execute('''
+        CREATE TABLE tags (
+          name TEXT PRIMARY KEY,
+          colour INTEGER NOT NULL       -- ARGB
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE document_tags (
+          document_id TEXT NOT NULL,    -- library id (as in page_ink)
+          tag TEXT NOT NULL,
+          PRIMARY KEY (document_id, tag)
         )
       ''');
     }
