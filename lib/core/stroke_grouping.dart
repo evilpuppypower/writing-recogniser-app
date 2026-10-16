@@ -209,7 +209,36 @@ PageInkPoint levelPoint(PageInkPoint p, double angle, double cx, double cy) {
 /// The smallest slant that counts (owner: "> 10 deg"); below it writing is
 /// taken as level, as before.
 const minSlant = 10 * math.pi / 180;
+
+/// The steepest a line can be for [lineDirection] (Straighten); slanted
+/// runs themselves can go any way round (see [_slantedRuns]).
 const _maxSlant = 60 * math.pi / 180;
+
+/// [f] pointing the way the writing went: from the first letters written
+/// to the last (owner: writing steeper than 45 degrees, up a margin or
+/// even down a vertical line, must read too). The shape of the ink alone
+/// can't tell writing up at 70 degrees from writing down at -110; the
+/// order the letters were written in can. [piece] is in writing order.
+_Fit _directed(_Fit f, List<int> piece, Map<int, InkBox> boxes) {
+  final c = math.cos(f.angle), s = math.sin(f.angle);
+  // How far along the line each letter is, against when it was written.
+  final n = piece.length;
+  var sum = 0.0;
+  for (var k = 0; k < n; k++) {
+    final b = boxes[piece[k]]!;
+    final along = ((b.left + b.right) / 2 - f.cx) * c + (b.centerY - f.cy) * s;
+    sum += (k - (n - 1) / 2) * along;
+  }
+  if (sum >= 0) return f;
+  return (
+    angle: f.angle > 0 ? f.angle - math.pi : f.angle + math.pi,
+    cx: f.cx,
+    cy: f.cy,
+    spread: f.spread,
+    start: -f.end,
+    end: -f.start,
+  );
+}
 
 typedef _Run = ({List<int> strokes, double angle, double cx, double cy});
 
@@ -378,8 +407,9 @@ List<List<int>> _straightPieces(List<int> chain, Map<int, InkBox> boxes) {
 }
 
 /// Runs of writing at a slant: letters written one after another, each
-/// near one just before it, whose middles lie along a straight line
-/// between [minSlant] and 60 degrees from level, at least 4 letters long.
+/// near one just before it, whose middles lie along a straight line at
+/// least [minSlant] from level (any way round: steep, vertical, upside
+/// down), at least 4 letters long.
 /// Dots, crossbars and strokes added later join the run whose line they
 /// sit on.
 List<_Run> _slantedRuns(
@@ -429,10 +459,10 @@ List<_Run> _slantedRuns(
   for (final chain in chains) {
     for (final piece in _straightPieces(chain, boxes)) {
       if (piece.length < 4) continue;
-      final f = _fit(piece, boxes);
-      if (f.angle.abs() < minSlant || f.angle.abs() > _maxSlant) continue;
+      final f = _directed(_fit(piece, boxes), piece, boxes);
+      if (f.angle.abs() < minSlant) continue;
       // Sizes measured with the run turned level.
-      final level = typicalLetterHeight([
+      final levelBoxes = [
         for (final i in piece)
           InkBox.of(
             strokes[i].copyWith(
@@ -442,8 +472,16 @@ List<_Run> _slantedRuns(
               ],
             ),
           ),
-      ]);
+      ];
+      final level = typicalLetterHeight(levelBoxes);
       if (f.end - f.start < level * 4 || f.spread > level * 0.6) continue;
+      // Steeper than 45 degrees: letters written one under another (a
+      // column of numbers down a margin) aren't a word written sideways.
+      // Writing turned sideways has its letters close together along the
+      // line; a column has a line's gap between each.
+      if (f.angle.abs() > math.pi / 4 && _medianGap(levelBoxes) > level * 0.5) {
+        continue;
+      }
       found.add((strokes: [...piece], fit: f, letter: level));
     }
   }
@@ -476,6 +514,20 @@ List<_Run> _slantedRuns(
     for (final r in found)
       (strokes: r.strokes, angle: r.fit.angle, cx: r.fit.cx, cy: r.fit.cy),
   ];
+}
+
+/// The typical gap between letters along a level line: the median space
+/// between each letter and the next, left to right (0 where they touch).
+double _medianGap(List<InkBox> boxes) {
+  final sorted = [...boxes]..sort((a, b) => a.left.compareTo(b.left));
+  final gaps = <double>[];
+  var reach = sorted.first.right;
+  for (final b in sorted.skip(1)) {
+    gaps.add(math.max(0, b.left - reach));
+    reach = math.max(reach, b.right);
+  }
+  gaps.sort();
+  return gaps[gaps.length ~/ 2];
 }
 
 /// Lines and words among the strokes [idx] (see [groupStrokes]), in the

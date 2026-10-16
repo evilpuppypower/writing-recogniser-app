@@ -73,6 +73,64 @@ void main() {
     expect(lines.single.words, hasLength(2));
   });
 
+  // Owner: writing steeper than 45 degrees, up a margin or down a vertical
+  // line, must read too: the way it was written (the order of its
+  // letters) says which way round it goes.
+  for (final degrees in <double>[
+    45,
+    60,
+    75,
+    90,
+    120,
+    160,
+    180,
+    -60,
+    -90,
+    -135,
+  ]) {
+    test('writing at $degrees degrees is one line, read level', () {
+      final strokes = sentence(degrees);
+      final lines = groupStrokes(strokes);
+      expect(lines, hasLength(1));
+      final turn = (degreesOf(lines.single.angle) - degrees) % 360;
+      expect(math.min(turn, 360 - turn), lessThan(1));
+      expect(
+        [for (final w in lines.single.words) w.strokes],
+        [
+          [0, 1, 2],
+          [3, 4, 5, 6],
+        ],
+      );
+      // Sent to the engine level and the right way up: first letter on
+      // the left, letters pointing up.
+      final ink = wordInk(strokes, lines.single.words.last);
+      final ys = [
+        for (final s in ink)
+          for (final p in s.points) p.y,
+      ];
+      expect(ys.reduce(math.max) - ys.reduce(math.min), closeTo(10, 0.5));
+      final starts = [for (final s in ink) s.points.first.x];
+      expect(starts, orderedEquals([...starts]..sort()));
+      // The letters' tips (written second) are above their feet: on
+      // screen (y down) a smaller y.
+      for (final s in ink) {
+        expect(s.points[1].y, lessThan(s.points.first.y));
+      }
+    });
+  }
+
+  test('a column of numbers down a margin is not sideways writing', () {
+    // 1 to 5, one under another, 16 pt apart, written straight after each
+    // other.
+    final strokes = [
+      for (var i = 0; i < 5; i++)
+        PageStroke(points: letter(60, 700.0 - i * 16, i * 300)),
+    ];
+    final lines = groupStrokes(strokes);
+    expect(lines, hasLength(5));
+    expect(lines.every((l) => l.angle == 0), isTrue);
+  });
+
   test('writing within 10 degrees of level is treated as level', () {
     final lines = groupStrokes(sentence(5));
     expect(lines, hasLength(1));

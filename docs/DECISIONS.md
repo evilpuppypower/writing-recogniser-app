@@ -569,3 +569,11 @@ A new speed test fills a page with 300, 600 and 1000 words and times every step 
 - **Writing or drawing.** Strokes are looked up in a grid of squares, and long lines are kept apart, instead of each check scanning the strokes above and below it on every line. The shape check is no longer worked out twice per pause.
 - **Typed text.** Its layout depends only on the converted words, so new writing reuses it.
 - **Eraser.** A quick check of each stroke's box before measuring the distance to every point.
+
+## 2026-10-16 — Writing at any angle (owner: writing steeper than 45 degrees still wasn't read)
+
+Slanted writing was only noticed up to 60 degrees from level, because the shape of the ink alone can't tell writing going up at 70 degrees from writing going down at -110. Now the **order the letters were written in** decides which way the line runs: the first letters written are its start. So writing up a margin, down a vertical line, or upside down is turned level the right way round before it's sent to the engine, and its text follows the same line.
+- The direction is measured afresh for every line, never learned. So a later "learns your slant" model only learns the small tilt of a person's own level writing. Writing that's meant to run at a steep angle can't confuse it.
+- Above 45 degrees, letters must sit close together along the line (a median gap under half a letter). So a column of numbers or single letters written one under another stays separate level lines, and isn't read as a word written sideways.
+- Writing whose letters are upright but stacked downward (like a vertical sign) isn't supported; it's rare in English.
+- Straighten still only levels writing up to 60 degrees.
