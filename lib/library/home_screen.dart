@@ -10,7 +10,7 @@ import '../core/app_settings.dart' show PageColours;
 import '../core/document_colours.dart';
 import '../core/document_state.dart';
 import '../core/page_layout.dart';
-import '../core/paper.dart' show ruledGap;
+import '../core/paper.dart' show NotebookSize, ruledGap;
 import '../core/page_ink.dart';
 import '../core/recent_pdfs.dart';
 import '../core/stored_copy.dart';
@@ -155,6 +155,9 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Library ids of notebooks (no Unpin: they're always kept).
   Set<String> _notebooks = {};
 
+  /// Names the user gave notebooks (owner: notebooks can be renamed).
+  Map<String, String> _titles = {};
+
   LibraryServices get _s => widget.services;
 
   List<RecentPdf> _recents = [];
@@ -210,8 +213,13 @@ class _HomeScreenState extends State<HomeScreen> {
     // Notebooks' files are only an empty page each: put back any the
     // system cleared, so every notebook shows (its writing is kept apart).
     try {
-      final notebooks = await (await _s.pageLayouts()).notebooks();
+      final layouts = await _s.pageLayouts();
+      final notebooks = await layouts.notebooks();
       _notebooks = notebooks.toSet();
+      _titles = {
+        for (final id in notebooks)
+          id: ?PageLayout.fromJson(await layouts.load(id))?.title,
+      };
       await _s.restoreNotebooks(notebooks);
     } catch (_) {}
     // Either can fail (e.g. in tests, or if storage is unreadable); the
@@ -251,7 +259,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final pinned = [
       for (final c in sortForDisplay(_copies.where((c) => c.pinned)))
         _Item(
-          name: recentById[c.id]?.name ?? c.displayName,
+          name: _titles[c.id] ?? recentById[c.id]?.name ?? c.displayName,
           cacheId: c.id,
           recent: recentById[c.id],
           copy: c,
@@ -398,12 +406,17 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     } catch (_) {}
     if (!mounted) return;
+    var size = NotebookSize.a4;
     final chosen = await showModalBottomSheet<({Paper paper, bool atEnd})>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (context) =>
-          PaperChooser(title: 'New notebook', start: last, doneLabel: 'Create'),
+      builder: (context) => PaperChooser(
+        title: 'New notebook',
+        start: last,
+        doneLabel: 'Create',
+        onSize: (s) => size = s,
+      ),
     );
     if (chosen == null || !mounted) return;
     final tapped = DateTime.now();
@@ -423,7 +436,12 @@ class _HomeScreenState extends State<HomeScreen> {
       file = await _s.newNotebookFile(name);
       await (await _s.pageLayouts()).save(
         file.id,
-        PageLayout.newNotebook(paper: chosen.paper, lineGap: gap),
+        PageLayout.newNotebook(
+          paper: chosen.paper,
+          lineGap: gap,
+          width: size.width,
+          height: size.height,
+        ),
       );
     } catch (e) {
       _message("Couldn't make the notebook: $e");
@@ -435,6 +453,27 @@ class _HomeScreenState extends State<HomeScreen> {
         .push(_viewerRoute('$name.pdf', file.id, file.path, null, tapped));
     await _reload();
     await _refreshThumbnail(file.id);
+  }
+
+  /// Gives a notebook another name (kept with its pages; its file keeps
+  /// its own name, so nothing written in it moves).
+  Future<void> _rename(_Item item) async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) =>
+          _RenameDialog(start: item.name.replaceAll(RegExp(r'\.pdf$'), '')),
+    );
+    if (name == null || name.trim().isEmpty || !mounted) return;
+    try {
+      final store = await _s.pageLayouts();
+      final layout = PageLayout.fromJson(await store.load(item.cacheId));
+      if (layout == null) return;
+      await store.save(item.cacheId, layout.named(name));
+    } catch (e) {
+      _message("Couldn't rename it: $e");
+      return;
+    }
+    await _reload();
   }
 
   Future<void> _openItem(_Item item) async {
@@ -535,6 +574,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   _setPinned(item, !item.pinned);
+                },
+              ),
+            if (_notebooks.contains(item.cacheId))
+              ListTile(
+                leading: const Icon(Icons.drive_file_rename_outline),
+                title: const Text('Rename'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _rename(item);
                 },
               ),
             ListTile(
@@ -881,5 +929,47 @@ class _Badge extends StatelessWidget {
       ),
       child: Icon(icon, size: 16, color: foreground),
     ),
+  );
+}
+
+/// Asks for a notebook's new name; pops it (or null).
+class _RenameDialog extends StatefulWidget {
+  const _RenameDialog({required this.start});
+
+  final String start;
+
+  @override
+  State<_RenameDialog> createState() => _RenameDialogState();
+}
+
+class _RenameDialogState extends State<_RenameDialog> {
+  late final _field = TextEditingController(text: widget.start);
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Rename notebook'),
+    content: TextField(
+      controller: _field,
+      autofocus: true,
+      textCapitalization: TextCapitalization.sentences,
+      decoration: const InputDecoration(labelText: 'Name'),
+      onSubmitted: (v) => Navigator.of(context).pop(v),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.of(context).pop(_field.text),
+        child: const Text('Rename'),
+      ),
+    ],
   );
 }

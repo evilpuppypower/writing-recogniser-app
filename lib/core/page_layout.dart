@@ -101,6 +101,7 @@ class PageLayout {
     required this.pdfPageCount,
     int nextKey = firstOwnKey,
     this.notebook = false,
+    this.title,
   }) : pages = List.unmodifiable(pages),
        nextKey = _above(pages, nextKey);
 
@@ -110,7 +111,8 @@ class PageLayout {
         for (var n = 1; n <= pdfPageCount; n++) LaidOutPage.pdf(n),
       ]),
       nextKey = firstOwnKey,
-      notebook = false;
+      notebook = false,
+      title = null;
 
   /// A notebook (owner: notebooks without a PDF): one blank page of
   /// [paper]. Its PDF is a single empty page of the app's own, never
@@ -120,6 +122,7 @@ class PageLayout {
     double width = 595,
     double height = 842,
     double? lineGap,
+    String? title,
   }) => PageLayout(
     [
       LaidOutPage.blank(
@@ -132,6 +135,20 @@ class PageLayout {
     ],
     pdfPageCount: 1,
     notebook: true,
+    title: title,
+  );
+
+  /// A notebook's name as the user calls it (owner: notebooks can be
+  /// renamed); null: named after its file.
+  final String? title;
+
+  /// Renamed to [name] (null or blank: named after its file again).
+  PageLayout named(String? name) => PageLayout(
+    pages,
+    pdfPageCount: pdfPageCount,
+    nextKey: nextKey,
+    notebook: notebook,
+    title: (name == null || name.trim().isEmpty) ? null : name.trim(),
   );
 
   /// A notebook: its PDF is the app's own empty page, so it has no pages
@@ -154,6 +171,7 @@ class PageLayout {
     pdfPageCount: pdfPageCount,
     nextKey: nextKey ?? this.nextKey,
     notebook: notebook,
+    title: title,
   );
 
   /// Keys of pages of our own start here, well past any PDF's page count.
@@ -307,6 +325,7 @@ class PageLayout {
     'n': pdfPageCount,
     'x': nextKey,
     if (notebook) 'nb': true,
+    if (title != null) 't': title,
     'pages': [for (final p in pages) p.toJson()],
   });
 
@@ -344,6 +363,7 @@ class PageLayout {
         pdfPageCount: pdfPageCount,
         nextKey: (j['x'] as int?) ?? firstOwnKey,
         notebook: j['nb'] == true,
+        title: j['t'] as String?,
       );
     }
   }

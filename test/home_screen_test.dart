@@ -94,7 +94,16 @@ void main() {
               newNotebookFile: (name) async {
                 notebookNames.add(name);
                 final id = '1_2_$name.pdf';
-                copies = [...copies, stored('2_$name.pdf', pinned: true)];
+                copies = [
+                  ...copies,
+                  StoredCopy(
+                    id: id,
+                    path: '/nowhere/$id',
+                    size: 1,
+                    lastUsed: DateTime(2026, 10, 16),
+                    pinned: true,
+                  ),
+                ];
                 return (id: id, path: '/nowhere/$id');
               },
             ),
@@ -142,6 +151,36 @@ void main() {
     // is read.
     expect(restored.last, [id]);
     expect(find.byType(PdfViewerScreen), findsOneWidget);
+  });
+
+  testWidgets('a notebook in A5, then renamed', (tester) async {
+    await pumpHome(tester);
+    await tester.tap(find.text('New notebook'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('A5'));
+    await tester.pump();
+    await tester.tap(find.text('Create'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    final id = '1_2_${notebookNames.single}.pdf';
+    final layout = PageLayout.fromJson(await layouts.load(id))!;
+    expect((layout.at(1).width, layout.at(1).height), (420.0, 595.0));
+    // Back home, then rename it from its card.
+    await tester.pageBack();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    final card = find.textContaining(notebookNames.single);
+    expect(card, findsWidgets);
+    await tester.longPress(card.first);
+    await tester.pumpAndSettle();
+    expect(find.text('Unpin'), findsNothing, reason: 'always kept');
+    await tester.tap(find.text('Rename'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Biology');
+    await tester.tap(find.widgetWithText(FilledButton, 'Rename'));
+    await tester.pumpAndSettle();
+    expect(PageLayout.fromJson(await layouts.load(id))!.title, 'Biology');
+    expect(find.text('Biology'), findsOneWidget);
   });
 
   testWidgets('after a crash, offers the details once and clears them', (
