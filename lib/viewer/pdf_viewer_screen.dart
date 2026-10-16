@@ -12,6 +12,7 @@ import 'package:pdfrx/pdfrx.dart';
 import '../core/app_settings.dart';
 import '../core/bookmarks.dart';
 import 'page_colours_dialog.dart';
+import 'pages_sheet.dart';
 import '../storage/sqlite_document_colours_store.dart';
 import '../core/document_colours.dart';
 import '../core/document_state.dart';
@@ -487,6 +488,23 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text("Couldn't save the bookmark: $e")));
     }
+  }
+
+  /// Every page small, with its ink and bookmarks; tap one to go there
+  /// (owner's choice: page tools).
+  Future<void> _showPages() async {
+    if (!_controller.isReady) return;
+    final page = await showPagesSheet(
+      context,
+      document: _controller.document,
+      currentPage: _pageNumber.value ?? 1,
+      inkOf: _ink.ink.strokesOn,
+      geometryOf: _geometryOf,
+      bookmarks: _bookmarks,
+      dark: _dark,
+    );
+    if (page == null || !mounted || !_controller.isReady) return;
+    await _controller.goToPage(pageNumber: page, duration: Duration.zero);
   }
 
   /// "Contents": the PDF's own contents list (if it has one) and the
@@ -2500,6 +2518,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     ),
                   );
                 },
+              ),
+              IconButton(
+                tooltip: 'All pages',
+                icon: const Icon(Icons.grid_view),
+                onPressed: _pageCount == null ? null : _showPages,
               ),
               IconButton(
                 tooltip: 'Contents and bookmarks',

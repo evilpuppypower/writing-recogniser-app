@@ -21,6 +21,7 @@ Future<Uint8List> exportPdfWithInk({
   Map<int, List<ExportWord>> text = const {},
   Set<int>? onlyPages,
   bool darkPages = false,
+  List<int?>? pageOrder,
   List<String>? trace,
 }) async {
   final pages = <int, List<List<Object>>>{
@@ -45,6 +46,7 @@ Future<Uint8List> exportPdfWithInk({
       words,
       onlyPages?.toList(),
       darkPages,
+      pageOrder,
     ],
   );
   trace?.addAll((result[2] as List).cast<String>());
@@ -85,6 +87,7 @@ List<Object?> _exportOnWorker(List<Object?> m) {
       text: text,
       onlyPages: only == null ? null : {for (final n in only) n as int},
       darkPages: m[5]! as bool,
+      pageOrder: (m[6] as List?)?.cast<int?>(),
       trace: steps,
     );
     return ['ok', bytes, steps];

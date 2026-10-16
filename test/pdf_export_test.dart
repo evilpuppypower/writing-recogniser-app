@@ -566,6 +566,47 @@ void main() {
       lib.FPDF_CloseDocument(doc);
     });
 
+    test('pages arranged: reordered, left out, and blank ones added', () {
+      final src = blankPdf(lib, dir, 3);
+      final bytes = writeInkIntoPdf(
+        lib,
+        src,
+        {
+          2: exportLines([
+            pen([(10, 10, 0.5), (20, 20, 0.5)]),
+          ], pressure: PressureResponse.none),
+        },
+        pageOrder: [3, null, 2, 99],
+      );
+      final out = File('${dir.path}/arranged.pdf')..writeAsBytesSync(bytes);
+      final path = out.path.toNativeUtf8();
+      final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+      malloc.free(path);
+      // Page 1 is left out and page 99 doesn't exist.
+      expect(lib.FPDF_GetPageCount(doc), 3);
+      int objects(int i) {
+        final page = lib.FPDF_LoadPage(doc, i);
+        final n = lib.FPDFPage_CountObjects(page);
+        lib.FPDF_ClosePage(page);
+        return n;
+      }
+
+      // Page 3 first, then a blank page, then page 2 with its ink.
+      expect([objects(0), objects(1), objects(2)], [0, 0, 1]);
+      final w = calloc<Double>(), h = calloc<Double>();
+      lib.FPDF_GetPageSizeByIndex(doc, 1, w, h);
+      expect((w.value, h.value), (612.0, 792.0), reason: 'the size before it');
+      calloc
+        ..free(w)
+        ..free(h);
+      lib.FPDF_CloseDocument(doc);
+      expect(
+        () => writeInkIntoPdf(lib, src, const {}, pageOrder: [null, 7]),
+        throwsA(isA<PdfExportException>()),
+        reason: 'none of the PDF\'s own pages',
+      );
+    });
+
     test('a file that is not a PDF gives a plain error', () {
       final bad = File('${dir.path}/bad.pdf')..writeAsStringSync('hello');
       expect(

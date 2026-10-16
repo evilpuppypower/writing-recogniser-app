@@ -2164,3 +2164,64 @@ class _InkDrawer {
     }
   }
 }
+
+/// A page's ink, small (page thumbnails): drawn to fill the widget, upright
+/// as the page shows ([geometry]). Text boxes aren't drawn.
+class PageInkPreview extends StatelessWidget {
+  const PageInkPreview({
+    super.key,
+    required this.strokes,
+    required this.geometry,
+    this.dark = false,
+  });
+
+  final List<PageStroke> strokes;
+  final PageGeometry geometry;
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: CustomPaint(
+      painter: _PreviewPainter(strokes, geometry, dark),
+      size: Size.infinite,
+    ),
+  );
+}
+
+class _PreviewPainter extends CustomPainter {
+  _PreviewPainter(this.strokes, this.geometry, this.dark);
+
+  final List<PageStroke> strokes;
+  final PageGeometry geometry;
+  final bool dark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0) return;
+    final drawer = _InkDrawer(
+      geometry,
+      size.width,
+      const PressureResponse(),
+      dark: dark,
+    );
+    for (final s in strokes) {
+      if (s.points.isEmpty || s.isTextBox) continue;
+      drawer.draw(
+        canvas,
+        s.points,
+        PenStyle(
+          tool: s.tool,
+          colorArgb: s.colorArgb,
+          width: s.width,
+          arrow: s.arrow,
+        ),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PreviewPainter old) =>
+      !identical(old.strokes, strokes) ||
+      old.geometry != geometry ||
+      old.dark != dark;
+}
