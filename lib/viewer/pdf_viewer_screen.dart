@@ -101,30 +101,8 @@ class PdfViewerScreen extends StatefulWidget {
     this.reopenedForPages = false,
   });
 
-  /// This screen again, for the same PDF, after its pages changed (no
-  /// opening-time message).
-  PdfViewerScreen reopened() => PdfViewerScreen(
-    title: title,
-    documentId: documentId,
-    viewerBuilder: viewerBuilder,
-    openEventLog: openEventLog,
-    makeRecognizer: makeRecognizer,
-    makeClassifier: makeClassifier,
-    openCorrections: openCorrections,
-    openStore: openStore,
-    openInkStore: openInkStore,
-    openBookmarks: openBookmarks,
-    openDocumentColours: openDocumentColours,
-    openPageLayouts: openPageLayouts,
-    sourcePath: sourcePath,
-    locateSource: locateSource,
-    exportPdf: exportPdf,
-    saveFile: saveFile,
-    shareFile: shareFile,
-    reopenedForPages: true,
-  );
-
-  /// Opened again by [reopened]: the opening-time message isn't shown.
+  /// Opened again after its pages changed: the opening-time message
+  /// isn't shown.
   final bool reopenedForPages;
 
   final String title;
@@ -215,6 +193,78 @@ class PdfViewerScreen extends StatefulWidget {
   /// Opens the share menu with the exported PDF (injectable for tests).
   final Future<bool> Function(String name, String mime, List<int> bytes)
   shareFile;
+
+  @override
+  State<PdfViewerScreen> createState() => _PdfViewerHostState();
+}
+
+/// Holds the viewer, and opens it again when its pages change (owner:
+/// blank pages like any notes app): on the same screen, so whoever opened
+/// the PDF only hears that it closed when the user really closes it.
+class _PdfViewerHostState extends State<PdfViewerScreen> {
+  var _opened = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = widget;
+    return _PdfViewerPages(
+      key: ValueKey(_opened),
+      title: w.title,
+      documentId: w.documentId,
+      viewerBuilder: w.viewerBuilder,
+      importTook: _opened == 0 ? w.importTook : null,
+      tappedAt: _opened == 0 ? w.tappedAt : null,
+      openEventLog: w.openEventLog,
+      makeRecognizer: w.makeRecognizer,
+      makeClassifier: w.makeClassifier,
+      openCorrections: w.openCorrections,
+      openStore: w.openStore,
+      openInkStore: w.openInkStore,
+      openBookmarks: w.openBookmarks,
+      openDocumentColours: w.openDocumentColours,
+      openPageLayouts: w.openPageLayouts,
+      sourcePath: w.sourcePath,
+      locateSource: w.locateSource,
+      exportPdf: w.exportPdf,
+      saveFile: w.saveFile,
+      shareFile: w.shareFile,
+      reopenedForPages: _opened > 0 || w.reopenedForPages,
+      onPagesChanged: () {
+        if (mounted) setState(() => _opened++);
+      },
+    );
+  }
+}
+
+/// The viewer itself, for one arrangement of the pages.
+class _PdfViewerPages extends PdfViewerScreen {
+  const _PdfViewerPages({
+    super.key,
+    required super.title,
+    required super.documentId,
+    required super.viewerBuilder,
+    super.importTook,
+    super.tappedAt,
+    required super.openEventLog,
+    required super.makeRecognizer,
+    required super.makeClassifier,
+    required super.openCorrections,
+    required super.openStore,
+    required super.openInkStore,
+    required super.openBookmarks,
+    required super.openDocumentColours,
+    required super.openPageLayouts,
+    super.sourcePath,
+    super.locateSource,
+    required super.exportPdf,
+    required super.saveFile,
+    required super.shareFile,
+    required super.reopenedForPages,
+    required this.onPagesChanged,
+  });
+
+  /// Everything is saved: show the pages as they're now laid out.
+  final VoidCallback onPagesChanged;
 
   @override
   State<PdfViewerScreen> createState() => _PdfViewerScreenState();
@@ -448,18 +498,35 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   Future<void> _loadLayout() async {
     try {
       final store = await widget.openPageLayouts();
-      _layoutStore = store;
       // Pages of our own are put together with the PDF's from its file.
       if (widget.sourcePath == null) return;
-      final layout = PageLayout.fromJson(await store.load(widget.documentId));
-      if (layout == null) return;
+      final json = await store.load(widget.documentId);
+      if (json == null) {
+        _layoutStore = store;
+        return;
+      }
       // The library may have moved its copy since this screen was opened.
       final locate = widget.locateSource;
       _sourceFile = locate == null
           ? widget.sourcePath
           : await locate().catchError((_) => widget.sourcePath) ??
                 widget.sourcePath;
-      _layout = layout;
+      // Checked against the file before any ink is loaded through it: if
+      // the saved pages don't fit the file (it changed) or can't be read,
+      // the PDF is shown as it is and its pages can't be changed, so the
+      // saved pages (and their ink) are kept as they were.
+      final source = await PdfDocument.openFile(_sourceFile!);
+      _parts.add(source);
+      final layout = PageLayout.fromJson(json, source.pages.length);
+      if (layout == null) return;
+      // Back to the PDF's own pages: shown as it is, but new pages still
+      // get keys never used before.
+      if (layout.isPlain) {
+        _plainNextKey = layout.nextKey;
+      } else {
+        _layout = layout;
+      }
+      _layoutStore = store;
     } catch (_) {
       // The PDF as it is.
     }
@@ -468,18 +535,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// The PDF's file, when it's shown with pages of our own.
   String? _sourceFile;
 
+  /// Makes each put-together document's name new (pdfrx shares documents
+  /// with the same name).
+  static var _shownCount = 0;
+
   /// The shown pages: the PDF's pages in [_layout]'s order, with blank
   /// pages between, as one document for the viewer.
   Future<PdfDocument> _openLaidOut(PageLayout layout) async {
-    final source = await PdfDocument.openFile(
-      _sourceFile ?? widget.sourcePath!,
-    );
-    _parts.add(source);
-    if (source.pages.length != layout.pdfPageCount) {
-      // The file changed: shown as it is now.
-      _layout = null;
-      return source;
-    }
+    final source = _parts.first;
     final blanks = [
       for (final p in layout.pages)
         if (p.isBlank) p,
@@ -488,12 +551,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     if (blanks.isNotEmpty) {
       blank = await PdfDocument.openData(
         blankPdf([for (final p in blanks) (p.width, p.height)]),
-        sourceName: 'blank:${widget.documentId}:${layout.hashCode}',
+        sourceName: 'blank:${widget.documentId}:${_shownCount++}',
       );
       _parts.add(blank);
     }
     final out = await PdfDocument.createNew(
-      sourceName: 'pages:${widget.documentId}:${layout.hashCode}',
+      sourceName: 'pages:${widget.documentId}:${_shownCount++}',
     );
     var b = 0;
     out.pages = [
@@ -657,7 +720,16 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       widget.sourcePath != null && _layoutStore != null && _pageCount != null;
 
   /// The pages as shown now.
-  PageLayout get _shownPages => _layout ?? PageLayout.of(_pageCount ?? 0);
+  PageLayout get _shownPages =>
+      _layout ??
+      PageLayout(
+        PageLayout.of(_pageCount ?? 0).pages,
+        pdfPageCount: _pageCount ?? 0,
+        nextKey: _plainNextKey,
+      );
+
+  /// The next key for a page of our own, while the PDF is shown as it is.
+  int _plainNextKey = PageLayout.firstOwnKey;
 
   /// A blank page after page [after] (the current page by default), the
   /// size of that page.
@@ -733,13 +805,49 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           : const SizedBox.shrink(),
       note:
           'Drag the handle to move a page. Your PDF file stays as it is: '
-          'pages taken out are only hidden here.',
+          'its pages taken out are only hidden here. Blank pages and '
+          'copies taken out are deleted.',
       where: 'in this document',
       leaveOut: 'Take this page out',
     );
     if (order == null || !mounted) return;
+    final keptPositions = {for (final n in order) ?n};
+    final losing = [
+      for (var n = 1; n <= layout.length; n++)
+        if (!keptPositions.contains(n) &&
+            layout.keyAt(n) > layout.pdfPageCount &&
+            _ink.ink.strokesOn(n).isNotEmpty)
+          n,
+    ];
+    if (losing.isNotEmpty) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(
+            'Delete ${losing.length == 1 ? 'a page' : '${losing.length} pages'} '
+            'with ink?',
+          ),
+          content: Text(
+            '${losing.length == 1 ? 'Page' : 'Pages'} ${losing.join(', ')} '
+            '(blank or copied) will be deleted with the ink on '
+            '${losing.length == 1 ? 'it' : 'them'}.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
     var pages = <LaidOutPage>[];
-    var next = PageLayout(pages, pdfPageCount: layout.pdfPageCount);
+    var next = layout.withPages(pages);
     final kept = <int>{};
     for (final n in order) {
       if (n != null) {
@@ -752,17 +860,18 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       final size = before.isBlank
           ? (before.width, before.height)
           : _shownSize(layout.positionOf(before.key) ?? 1);
-      next = PageLayout(pages, pdfPageCount: layout.pdfPageCount);
-      final (withBlank, _) = next.insert(
-        pages.length + 1,
-        paper: Paper.plain,
-        width: size.$1,
-        height: size.$2,
-        key: _freeKey(layout, pages),
-      );
+      final (withBlank, _) = next
+          .withPages(pages)
+          .insert(
+            pages.length + 1,
+            paper: Paper.plain,
+            width: size.$1,
+            height: size.$2,
+          );
+      next = withBlank;
       pages = [...withBlank.pages];
     }
-    next = PageLayout(pages, pdfPageCount: layout.pdfPageCount);
+    next = next.withPages(pages);
     await _changeLayout(
       next,
       deleted: {
@@ -771,15 +880,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       },
       showPage: 1,
     );
-  }
-
-  /// A key for a new page not used by [layout] or [pages].
-  static int _freeKey(PageLayout layout, List<LaidOutPage> pages) {
-    var k = PageLayout.firstOwnKey;
-    for (final p in [...layout.pages, ...pages]) {
-      if (p.key >= k) k = p.key + 1;
-    }
-    return k;
   }
 
   /// Page [n]'s size as shown, in points.
@@ -806,7 +906,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final store = _layoutStore;
     if (store == null || !_canChangePages) return;
     final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
     try {
       await _autosaver?.flush();
       await _textSaver?.flush();
@@ -826,6 +925,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           await ink.saveText(id, e.value, text[e.key]);
         }
       }
+      // The new pages first: if that fails, nothing is lost.
+      await store.save(id, next);
       for (final k in deleted) {
         await ink.savePage(id, k, const []);
         await ink.saveText(id, k, null);
@@ -833,7 +934,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           await (await widget.openBookmarks()).set(id, k, on: false);
         } catch (_) {}
       }
-      await store.save(id, next);
     } catch (e) {
       messenger.showSnackBar(
         SnackBar(content: Text("Couldn't change the pages: $e")),
@@ -843,14 +943,23 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     if (!mounted) return;
     _reopenAt = (showPage ?? _pageNumber.value ?? 1).clamp(1, next.length);
     _reopenCount = next.length;
-    _savePosition();
-    await navigator.pushReplacement(
-      PageRouteBuilder<void>(
-        transitionDuration: Duration.zero,
-        reverseTransitionDuration: Duration.zero,
-        pageBuilder: (_, _, _) => widget.reopened(),
-      ),
-    );
+    // Saved before the pages open again, so they open there.
+    try {
+      await _store?.save(
+        DocumentState(
+          id: widget.documentId,
+          lastPage: _reopenAt!,
+          pageCount: next.length,
+          updatedAt: DateTime.now(),
+        ),
+      );
+    } catch (_) {}
+    // Anything written in the meantime too, before the pages are shown
+    // again from what's saved.
+    await _autosaver?.flush();
+    await _textSaver?.flush();
+    if (!mounted) return;
+    (widget as _PdfViewerPages).onPagesChanged();
   }
 
   /// "Contents": the PDF's own contents list (if it has one) and the
@@ -1939,7 +2048,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               PdfDocumentRefByLoader(
                 (_) => _openLaidOut(layout),
                 key: PdfDocumentRefKey(
-                  'pages:${widget.documentId}:${layout.hashCode}',
+                  'pages:${widget.documentId}:${_shownCount++}',
                 ),
               ),
               controller: _controller,

@@ -96,14 +96,36 @@ class LaidOutPage {
 }
 
 class PageLayout {
-  PageLayout(List<LaidOutPage> pages, {required this.pdfPageCount})
-    : pages = List.unmodifiable(pages);
+  PageLayout(
+    List<LaidOutPage> pages, {
+    required this.pdfPageCount,
+    int nextKey = firstOwnKey,
+  }) : pages = List.unmodifiable(pages),
+       nextKey = _above(pages, nextKey);
 
   /// The PDF's pages in their own order, nothing added.
   PageLayout.of(this.pdfPageCount)
     : pages = List.unmodifiable([
         for (var n = 1; n <= pdfPageCount; n++) LaidOutPage.pdf(n),
-      ]);
+      ]),
+      nextKey = firstOwnKey;
+
+  /// The key the next new page gets: never one used before in this
+  /// document, so a page taken out can't hand its ink to a new one.
+  final int nextKey;
+
+  static int _above(List<LaidOutPage> pages, int next) {
+    for (final p in pages) {
+      if (p.key >= next) next = p.key + 1;
+    }
+    return next;
+  }
+
+  PageLayout _with(List<LaidOutPage> pages, {int? nextKey}) => PageLayout(
+    pages,
+    pdfPageCount: pdfPageCount,
+    nextKey: nextKey ?? this.nextKey,
+  );
 
   /// Keys of pages of our own start here, well past any PDF's page count.
   static const firstOwnKey = 1000001;
@@ -150,14 +172,6 @@ class PageLayout {
     ];
   }
 
-  int get _nextKey {
-    var next = firstOwnKey;
-    for (final p in pages) {
-      if (p.key >= next) next = p.key + 1;
-    }
-    return next;
-  }
-
   /// A new page of our own put at [position] (1-based; the end is
   /// [length] + 1), and its key.
   (PageLayout, int) insert(
@@ -168,10 +182,10 @@ class PageLayout {
     double? lineGap,
     int? key,
   }) {
-    final k = key ?? _nextKey;
+    final k = key ?? nextKey;
     final at = position.clamp(1, pages.length + 1);
     return (
-      PageLayout([
+      _with([
         ...pages.sublist(0, at - 1),
         LaidOutPage.blank(
           k,
@@ -181,7 +195,7 @@ class PageLayout {
           lineGap: lineGap,
         ),
         ...pages.sublist(at - 1),
-      ], pdfPageCount: pdfPageCount),
+      ], nextKey: k + 1),
       k,
     );
   }
@@ -190,7 +204,7 @@ class PageLayout {
   /// key (its ink is copied by whoever keeps it).
   (PageLayout, int) duplicate(int position) {
     final p = at(position);
-    final k = _nextKey;
+    final k = nextKey;
     final copy = p.isBlank
         ? LaidOutPage.blank(
             k,
@@ -201,11 +215,11 @@ class PageLayout {
           )
         : LaidOutPage.copyOf(k, p.sourcePage!);
     return (
-      PageLayout([
+      _with([
         ...pages.sublist(0, position),
         copy,
         ...pages.sublist(position),
-      ], pdfPageCount: pdfPageCount),
+      ], nextKey: k + 1),
       k,
     );
   }
@@ -213,15 +227,18 @@ class PageLayout {
   /// Without the page at [position] (never the last page left).
   PageLayout remove(int position) {
     if (pages.length <= 1) return this;
-    return PageLayout([
+    return _with([
       ...pages.sublist(0, position - 1),
       ...pages.sublist(position),
-    ], pdfPageCount: pdfPageCount);
+    ]);
   }
 
   /// The pages in [order] (positions, each once).
-  PageLayout reorder(List<int> order) =>
-      PageLayout([for (final p in order) at(p)], pdfPageCount: pdfPageCount);
+  PageLayout reorder(List<int> order) => _with([for (final p in order) at(p)]);
+
+  /// [pages] instead (e.g. rearranged, some taken out, new ones added
+  /// with keys from [nextKey]).
+  PageLayout withPages(List<LaidOutPage> pages) => _with(pages);
 
   /// The PDF's page [n] shown again, where it was among its neighbours
   /// (after the nearest of the PDF's earlier pages still shown).
@@ -232,15 +249,16 @@ class PageLayout {
       final k = pages[i].key;
       if (k <= pdfPageCount && k < n) at = i + 1;
     }
-    return PageLayout([
+    return _with([
       ...pages.sublist(0, at),
       LaidOutPage.pdf(n),
       ...pages.sublist(at),
-    ], pdfPageCount: pdfPageCount);
+    ]);
   }
 
   String toJson() => jsonEncode({
     'n': pdfPageCount,
+    'x': nextKey,
     'pages': [for (final p in pages) p.toJson()],
   });
 
@@ -273,7 +291,11 @@ class PageLayout {
         if (s != null && (s < 1 || s > pdfPageCount)) return null;
       }
       if (pages.isEmpty) return null;
-      return PageLayout(pages, pdfPageCount: pdfPageCount);
+      return PageLayout(
+        pages,
+        pdfPageCount: pdfPageCount,
+        nextKey: (j['x'] as int?) ?? firstOwnKey,
+      );
     }
   }
 }
@@ -283,7 +305,7 @@ abstract class PageLayoutStore {
   /// [documentId]'s saved layout ([PageLayout.toJson]), or null.
   Future<String?> load(String documentId);
 
-  /// Saves [layout]; a plain one ([PageLayout.isPlain]) is removed.
+  /// Saves [layout] (a plain one too: it remembers [PageLayout.nextKey]).
   Future<void> save(String documentId, PageLayout layout);
 }
 
@@ -296,8 +318,6 @@ class MemoryPageLayoutStore implements PageLayoutStore {
 
   @override
   Future<void> save(String documentId, PageLayout layout) async {
-    layout.isPlain
-        ? _layouts.remove(documentId)
-        : _layouts[documentId] = layout.toJson();
+    _layouts[documentId] = layout.toJson();
   }
 }

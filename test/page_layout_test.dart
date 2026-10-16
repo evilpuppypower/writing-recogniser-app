@@ -51,6 +51,23 @@ void main() {
       expect(identical(one.remove(1), one), isTrue);
     });
 
+    test('a page taken out never gives its key to a new page', () {
+      final (a, k1) = PageLayout.of(1)
+          .insert(2, paper: Paper.plain, width: 1, height: 1);
+      final removed = a.remove(2);
+      final (b, k2) = removed.insert(
+        2,
+        paper: Paper.plain,
+        width: 1,
+        height: 1,
+      );
+      expect(k2, k1 + 1);
+      // Kept when saved too.
+      final back = PageLayout.fromJson(removed.toJson())!;
+      expect(back.nextKey, k1 + 1);
+      expect(keys(b), [1, k2]);
+    });
+
     test('kept as JSON, and not trusted when it doesn\'t fit', () {
       final (l, k) = PageLayout.of(2).insert(
         1,
@@ -124,14 +141,16 @@ void main() {
       expect(await inner.pages('d'), [2, PageLayout.firstOwnKey]);
     });
 
-    test('a plain layout isn\'t kept', () async {
+    test('a plain layout is kept too (it remembers the next key)', () async {
       final store = MemoryPageLayoutStore();
       final (l, _) = PageLayout.of(2)
           .insert(1, paper: Paper.plain, width: 1, height: 1);
       await store.save('d', l);
       expect(await store.load('d'), isNotNull);
-      await store.save('d', PageLayout.of(2));
-      expect(await store.load('d'), isNull);
+      await store.save('d', l.remove(1));
+      final back = PageLayout.fromJson(await store.load('d'))!;
+      expect(back.isPlain, isTrue);
+      expect(back.nextKey, PageLayout.firstOwnKey + 1);
     });
   });
 }

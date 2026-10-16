@@ -384,18 +384,26 @@ pdfium.FPDF_DOCUMENT? _layOut(
 ) {
   final count = lib.FPDF_GetPageCount(doc);
   final out = lib.FPDF_CreateNewDocument();
-  final index = calloc<Int>();
+  // The PDF's pages in one go (fonts and pictures they share are copied
+  // once), then the blank pages put in between.
+  final own = [
+    for (final (n, _, _) in laidOut)
+      if (n >= 1 && n <= count) n - 1,
+  ];
+  final index = calloc<Int>(own.isEmpty ? 1 : own.length);
   try {
+    for (var i = 0; i < own.length; i++) {
+      index[i] = own[i];
+    }
+    if (own.isNotEmpty &&
+        lib.FPDF_ImportPagesByIndex(out, doc, index, own.length, 0) == 0) {
+      step('copying pages failed');
+      lib.FPDF_CloseDocument(out);
+      return null;
+    }
     var at = 0, blank = 0;
     for (final (n, w, h) in laidOut) {
-      if (n >= 1 && n <= count) {
-        index.value = n - 1;
-        if (lib.FPDF_ImportPagesByIndex(out, doc, index, 1, at) == 0) {
-          step('copying page $n failed');
-          lib.FPDF_CloseDocument(out);
-          return null;
-        }
-      } else {
+      if (!(n >= 1 && n <= count)) {
         final page = lib.FPDFPage_New(
           out,
           at,

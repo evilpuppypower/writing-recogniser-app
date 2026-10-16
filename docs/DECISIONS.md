@@ -676,6 +676,8 @@ The owner asked how the lag fix decides which ink to send, and pointed out that 
 - **Showing it:** the viewer puts the shown pages together as one document. The PDF's own pages come from its file and blank pages from a small blank PDF the app makes itself. The PDF's contents list still goes to the right pages.
 - **Adding:** a "+" button ("Add a blank page after this one") adds a page the size of the current page. In "All pages", long-press a page to add a blank page after it, duplicate it with its ink, or take it out. The "Rearrange pages" button drags pages into order.
 - **Taking a page out:** a page of our own, or a copy, is deleted with its ink. One of the PDF's own pages is only hidden: its ink is kept, and "Put back" in "All pages" shows it again where it was.
-- **After a change**, everything is saved and the PDF opens again on the right page. Tracking pages that move while they're shown would touch every part of the viewer. Opening again keeps it simple and safe, at the cost of a moment's wait.
+- **After a change**, everything is saved and the PDF opens again on the right page, on the same screen. Tracking pages that move while they're shown would touch every part of the viewer. Opening again keeps it simple and safe, at the cost of a moment's wait. Rearranging warns before deleting blank pages or copies that have ink.
+- A page's key is never used again in that document, even after the page is deleted, so a new page can't pick up old ink.
+- If the saved pages don't fit the PDF file (its number of pages changed) or can't be read, the PDF is shown as it is and pages can't be changed. The saved pages and their ink are kept as they were, not written over.
 - **Export** puts the pages in the order shown first, then draws the ink, so blank pages and copies come out with their own ink. Picking pages and arranging an export count pages as shown.
 - The last page left can't be taken out.

@@ -26,14 +26,6 @@ class SqlitePageLayoutStore implements PageLayoutStore {
 
   @override
   Future<void> save(String documentId, PageLayout layout) async {
-    if (layout.isPlain) {
-      await _db.delete(
-        'page_layouts',
-        where: 'document_id = ?',
-        whereArgs: [documentId],
-      );
-      return;
-    }
     await _db.insert('page_layouts', {
       'document_id': documentId,
       'layout': layout.toJson(),
