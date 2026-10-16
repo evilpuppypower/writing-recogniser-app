@@ -12,6 +12,7 @@ import 'package:pdfrx/pdfrx.dart';
 import '../core/app_settings.dart';
 import '../core/bookmarks.dart';
 import 'page_colours_dialog.dart';
+import 'pages_sheet.dart';
 import '../storage/sqlite_document_colours_store.dart';
 import '../core/document_colours.dart';
 import '../core/document_state.dart';
@@ -161,6 +162,7 @@ class PdfViewerScreen extends StatefulWidget {
     Map<int, List<ExportWord>> text,
     Set<int>? onlyPages,
     bool darkPages,
+    List<int?>? pageOrder,
     List<String>? trace,
   })
   exportPdf;
@@ -487,6 +489,23 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text("Couldn't save the bookmark: $e")));
     }
+  }
+
+  /// Every page small, with its ink and bookmarks; tap one to go there
+  /// (owner's choice: page tools).
+  Future<void> _showPages() async {
+    if (!_controller.isReady) return;
+    final page = await showPagesSheet(
+      context,
+      document: _controller.document,
+      currentPage: _pageNumber.value ?? 1,
+      inkOf: _ink.ink.strokesOn,
+      geometryOf: _geometryOf,
+      bookmarks: _bookmarks,
+      dark: _dark,
+    );
+    if (page == null || !mounted || !_controller.isReady) return;
+    await _controller.goToPage(pageNumber: page, duration: Duration.zero);
   }
 
   /// "Contents": the PDF's own contents list (if it has one) and the
@@ -2163,6 +2182,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           : ExportHandwriting.ink,
       anyConverted: _hasTyped,
       darkNow: _dark,
+      thumbnail: _controller.isReady
+          ? (n) => PageThumbnail(
+              document: _controller.document,
+              page: _controller.document.pages[n - 1],
+              ink: _ink.ink.strokesOn(n),
+              geometry: _geometryOf(_controller.document.pages[n - 1]),
+              dark: _dark,
+            )
+          : null,
       convertRest: switch (SettingsScope.of(context).value.exportConvertRest) {
         ExportConvertRest.on => true,
         ExportConvertRest.off => false,
@@ -2250,6 +2278,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       'handwriting': mode.name,
       'searchable': choice.searchable,
       'darkPages': choice.darkPages,
+      'pagesArranged': choice.pageOrder?.length,
+      'blankPages': choice.pageOrder?.where((n) => n == null).length,
       'convertRest': choice.convertRest,
       'pagesInPdf': _pageCount,
       'pagesChosen': choice.pages?.length,
@@ -2268,6 +2298,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         text: text,
         onlyPages: choice.pages,
         darkPages: choice.darkPages,
+        pageOrder: choice.pageOrder,
         trace: trace,
       );
     } catch (e) {
@@ -2292,7 +2323,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final took = (watch.elapsedMilliseconds / 1000).toStringAsFixed(1);
     // So a wrong page choice shows straight away.
     final all = _pageCount;
-    final n = choice.pages?.where((p) => all == null || p <= all).length ?? all;
+    final n =
+        choice.pageOrder?.length ??
+        choice.pages?.where((p) => all == null || p <= all).length ??
+        all;
     final pageCount = n == null ? 'all pages' : '$n page${n == 1 ? '' : 's'}';
     bool saved;
     try {
@@ -2500,6 +2534,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     ),
                   );
                 },
+              ),
+              IconButton(
+                tooltip: 'All pages',
+                icon: const Icon(Icons.grid_view),
+                onPressed: _pageCount == null ? null : _showPages,
               ),
               IconButton(
                 tooltip: 'Contents and bookmarks',

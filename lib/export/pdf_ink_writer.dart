@@ -29,7 +29,10 @@ class PdfExportException implements Exception {
 /// order (task 1.4c); page numbers that aren't in the PDF are ignored.
 /// With [darkPages], every page is turned dark as on screen and the ink
 /// and typed text come out in their night colours (owner: dark pages are
-/// chosen at export too); the PDF's own text stays searchable.
+/// chosen at export too); the PDF's own text stays searchable. With
+/// [pageOrder], the new PDF has exactly these pages in this order (1-based
+/// page numbers; null is a blank page the size of the page before it),
+/// instead of [onlyPages] (owner's choice: page tools).
 /// The source file is
 /// never changed (CLAUDE.md rule 6): PDFium works on a copy in memory and
 /// writes a new file.
@@ -44,6 +47,7 @@ Uint8List writeInkIntoPdf(
   Map<int, List<ExportWord>> text = const {},
   Set<int>? onlyPages,
   bool darkPages = false,
+  List<int?>? pageOrder,
   List<String>? trace,
 }) {
   final steps = trace ?? <String>[];
@@ -159,6 +163,9 @@ Uint8List writeInkIntoPdf(
       malloc.free(difference);
       malloc.free(lighten);
       malloc.free(font);
+    }
+    if (pageOrder != null) {
+      return _arranged(lib, doc, pageCount, pageOrder, darkPages, step, steps);
     }
     if (onlyPages != null) {
       if (!onlyPages.any((n) => n >= 1 && n <= pageCount)) {
@@ -348,6 +355,95 @@ int _writeBlock(
 /// non-incremental file (some PDFs only save that way); if that fails too,
 /// says why as far as it can be told (owner's test: "couldn't save" came
 /// back with no reason).
+/// A new PDF with [doc]'s pages (ink already drawn on them) in [order]
+/// (see [writeInkIntoPdf]); [doc] itself is left as it is.
+Uint8List _arranged(
+  pdfium.PDFium lib,
+  pdfium.FPDF_DOCUMENT doc,
+  int pageCount,
+  List<int?> order,
+  bool dark,
+  void Function(String) step,
+  List<String> steps,
+) {
+  final wanted = [
+    for (final n in order)
+      if (n == null || (n >= 1 && n <= pageCount)) n,
+  ];
+  if (!wanted.any((n) => n != null)) {
+    step('none of the chosen pages exist');
+    throw PdfExportException(
+      'None of the chosen pages are in this PDF.',
+      trace: steps,
+    );
+  }
+  final out = lib.FPDF_CreateNewDocument();
+  final width = calloc<Double>(), height = calloc<Double>();
+  try {
+    var at = 0;
+    // A blank page is the size of the page before it; one at the start is
+    // the size of the first of the PDF's own pages in the export.
+    var size = (612.0, 792.0);
+    final first = wanted.firstWhere((n) => n != null, orElse: () => null);
+    if (first != null &&
+        lib.FPDF_GetPageSizeByIndex(doc, first - 1, width, height) != 0) {
+      size = (width.value, height.value);
+    }
+    for (var i = 0; i < wanted.length;) {
+      final n = wanted[i];
+      if (n == null) {
+        final page = lib.FPDFPage_New(out, at, size.$1, size.$2);
+        if (dark) {
+          // Dark like the rest (see _darken).
+          final r = lib.FPDFPageObj_CreateNewRect(0, 0, size.$1, size.$2);
+          lib.FPDFPageObj_SetFillColor(r, 0x20, 0x21, 0x24, 255);
+          lib.FPDFPath_SetDrawMode(r, 1, 0);
+          lib.FPDFPage_InsertObject(page, r);
+          lib.FPDFPage_GenerateContent(page);
+        }
+        lib.FPDF_ClosePage(page);
+        at++;
+        i++;
+        continue;
+      }
+      // A run of the PDF's own pages, copied in one go.
+      var j = i;
+      while (j < wanted.length && wanted[j] != null) {
+        j++;
+      }
+      final run = wanted.sublist(i, j).cast<int>();
+      final indices = calloc<Int>(run.length);
+      for (var k = 0; k < run.length; k++) {
+        indices[k] = run[k] - 1;
+      }
+      final ok =
+          lib.FPDF_ImportPagesByIndex(out, doc, indices, run.length, at) != 0;
+      calloc.free(indices);
+      if (!ok) {
+        step('copying pages failed');
+        throw PdfExportException(
+          "Couldn't arrange the pages (PDFium error ${lib.FPDF_GetLastError()}).",
+          trace: steps,
+        );
+      }
+      if (lib.FPDF_GetPageSizeByIndex(doc, run.last - 1, width, height) != 0) {
+        size = (width.value, height.value);
+      }
+      at += run.length;
+      i = j;
+    }
+    step(
+      'arranged: ${lib.FPDF_GetPageCount(out)} pages '
+      '(${wanted.where((n) => n == null).length} blank) from $pageCount',
+    );
+    return _save(lib, out, step, steps);
+  } finally {
+    calloc.free(width);
+    calloc.free(height);
+    lib.FPDF_CloseDocument(out);
+  }
+}
+
 Uint8List _save(
   pdfium.PDFium lib,
   pdfium.FPDF_DOCUMENT doc,

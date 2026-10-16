@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/page_ranges.dart';
 import '../core/typed_text.dart' show ExportHandwriting;
+import 'arrange_pages_screen.dart';
 
 /// What the user chose before exporting (task 1.4b).
 class ExportChoice {
@@ -12,7 +13,12 @@ class ExportChoice {
     this.convertRest = false,
     this.askedConvertRest = false,
     this.darkPages = false,
+    this.pageOrder,
   });
+
+  /// The new PDF's pages in this order (1-based page numbers; null is a
+  /// blank page), instead of [pages] (owner's choice: page tools).
+  final List<int?>? pageOrder;
 
   /// The new PDF's pages dark, as on screen (owner: dark pages are chosen
   /// at export too).
@@ -54,6 +60,7 @@ Future<ExportChoice?> showExportOptions(
   bool anyUnconverted = false,
   bool? convertRest,
   bool darkNow = false,
+  Widget Function(int page)? thumbnail,
 }) => showDialog<ExportChoice>(
   context: context,
   builder: (_) => _ExportOptionsDialog(
@@ -64,6 +71,7 @@ Future<ExportChoice?> showExportOptions(
     anyUnconverted: anyUnconverted,
     convertRest: convertRest,
     darkNow: darkNow,
+    thumbnail: thumbnail,
   ),
 );
 
@@ -76,7 +84,11 @@ class _ExportOptionsDialog extends StatefulWidget {
     required this.anyUnconverted,
     this.convertRest,
     this.darkNow = false,
+    this.thumbnail,
   });
+
+  /// A small picture of a page, for arranging pages.
+  final Widget Function(int page)? thumbnail;
 
   /// Whether the pages are dark on screen now (the dark switch starts so).
   final bool darkNow;
@@ -102,7 +114,9 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
   /// As last chosen (owner); before that, ticked when nothing is converted
   /// yet (typed text would be empty otherwise).
   late bool _convertRest = widget.convertRest ?? !widget.anyConverted;
-  bool _allPages = true;
+  // Which pages: all, some (typed), or arranged by hand.
+  _Pages _which = _Pages.all;
+  List<int?>? _arranged;
   final _pages = TextEditingController();
   String? _error;
 
@@ -128,7 +142,11 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
 
   void _done() {
     Set<int>? pages;
-    if (!_allPages) {
+    if (_which == _Pages.arranged && _arranged == null) {
+      setState(() => _error = 'Arrange the pages first.');
+      return;
+    }
+    if (_which == _Pages.some) {
       try {
         pages = parsePageRanges(_pages.text, widget.pageCount);
       } on FormatException catch (e) {
@@ -148,6 +166,7 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
         askedConvertRest:
             _handwriting != ExportHandwriting.ink && widget.anyUnconverted,
         darkPages: _dark,
+        pageOrder: _which == _Pages.arranged ? _arranged : null,
       ),
     );
   }
@@ -220,26 +239,26 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
             ],
             const SizedBox(height: 8),
             Text('Pages', style: Theme.of(context).textTheme.titleSmall),
-            RadioGroup<bool>(
-              groupValue: _allPages,
+            RadioGroup<_Pages>(
+              groupValue: _which,
               onChanged: (v) => setState(() {
-                _allPages = v ?? true;
+                _which = v ?? _Pages.all;
                 _error = null;
               }),
               child: Column(
                 children: [
-                  const RadioListTile<bool>(
-                    value: true,
+                  const RadioListTile<_Pages>(
+                    value: _Pages.all,
                     title: Text('All pages'),
                     contentPadding: EdgeInsets.zero,
                   ),
-                  const RadioListTile<bool>(
-                    value: false,
+                  const RadioListTile<_Pages>(
+                    value: _Pages.some,
                     title: Text('Only some pages'),
                     subtitle: Text('The new PDF has just these pages.'),
                     contentPadding: EdgeInsets.zero,
                   ),
-                  if (!_allPages)
+                  if (_which == _Pages.some)
                     TextField(
                       controller: _pages,
                       autofocus: true,
@@ -254,6 +273,50 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
                       onChanged: (_) => setState(() => _error = null),
                       onSubmitted: (_) => _done(),
                     ),
+                  const RadioListTile<_Pages>(
+                    value: _Pages.arranged,
+                    title: Text('Arrange pages'),
+                    subtitle: Text(
+                      'Reorder, leave out or add blank pages, in the new PDF '
+                      'only.',
+                    ),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  if (_which == _Pages.arranged) ...[
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.view_list_outlined),
+                        label: Text(
+                          _arranged == null
+                              ? 'Arrange…'
+                              : 'Arranged: ${_arranged!.length} '
+                                    '${_arranged!.length == 1 ? 'page' : 'pages'} (change)',
+                        ),
+                        onPressed: () async {
+                          final order = await arrangePages(
+                            context,
+                            pageCount: widget.pageCount,
+                            start: _arranged,
+                            thumbnail: widget.thumbnail,
+                          );
+                          if (order != null && mounted) {
+                            setState(() {
+                              _arranged = order;
+                              _error = null;
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                    if (_error != null)
+                      Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                  ],
                 ],
               ),
             ),
@@ -273,3 +336,5 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
     );
   }
 }
+
+enum _Pages { all, some, arranged }

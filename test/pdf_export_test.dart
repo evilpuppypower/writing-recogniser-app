@@ -26,10 +26,12 @@ String blankPdf(
   Directory dir,
   int pages, {
   int quarterTurns = 0,
+  double width = 612,
+  double height = 792,
 }) {
   final doc = lib.FPDF_CreateNewDocument();
   for (var i = 0; i < pages; i++) {
-    final page = lib.FPDFPage_New(doc, i, 612, 792);
+    final page = lib.FPDFPage_New(doc, i, width, height);
     if (quarterTurns != 0) lib.FPDFPage_SetRotation(page, quarterTurns);
     lib.FPDF_ClosePage(page);
   }
@@ -564,6 +566,63 @@ void main() {
       lib.FPDFText_ClosePage(text);
       lib.FPDF_ClosePage(page);
       lib.FPDF_CloseDocument(doc);
+    });
+
+    test('pages arranged: reordered, left out, and blank ones added', () {
+      final src = blankPdf(lib, dir, 3);
+      final bytes = writeInkIntoPdf(
+        lib,
+        src,
+        {
+          2: exportLines([
+            pen([(10, 10, 0.5), (20, 20, 0.5)]),
+          ], pressure: PressureResponse.none),
+        },
+        pageOrder: [3, null, 2, 99],
+      );
+      final out = File('${dir.path}/arranged.pdf')..writeAsBytesSync(bytes);
+      final path = out.path.toNativeUtf8();
+      final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+      malloc.free(path);
+      // Page 1 is left out and page 99 doesn't exist.
+      expect(lib.FPDF_GetPageCount(doc), 3);
+      int objects(int i) {
+        final page = lib.FPDF_LoadPage(doc, i);
+        final n = lib.FPDFPage_CountObjects(page);
+        lib.FPDF_ClosePage(page);
+        return n;
+      }
+
+      // Page 3 first, then a blank page, then page 2 with its ink.
+      expect([objects(0), objects(1), objects(2)], [0, 0, 1]);
+      final w = calloc<Double>(), h = calloc<Double>();
+      lib.FPDF_GetPageSizeByIndex(doc, 1, w, h);
+      expect((w.value, h.value), (612.0, 792.0), reason: 'the size before it');
+      calloc
+        ..free(w)
+        ..free(h);
+      lib.FPDF_CloseDocument(doc);
+      // A blank page first: the size of the PDF's own pages (A4 here).
+      final a4 = blankPdf(lib, dir, 1, width: 595, height: 842);
+      final first = File('${dir.path}/a4.pdf')
+        ..writeAsBytesSync(
+          writeInkIntoPdf(lib, a4, const {}, pageOrder: [null, 1]),
+        );
+      final p2 = first.path.toNativeUtf8();
+      final doc2 = lib.FPDF_LoadDocument(p2.cast(), nullptr);
+      malloc.free(p2);
+      final w2 = calloc<Double>(), h2 = calloc<Double>();
+      lib.FPDF_GetPageSizeByIndex(doc2, 0, w2, h2);
+      expect((w2.value, h2.value), (595.0, 842.0));
+      calloc
+        ..free(w2)
+        ..free(h2);
+      lib.FPDF_CloseDocument(doc2);
+      expect(
+        () => writeInkIntoPdf(lib, src, const {}, pageOrder: [null, 7]),
+        throwsA(isA<PdfExportException>()),
+        reason: 'none of the PDF\'s own pages',
+      );
     });
 
     test('a file that is not a PDF gives a plain error', () {
