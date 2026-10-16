@@ -137,6 +137,8 @@ class AppSettings {
     this.pageColours = PageColours.light,
     this.askPageColours = true,
     this.askWhenUnsure = true,
+    this.autoPause = true,
+    this.learnedPauseMs = defaultRecognitionPauseMs,
     this.exportConvertRest = ExportConvertRest.auto,
   });
 
@@ -250,6 +252,16 @@ class AppSettings {
   /// one tap (owner's approved idea 3).
   final bool askWhenUnsure;
 
+  /// Wait as long as this user pauses mid-word, learned as they write
+  /// (owner's approved idea 5), instead of [recognitionPauseMs].
+  final bool autoPause;
+
+  /// The pause learned so far (see WritingRhythm), kept between sessions.
+  final int learnedPauseMs;
+
+  /// How long reading waits after the pen lifts.
+  int get pauseMs => autoPause ? learnedPauseMs : recognitionPauseMs;
+
   /// The export dialog's "Also convert" tick, as last chosen.
   final ExportConvertRest exportConvertRest;
 
@@ -275,6 +287,8 @@ class AppSettings {
     PageColours? pageColours,
     bool? askPageColours,
     bool? askWhenUnsure,
+    bool? autoPause,
+    int? learnedPauseMs,
     ExportConvertRest? exportConvertRest,
   }) => AppSettings(
     appColour: appColour ?? this.appColour,
@@ -312,6 +326,8 @@ class AppSettings {
     pageColours: pageColours ?? this.pageColours,
     askPageColours: askPageColours ?? this.askPageColours,
     askWhenUnsure: askWhenUnsure ?? this.askWhenUnsure,
+    autoPause: autoPause ?? this.autoPause,
+    learnedPauseMs: learnedPauseMs ?? this.learnedPauseMs,
     exportConvertRest: exportConvertRest ?? this.exportConvertRest,
   );
 
@@ -337,6 +353,8 @@ class AppSettings {
     'pageColours': pageColours.name,
     'askPageColours': askPageColours,
     'askWhenUnsure': askWhenUnsure,
+    'autoPause': autoPause,
+    'learnedPauseMs': learnedPauseMs,
     'exportConvertRest': exportConvertRest.name,
   };
 
@@ -366,6 +384,8 @@ class AppSettings {
     final twoPages = m['twoPages'];
     final askPageColours = m['askPageColours'];
     final askWhenUnsure = m['askWhenUnsure'];
+    final autoPause = m['autoPause'];
+    final learnedPauseMs = m['learnedPauseMs'];
 
     return AppSettings(
       appColour: byName(
@@ -422,6 +442,10 @@ class AppSettings {
           ? askPageColours
           : d.askPageColours,
       askWhenUnsure: askWhenUnsure is bool ? askWhenUnsure : d.askWhenUnsure,
+      autoPause: autoPause is bool ? autoPause : d.autoPause,
+      learnedPauseMs: learnedPauseMs is int
+          ? learnedPauseMs.clamp(minRecognitionPauseMs, 2500)
+          : d.learnedPauseMs,
       exportConvertRest: byName(
         ExportConvertRest.values,
         m['exportConvertRest'],
@@ -454,6 +478,8 @@ class AppSettings {
       other.pageColours == pageColours &&
       other.askPageColours == askPageColours &&
       other.askWhenUnsure == askWhenUnsure &&
+      other.autoPause == autoPause &&
+      other.learnedPauseMs == learnedPauseMs &&
       other.exportConvertRest == exportConvertRest;
 
   @override
@@ -479,6 +505,8 @@ class AppSettings {
     pageColours,
     askPageColours,
     askWhenUnsure,
+    autoPause,
+    learnedPauseMs,
     exportConvertRest,
   ]);
 }

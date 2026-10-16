@@ -635,3 +635,25 @@ The diagnostic report now records each read after a pause: strokes on the page, 
 - **Arranging an export:** the export's Pages choice gains **Arrange pages**. Pages can be dragged into a new order, left out, or have blank pages added after them. A blank page is the size of the page before it (the first page's size at the very start), and dark in a dark export. An arranged export is a new PDF made from the pages, so it doesn't carry over the original's contents list or form fields; plain exports still do.
 - Only the exported copy changes: the PDF and the app's own pages stay as they are (rule 6). So bookmarks and ink never move, and the question of bookmarks following moved pages doesn't come up.
 - Blank pages to write on inside the app aren't built. They'd mean the app's pages no longer match the PDF's own, which needs an owner decision first.
+
+## 2026-10-16 — A reading pause that learns how the user writes (owner's approved idea 5)
+
+Reading waits after the pen lifts. That wait now adapts to the user. Each time a stroke carries on the word before it (beside it on the same line, under half a letter apart), the pen-up time between the two is kept, up to the last 200. Once 20 have been seen, the pause aims just above nine in ten of them (×1.3, plus 0.15 s). It moves a quarter of the way at a time, so one odd pause doesn't swing it, and it stays between 0.4 and 2.5 s.
+- The space between words, new lines and i-dots don't count, so only real mid-word pauses do.
+- Only strokes the pen has just finished count. Moving, recolouring, undoing or erasing ink doesn't, and neither do two strokes on different pages.
+- The learned pause is kept between sessions. It's saved when the PDF closes or the app is put away, not while writing, because saving settings redraws the whole app. Settings shows it: "Learn how long I pause" (on by default). Turning it off brings back the fixed slider.
+- The handwriting test screen uses the same pause.
+
+## 2026-10-16 — A toolbar that learns which tools the user reaches for (owner's approved idea 9)
+
+- **Back to the last tool:** a new toolbar button with a swap icon. Its tooltip names the tool it goes back to, e.g. "Back to the pen" after erasing. Tapping again goes back the other way.
+- **Your most used:** the pen and highlighter panels start with the user's most used styles of that tool (colour, thickness, arrowhead), up to 4, each used at least 5 times. The one in use isn't repeated. Counts come from strokes the pen has just finished, not from edits. Thickness is counted to a tenth of a point. The 24 most used styles are kept between sessions, saved every 10 strokes and when the PDF closes.
+- The pen panel now scrolls when the screen is short (it could overflow with the new row, e.g. on a tablet held sideways).
+- Favourites stay as they were: pinned by the user, never changed automatically.
+
+## 2026-10-16 — Learning what the user draws and what they write (owner's approved idea 7)
+
+Each time the user marks ink "This isn't writing", or says ink is writing ("This is writing", "Read as one word"), the marked pen strokes teach a small personal model. It keeps five numbers per stroke and no ink: height, width and length compared with the letters on the page, how straight the stroke is, and its size in points. Letter size is measured only from writing that wasn't marked, and only on pages with at least 10 written strokes; on a page that's mostly a sketch, a circle would otherwise look letter-sized. When a later stroke closely matches examples from at least 3 separate marks, the newest ones, and they all agree, it's sorted their way. One mark adds at most 5 examples, so a single selection is never enough on its own and can't push out what was learned before. Arrows teach nothing, since they're always drawings and would teach that straight lines are. That happens before the existing second look at how strokes were sorted, so a mark like the user's own ticks or crosses stops being read as a letter.
+- The newest marks win, so changing one's mind takes effect.
+- Strokes the user marked themselves are never overridden.
+- Up to 400 examples are kept on the tablet.

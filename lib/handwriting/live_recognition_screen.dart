@@ -126,7 +126,7 @@ class _LiveRecognitionScreenState extends State<LiveRecognitionScreen> {
   void _onInkChanged() {
     _pauseTimer?.cancel();
     if (_ink.strokes.isEmpty) return;
-    final pause = SettingsScope.of(context).value.recognitionPauseMs;
+    final pause = SettingsScope.of(context).value.pauseMs;
     _pauseTimer = Timer(Duration(milliseconds: pause), _recognize);
   }
 
@@ -135,7 +135,7 @@ class _LiveRecognitionScreenState extends State<LiveRecognitionScreen> {
     final strokes = _ink.strokes;
     final penLift = strokes.last.endTime;
     final engine = _engine;
-    final pauseMs = SettingsScope.of(context).value.recognitionPauseMs;
+    final pauseMs = SettingsScope.of(context).value.pauseMs;
     final seq = ++_sequence;
     setState(() => _recognizing = true);
     final sent = DateTime.now().millisecondsSinceEpoch;
@@ -364,7 +364,7 @@ class _LiveRecognitionScreenState extends State<LiveRecognitionScreen> {
             : result == null
             ? Text(
                 'Write with the pen below. About '
-                '${(SettingsScope.of(context).value.recognitionPauseMs / 1000).toStringAsFixed(1)} s '
+                '${(SettingsScope.of(context).value.pauseMs / 1000).toStringAsFixed(1)} s '
                 'after you lift the pen, the text appears here.',
               )
             : result.error != null

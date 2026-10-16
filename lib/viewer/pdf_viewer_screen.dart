@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -8,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_settings.dart';
 import '../core/bookmarks.dart';
@@ -24,6 +26,8 @@ import '../core/event_log.dart';
 import '../core/feedback/vocabulary.dart';
 import '../core/ink_store.dart';
 import '../core/nearby_classifier.dart';
+import '../core/personal_ink_kinds.dart';
+import '../core/writing_rhythm.dart';
 import '../core/open_timing.dart';
 import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
@@ -769,6 +773,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// writing (also kept as a lesson for a future word-finding model).
   void _oneWord(InkSelection sel) {
     _selection.value = null;
+    _learnKind(sel.page, sel.ids, InkKind.writing);
     _text.markWriting(sel.page, sel.ids);
     _ink.markOneWord(sel.page, sel.ids);
     _logDiagnostic('one_word', {'strokes': sel.ids.length});
@@ -777,9 +782,37 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
+  /// What this user draws and writes, learned from their marks (owner's
+  /// approved idea 7); kept on the tablet as shape numbers only.
+  final _inkKinds = PersonalInkKinds();
+  static const _inkKindsKey = 'ink.kinds';
+
+  Future<void> _loadInkKinds() async {
+    try {
+      final raw = await SharedPreferencesAsync().getString(_inkKindsKey);
+      if (raw != null) _inkKinds.load(jsonDecode(raw));
+    } catch (_) {
+      // Starts learning again.
+    }
+    _text.personalKinds = _inkKinds;
+  }
+
+  /// The user marked [ids] on [page] as [kind]: learned, and saved.
+  void _learnKind(int page, Set<String> ids, InkKind kind) {
+    _inkKinds.learn(_ink.ink.strokesOn(page), ids, kind);
+    try {
+      SharedPreferencesAsync()
+          .setString(_inkKindsKey, jsonEncode(_inkKinds.toJson()))
+          .catchError((_) {});
+    } catch (_) {
+      // Learned for now, not kept.
+    }
+  }
+
   /// "This isn't writing" for everything selected.
   void _selectionNotWriting(InkSelection sel) {
     _selection.value = null;
+    _learnKind(sel.page, sel.ids, InkKind.drawing);
     for (final w in _text.wordsOn(sel.page)) {
       if (w.key.split(',').every(sel.ids.contains)) {
         _text.markNotWriting(sel.page, w);
@@ -1181,6 +1214,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         _text.confirm(page, word);
       case NotWriting():
         // Saved on the strokes, so it lasts when the PDF is reopened.
+        _learnKind(page, word.key.split(',').toSet(), InkKind.drawing);
         _ink.markNotWriting(page, word.key.split(',').toSet());
         _text.markNotWriting(page, word);
       case null:
@@ -1217,6 +1251,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// Reads [hidden] as writing again. The text controller forgets the mark
   /// first, so the reading the ink change triggers includes it.
   void _unhide(int page, HiddenInk hidden) {
+    _learnKind(page, hidden.ids, InkKind.writing);
     _text.markWriting(page, hidden.ids);
     _ink.markWriting(page, hidden.ids);
   }
@@ -1265,13 +1300,61 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// pause, so the log doesn't keep growing).
   final _reads = ReadSummary();
 
+  /// How long the user pauses mid-word, learned as they write (owner's
+  /// approved idea 5); started from what was learned before.
+  WritingRhythm? _rhythm;
+  ({int page, PageStroke stroke})? _lastStroke;
+
+  WritingRhythm _rhythmFor(AppSettings settings) =>
+      _rhythm ??= WritingRhythm(startMs: settings.learnedPauseMs);
+
+  /// A stroke the pen has just finished (not an edit, undo or move): is
+  /// it carrying on the word before it, on the same page?
+  void _strokeWritten(int page, PageStroke stroke) {
+    // Which pens are used most (owner's approved idea 9).
+    if (stroke.points.isNotEmpty) {
+      _tools.noteUse(
+        PenStyle(
+          tool: stroke.tool,
+          colorArgb: stroke.colorArgb,
+          width: stroke.width,
+          arrow: stroke.arrow,
+        ),
+      );
+    }
+    final rhythm = _rhythmFor(SettingsScope.of(context).value);
+    final before = _lastStroke;
+    _lastStroke = (page: page, stroke: stroke);
+    if (before == null ||
+        before.page != page ||
+        before.stroke.points.isEmpty ||
+        stroke.points.isEmpty ||
+        stroke.points.first.t <= before.stroke.points.last.t) {
+      return;
+    }
+    rhythm.wrote(before.stroke, stroke);
+  }
+
+  /// Keeps the pause learned so far (when the PDF closes or the app is put
+  /// away, not while writing: saving settings redraws the whole app).
+  void _saveRhythm() {
+    final rhythm = _rhythm;
+    if (rhythm == null || !mounted) return;
+    final settings = SettingsScope.of(context);
+    if (settings.value.learnedPauseMs == rhythm.pauseMs) return;
+    settings.update(settings.value.copyWith(learnedPauseMs: rhythm.pauseMs));
+  }
+
   void _inkChangedForText(int page) {
     _labelsShown.wake();
+    final settings = SettingsScope.of(context).value;
     _text.inkChanged(
       page,
       _ink.ink.strokesOn(page),
       Duration(
-        milliseconds: SettingsScope.of(context).value.recognitionPauseMs,
+        milliseconds: settings.autoPause
+            ? _rhythmFor(settings).pauseMs
+            : settings.recognitionPauseMs,
       ),
     );
   }
@@ -1364,6 +1447,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void _flushSaves() {
     _autosaver?.flush();
     _textSaver?.flush();
+    _saveRhythm();
+    _tools.saveUsage();
   }
 
   late final AppLifecycleListener _lifecycle;
@@ -1912,6 +1997,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     super.initState();
     _frames.start();
     _bookmarksLoaded = _loadBookmarks();
+    unawaited(_loadInkKinds());
     _coloursLoaded = _loadColours();
     // A selection belongs to the Select tool.
     _tools.addListener(() {
@@ -1925,7 +2011,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _controller.addListener(_showThumbForAWhile);
     _showThumbForAWhile();
     PenToolsController.load().then((saved) {
-      if (mounted) _tools.value = saved.value;
+      if (mounted) {
+        _tools.value = saved.value;
+        _tools.usage.load(saved.usage.toJson());
+      }
       saved.dispose();
     });
     // Save straight away if the app is sent to the background (it may be
@@ -2005,6 +2094,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         saver.changed(page);
         _inkChangedForText(page);
       };
+      _ink.onStrokeAdded = _strokeWritten;
       for (final page in {...written, ...mixed}) {
         saver.changed(page);
         _inkChangedForText(page);
