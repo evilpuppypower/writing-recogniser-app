@@ -91,7 +91,11 @@ class PaperChooser extends StatefulWidget {
     this.afterPage,
     this.dark = false,
     this.doneLabel = 'Done',
+    this.onSize,
   });
+
+  /// Also asks the page size (a new notebook), told here as it changes.
+  final ValueChanged<NotebookSize>? onSize;
 
   final String title;
   final Paper start;
@@ -107,6 +111,7 @@ class PaperChooser extends StatefulWidget {
 
 class _PaperChooserState extends State<PaperChooser> {
   late Paper _paper = widget.start;
+  var _size = NotebookSize.a4;
 
   @override
   Widget build(BuildContext context) {
@@ -184,6 +189,22 @@ class _PaperChooserState extends State<PaperChooser> {
                   ),
               ],
             ),
+            if (widget.onSize != null) ...[
+              const SizedBox(height: 16),
+              Text('Page size', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 8),
+              SegmentedButton<NotebookSize>(
+                segments: [
+                  for (final s in NotebookSize.values)
+                    ButtonSegment(value: s, label: Text(s.label)),
+                ],
+                selected: {_size},
+                onSelectionChanged: (v) {
+                  setState(() => _size = v.first);
+                  widget.onSize!(v.first);
+                },
+              ),
+            ],
             if (_paper == Paper.linedToFit)
               const Padding(
                 padding: EdgeInsets.only(top: 8),

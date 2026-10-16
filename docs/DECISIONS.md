@@ -704,3 +704,9 @@ When pages are picked or arranged, or were added, moved or taken out in the app,
 ## 2026-10-16 — Zooming out to half (owner)
 
 Any PDF can be zoomed out to half of the zoom that fills the screen with the page, which was the smallest before. It opens at the same zoom as before. More pages are drawn at once when zoomed out, so very long PDFs may take a moment longer to draw at the smallest zoom.
+
+## 2026-10-16 — Notebook names and page sizes (owner)
+
+- **Renaming:** a notebook's card has "Rename" (long-press). The name is kept with its pages, and its file keeps its own name, so nothing written in it moves. The name shows on the home screen, in the viewer and in exported file names.
+- **Page sizes:** a new notebook can be A4 (the default), A5 or US Letter. Added pages take the size of the page they follow.
+- **Paper standards, checked:** 8 mm ruled lines are the usual A4 lined paper in Europe and Asia. US college ruled is 7.1 mm and wide ruled 8.7 mm. 5 mm is the usual squared and dotted grid. "Lined to fit your writing" covers anyone who wants something else.

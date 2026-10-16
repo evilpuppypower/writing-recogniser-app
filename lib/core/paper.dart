@@ -70,6 +70,19 @@ double? typicalLineLetter(List<double> lineHeights) {
   return sorted[sorted.length ~/ 2];
 }
 
+/// Page sizes for a notebook (owner: A4 and the usual notebook sizes), in
+/// points.
+enum NotebookSize {
+  a4('A4', 595, 842),
+  a5('A5', 420, 595),
+  letter('Letter', 612, 792);
+
+  const NotebookSize(this.label, this.width, this.height);
+
+  final String label;
+  final double width, height;
+}
+
 /// How a paper is named in the app.
 String paperName(Paper paper) => switch (paper) {
   Paper.plain => 'Plain',
