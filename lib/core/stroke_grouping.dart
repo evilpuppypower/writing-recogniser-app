@@ -122,7 +122,16 @@ class InkWord {
 /// One line of handwriting, words left to right (along the line, when it's
 /// written at a slant).
 class InkLine {
-  InkLine(this.words, {this.letterHeight = 4, this.angle = 0});
+  InkLine(
+    this.words, {
+    this.letterHeight = 4,
+    this.angle = 0,
+    this.measured = true,
+  });
+
+  /// Whether [letterHeight] was measured from this line's own writing,
+  /// not assumed from the user's usual size (GroupingParams.usualLetter).
+  final bool measured;
 
   final List<InkWord> words;
 
@@ -651,9 +660,8 @@ List<InkLine> _group(
   for (final line in lines) {
     // Too little writing to measure: the user's usual size (see
     // GroupingParams.usualLetter).
-    final lineLetter = params.usualLetter != null && idx.length < 12
-        ? letter
-        : line.letter ?? letter;
+    final assumed = params.usualLetter != null && idx.length < 12;
+    final lineLetter = assumed ? letter : line.letter ?? letter;
     final order = [...line.strokes]
       ..sort((a, c) => boxes[a]!.left.compareTo(boxes[c]!.left));
     final words = <InkWord>[];
@@ -689,7 +697,7 @@ List<InkLine> _group(
       );
     }
     words.sort((a, c) => a.box.left.compareTo(c.box.left));
-    result.add(InkLine(words, letterHeight: lineLetter));
+    result.add(InkLine(words, letterHeight: lineLetter, measured: !assumed));
   }
   if (hints != null && hints.isNotEmpty) {
     _applyHints(strokes, boxes, result, hints);

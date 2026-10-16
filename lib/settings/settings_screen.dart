@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'dart:convert';
 
@@ -581,6 +582,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             value: s.tidyShapes,
             onChanged: (v) => settings.update(s.copyWith(tidyShapes: v)),
+          ),
+          ListTile(
+            title: const Text('Forget what it learned about shapes'),
+            subtitle: const Text('Tidy shapes as eagerly as at first again.'),
+            trailing: const Icon(Icons.restart_alt),
+            onTap: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              try {
+                await SharedPreferencesAsync().remove('shapes.learned');
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Shapes are tidied as at first.'),
+                  ),
+                );
+              } catch (e) {
+                messenger.showSnackBar(
+                  SnackBar(content: Text("Couldn't do that: $e")),
+                );
+              }
+            },
           ),
           ListTile(
             title: Text(

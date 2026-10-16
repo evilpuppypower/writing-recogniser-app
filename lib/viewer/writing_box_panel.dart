@@ -47,6 +47,13 @@ class WritingBoxPanel extends StatefulWidget {
   State<WritingBoxPanel> createState() => _WritingBoxPanelState();
 }
 
+const _night = ColorFilter.matrix([
+  -0.875, 0, 0, 0, 255, //
+  0, -0.875, 0, 0, 255, //
+  0, 0, -0.875, 0, 255, //
+  0, 0, 0, 1, 0,
+]);
+
 class _WritingBoxPanelState extends State<WritingBoxPanel> {
   final _points = ValueNotifier<List<Offset>>(const []);
   final _pressures = <double>[];
@@ -81,6 +88,10 @@ class _WritingBoxPanelState extends State<WritingBoxPanel> {
             pageNumber: widget.page.pageNumber,
             decoration: const BoxDecoration(color: Colors.white),
           );
+          // Dark like the page behind (see PageThumbnail).
+          if (widget.dark) {
+            pdf = ColorFiltered(colorFilter: _night, child: pdf);
+          }
           if (widget.decorate != null) pdf = widget.decorate!(pdf);
           return Column(
             children: [

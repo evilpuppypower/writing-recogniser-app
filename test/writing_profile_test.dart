@@ -25,14 +25,17 @@ void main() {
     final p = WritingProfile();
     final strokes = [...line(4, 700), ...line(5, 650)];
     final lines = groupStrokes(strokes);
-    final seen = <String>{};
-    p.learnNew(strokes, lines, seen);
+    p.learnNew(strokes, lines);
     expect(p.lines, 2);
     expect(p.letterHeight, closeTo(10, 1.5));
     expect(p.slantDegrees!.abs(), lessThan(3));
     // The same page read again doesn't count twice.
-    p.learnNew(strokes, groupStrokes(strokes), seen);
+    p.learnNew(strokes, groupStrokes(strokes));
     expect(p.lines, 2);
+    // Even after being saved and loaded (the PDF opened again).
+    final again = WritingProfile()..load(p.toJson());
+    again.learnNew(strokes, groupStrokes(strokes));
+    expect(again.lines, 2);
   });
 
   test('set by the user, then learning carries on from there', () {

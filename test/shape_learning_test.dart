@@ -6,7 +6,10 @@ void main() {
   test('a tidied shape taken back makes shapes like it stricter', () {
     final l = ShapeLearning();
     expect(l.accepts(ShapeKind.circle, 0.04), isTrue);
+    // Once could be a slip.
     l.rejected(ShapeKind.circle, 0.04);
+    expect(l.accepts(ShapeKind.circle, 0.04), isTrue);
+    l.rejected(ShapeKind.circle, 0.03);
     // As rough as that one: not tidied any more; much closer: still is.
     expect(l.accepts(ShapeKind.circle, 0.04), isFalse);
     expect(l.accepts(ShapeKind.circle, 0.02), isTrue);
@@ -20,7 +23,9 @@ void main() {
   });
 
   test('kept shapes slowly bring it back, and it is remembered', () {
-    final l = ShapeLearning()..rejected(ShapeKind.triangle, 0.03);
+    final l = ShapeLearning()
+      ..rejected(ShapeKind.triangle, 0.03)
+      ..rejected(ShapeKind.triangle, 0.03);
     final strict = l.toleranceFor(ShapeKind.triangle);
     l.kept(ShapeKind.triangle);
     expect(l.toleranceFor(ShapeKind.triangle), greaterThan(strict));

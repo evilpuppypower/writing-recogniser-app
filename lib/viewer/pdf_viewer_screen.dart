@@ -513,6 +513,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// and text panel).
   DocumentSettingsController? _docSettings;
 
+  /// Set once the pens have loaded (see _saveView).
+  bool _toolsLoaded = false;
+
   Future<void> _loadView() async {
     try {
       final store = await widget.openDocumentViews();
@@ -563,14 +566,16 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void _saveView() {
     final store = _viewStore;
     if (store == null) return;
-    var view = _view;
-    final t = _tools.value;
-    view = view.copyWith(
-      mode: t.mode == PenMode.text ? null : t.mode,
-      pen: t.pen,
-      highlighter: t.highlighter,
-      showTyped: _showTyped.value,
-    );
+    var view = _view.copyWith(showTyped: _showTyped.value);
+    // Not before the pens have loaded (or the defaults would be kept).
+    if (_toolsLoaded) {
+      final t = _tools.value;
+      view = view.copyWith(
+        mode: t.mode == PenMode.text ? null : t.mode,
+        pen: t.pen,
+        highlighter: t.highlighter,
+      );
+    }
     if (_controller.isReady && _restored) {
       try {
         final place = _placeShown();
@@ -1534,8 +1539,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// it's closed.
   final _writingBox = ValueNotifier<WritingBoxTarget?>(null);
 
-  /// The strip's height / width, as last laid out.
-  double _boxAspect = 0.3;
+  /// The strip's height / width, as last laid out (the outline on the
+  /// page follows it).
+  final _boxAspectNotifier = ValueNotifier<double>(0.3);
+  double get _boxAspect => _boxAspectNotifier.value;
 
   void _toggleWritingBox() {
     if (_writingBox.value != null) {
@@ -1550,6 +1557,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
+  /// [t] with its foot on its page (the last page has no next one).
+  static WritingBoxTarget _keepOnPage(WritingBoxTarget t, double height) =>
+      t.top + height > 1 ? t.copyWith(top: 1 - height) : t;
+
   Widget _writingBoxPanel(WritingBoxTarget t) {
     if (!_controller.isReady ||
         t.page < 1 ||
@@ -1561,7 +1572,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     return LayoutBuilder(
       builder: (context, box) {
         if (box.maxWidth > 0 && box.maxHeight > 48) {
-          _boxAspect = (box.maxHeight - 48) / box.maxWidth;
+          final aspect = (box.maxHeight - 48) / box.maxWidth;
+          if ((aspect - _boxAspect).abs() > 1e-6) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _boxAspectNotifier.value = aspect;
+            });
+          }
         }
         return ListenableBuilder(
           listenable: Listenable.merge([_ink, _tools]),
@@ -1590,17 +1606,23 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                 _boxAspect,
                 g.displayHeight / g.displayWidth,
               );
-              _writingBox.value = now
-                  .follow(right, height: h)
-                  .overflow(height: h, pageCount: _pageCount ?? t.page);
+              _writingBox.value = _keepOnPage(
+                now
+                    .follow(right, height: h)
+                    .overflow(height: h, pageCount: _pageCount ?? t.page),
+                h,
+              );
             },
-            onMove: (next) => _writingBox.value = next.overflow(
-              height: next.heightFor(
+            onMove: (next) {
+              final h = next.heightFor(
                 _boxAspect,
                 g.displayHeight / g.displayWidth,
-              ),
-              pageCount: _pageCount ?? t.page,
-            ),
+              );
+              _writingBox.value = _keepOnPage(
+                next.overflow(height: h, pageCount: _pageCount ?? t.page),
+                h,
+              );
+            },
             onClose: () => _writingBox.value = null,
           ),
         );
@@ -1611,7 +1633,6 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// The user's usual letter size and slant (owner's approved idea 6),
   /// learned from finished lines; editable in Settings.
   final _profile = WritingProfile();
-  final _profileSeen = <String>{};
   var _profileChanged = false;
 
   Future<void> _loadProfile() async {
@@ -1624,7 +1645,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _text.usualLetter = _profile.letterHeight;
     _text.onLines = (strokes, lines) {
       final before = _profile.lines;
-      _profile.learnNew(strokes, lines, _profileSeen);
+      _profile.learnNew(strokes, lines);
       if (_profile.lines != before) {
         _profileChanged = true;
         _text.usualLetter = _profile.letterHeight;
@@ -1664,9 +1685,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   final _shapeLearning = ShapeLearning();
   static const _shapeLearningKey = 'shapes.learned';
 
-  /// The shape tidied last, until it's kept or taken back.
-  ({int page, String id, ShapeKind kind, double error, Timer keep})?
-  _lastTidied;
+  /// Shapes tidied in the last [ShapeLearning.rejectWithin], until each
+  /// is kept or taken back.
+  final _tidied =
+      <({int page, String id, ShapeKind kind, double error, Timer keep})>[];
 
   Future<void> _loadShapeLearning() async {
     try {
@@ -1686,31 +1708,31 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   void _shapeTidied(int page, PageStroke stroke, ShapeKind kind, double error) {
-    _lastTidied?.keep.cancel();
-    _lastTidied = (
+    late final ({int page, String id, ShapeKind kind, double error, Timer keep})
+    entry;
+    entry = (
       page: page,
       id: stroke.id,
       kind: kind,
       error: error,
       keep: Timer(ShapeLearning.rejectWithin, () {
-        final t = _lastTidied;
-        if (t == null || t.id != stroke.id) return;
-        _lastTidied = null;
+        if (!_tidied.remove(entry)) return;
         _shapeLearning.kept(kind);
         _saveShapeLearning();
       }),
     );
+    _tidied.add(entry);
   }
 
-  /// A tidied shape undone or erased straight away: tidied too eagerly.
+  /// Tidied shapes undone or erased straight away: tidied too eagerly.
   void _checkTidiedShape() {
-    final t = _lastTidied;
-    if (t == null) return;
-    if (_ink.ink.strokesOn(t.page).any((s) => s.id == t.id)) return;
-    t.keep.cancel();
-    _lastTidied = null;
-    _shapeLearning.rejected(t.kind, t.error);
-    _saveShapeLearning();
+    for (final t in [..._tidied]) {
+      if (_ink.ink.strokesOn(t.page).any((s) => s.id == t.id)) continue;
+      t.keep.cancel();
+      _tidied.remove(t);
+      _shapeLearning.rejected(t.kind, t.error);
+      _saveShapeLearning();
+    }
   }
 
   static const _inkKindsKey = 'ink.kinds';
@@ -2680,9 +2702,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     // Where the writing box writes, on its page.
     Positioned.fill(
       child: IgnorePointer(
-        child: ValueListenableBuilder(
-          valueListenable: _writingBox,
-          builder: (context, t, _) {
+        child: ListenableBuilder(
+          listenable: Listenable.merge([_writingBox, _boxAspectNotifier]),
+          builder: (context, _) {
+            final t = _writingBox.value;
             if (t == null || t.page != page.pageNumber) {
               return const SizedBox.shrink();
             }
@@ -3064,6 +3087,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       if (mounted) {
         _tools.value = _view.applyTo(saved.value);
         _tools.usage.load(saved.usage.toJson());
+        _toolsLoaded = true;
       }
       saved.dispose();
     });
@@ -3570,7 +3594,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _saveView();
     _docSettings?.dispose();
     _writingBox.dispose();
-    _lastTidied?.keep.cancel();
+    _boxAspectNotifier.dispose();
+    _saveProfile();
+    for (final t in _tidied) {
+      t.keep.cancel();
+    }
     _ink.removeListener(_checkTidiedShape);
     _lifecycle.dispose();
     _autosaver?.flush();
@@ -3608,8 +3636,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   @override
   Widget build(BuildContext context) {
     final page = _buildPage(context);
-    final own = _docSettings;
-    return own == null ? page : SettingsScope(controller: own, child: page);
+    // Always the same shape of tree (so the viewer isn't built again when
+    // this document's own settings arrive): its own settings once loaded,
+    // the app's until then.
+    final scope =
+        _docSettings ??
+        context.dependOnInheritedWidgetOfExactType<SettingsScope>()?.notifier;
+    return scope == null ? page : SettingsScope(controller: scope, child: page);
   }
 
   Widget _buildPage(BuildContext context) {
