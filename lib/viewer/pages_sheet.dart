@@ -34,6 +34,12 @@ class RemovePage extends PagesAction {
   final int page;
 }
 
+/// Choose another paper for the blank page [page].
+class ChangePaper extends PagesAction {
+  const ChangePaper(this.page);
+  final int page;
+}
+
 /// Drag the pages into another order.
 class ArrangeShownPages extends PagesAction {
   const ArrangeShownPages();
@@ -59,6 +65,7 @@ Future<PagesAction?> showPagesSheet(
   bool dark = false,
   bool canEdit = false,
   int removedCount = 0,
+  bool Function(int page)? isBlank,
   Widget Function(int page, Widget child)? decorate,
 }) => Navigator.of(context).push<PagesAction>(
   MaterialPageRoute(
@@ -71,6 +78,7 @@ Future<PagesAction?> showPagesSheet(
       dark: dark,
       canEdit: canEdit,
       removedCount: removedCount,
+      isBlank: isBlank,
       decorate: decorate,
     ),
   ),
@@ -86,6 +94,7 @@ class _PagesScreen extends StatefulWidget {
     required this.dark,
     required this.canEdit,
     required this.removedCount,
+    required this.isBlank,
     required this.decorate,
   });
 
@@ -97,6 +106,9 @@ class _PagesScreen extends StatefulWidget {
   final bool dark;
   final bool canEdit;
   final int removedCount;
+
+  /// Whether page n is a blank page of our own (its paper can change).
+  final bool Function(int page)? isBlank;
 
   /// Puts something over page n's thumbnail (e.g. its paper).
   final Widget Function(int page, Widget child)? decorate;
@@ -269,6 +281,12 @@ extension on _PagesScreenState {
               title: const Text('Add a blank page after this one'),
               onTap: () => Navigator.of(context).pop(AddPageAfter(n)),
             ),
+            if (widget.isBlank?.call(n) ?? false)
+              ListTile(
+                leading: const Icon(Icons.grid_4x4),
+                title: const Text('Change paper'),
+                onTap: () => Navigator.of(context).pop(ChangePaper(n)),
+              ),
             ListTile(
               leading: const Icon(Icons.copy_outlined),
               title: const Text('Duplicate this page'),

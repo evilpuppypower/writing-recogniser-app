@@ -16,12 +16,13 @@ import '../core/bookmarks.dart';
 import 'page_colours_dialog.dart';
 import 'arrange_pages_screen.dart';
 import 'pages_sheet.dart';
+import 'paper_painter.dart';
 import '../storage/sqlite_document_colours_store.dart';
 import '../core/document_colours.dart';
 import '../core/document_state.dart';
 import '../core/feedback/correction_store.dart';
 import '../core/handwriting_search.dart';
-import '../core/ink_export_plan.dart' show ExportWord;
+import '../core/ink_export_plan.dart' show ExportLine, ExportWord;
 import '../core/ink_classifier.dart';
 import '../core/event_log.dart';
 import '../core/feedback/vocabulary.dart';
@@ -31,6 +32,7 @@ import '../core/personal_ink_kinds.dart';
 import '../core/blank_pdf.dart';
 import '../core/laid_out_stores.dart';
 import '../core/page_layout.dart';
+import '../core/paper.dart';
 import '../storage/sqlite_page_layout_store.dart';
 import '../core/printed_text.dart';
 import '../core/writing_rhythm.dart';
@@ -39,7 +41,8 @@ import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/page_recognition.dart' show HiddenInk, hiddenInkAt;
 import '../core/selection.dart';
-import '../core/stroke_grouping.dart' show InkBox, isWriting, levelPoint;
+import '../core/stroke_grouping.dart'
+    show InkBox, groupStrokes, isWriting, levelPoint;
 import '../core/typed_text.dart';
 import '../core/pen_tools.dart';
 import '../core/recognition/recognizer.dart';
@@ -184,6 +187,7 @@ class PdfViewerScreen extends StatefulWidget {
     bool darkPages,
     List<int?>? pageOrder,
     List<(int, double, double)>? laidOut,
+    Map<int, List<ExportLine>> paper,
     List<String>? trace,
   })
   exportPdf;
@@ -477,7 +481,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   List<({int page, double top, int? pdf, HandwritingHit? hand})> _hits =
       const [];
   int _hitAt = -1;
-  late final _pagePainters = [_paintDark, _paintSearch];
+  late final _pagePainters = [_paintDark, _paintPaper, _paintSearch];
 
   // Bookmarks (owner's choice, 2026-10-15): the pages marked in this PDF.
   BookmarkStore? _bookmarkStore;
@@ -686,6 +690,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       dark: _dark,
       canEdit: _canChangePages,
       removedCount: _layout?.hiddenPdfPages.length ?? 0,
+      isBlank: (n) => _layout?.at(n).isBlank ?? false,
+      decorate: switch (_layout) {
+        final layout? => (n, child) => PaperOver(
+          page: layout.at(n),
+          dark: _dark,
+          child: child,
+        ),
+        null => null,
+      },
     );
     if (action == null || !mounted || !_controller.isReady) return;
     switch (action) {
@@ -702,6 +715,20 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         );
       case RemovePage(:final page):
         await _removePage(page);
+      case ChangePaper(:final page):
+        final p = _shownPages.at(page);
+        final chosen = await _choosePaper(
+          title: 'Paper for page $page',
+          current: p.paper,
+        );
+        if (chosen == null || !mounted) return;
+        final gap = chosen.paper == Paper.linedToFit
+            ? await _fitLineGap()
+            : null;
+        await _changeLayout(
+          _shownPages.withPaper(page, chosen.paper, lineGap: gap),
+          showPage: page,
+        );
       case ArrangeShownPages():
         await _arrangeShownPages();
       case RestorePages():
@@ -735,19 +762,93 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// size of that page.
   Future<void> _addBlankPage({int? after}) async {
     if (!_canChangePages || !_controller.isReady) return;
-    final at = after ?? _pageNumber.value ?? 1;
+    final current = after ?? _pageNumber.value ?? 1;
+    final chosen = await _choosePaper(
+      title: 'Add a blank page',
+      current: await _lastPaper(),
+      afterPage: after == null ? current : null,
+    );
+    if (chosen == null || !mounted || !_controller.isReady) return;
+    final at = chosen.atEnd ? _shownPages.length : current;
     final pages = _controller.document.pages;
     final size = at >= 1 && at <= pages.length
         ? (pages[at - 1].width, pages[at - 1].height)
         : (595.0, 842.0);
+    final gap = chosen.paper == Paper.linedToFit ? await _fitLineGap() : null;
+    unawaited(_saveLastPaper(chosen.paper));
     final (next, _) = _shownPages.insert(
       at + 1,
-      paper: Paper.plain,
+      paper: chosen.paper,
       width: size.$1,
       height: size.$2,
+      lineGap: gap,
     );
     await _changeLayout(next, showPage: at + 1);
   }
+
+  static const _lastPaperKey = 'paper.last', _fitGapKey = 'paper.fitGap';
+
+  Future<Paper> _lastPaper() async {
+    try {
+      final name = await SharedPreferencesAsync().getString(_lastPaperKey);
+      return Paper.values.firstWhere(
+        (p) => p.name == name,
+        orElse: () => Paper.plain,
+      );
+    } catch (_) {
+      return Paper.plain;
+    }
+  }
+
+  Future<void> _saveLastPaper(Paper paper) async {
+    try {
+      await SharedPreferencesAsync().setString(_lastPaperKey, paper.name);
+    } catch (_) {}
+  }
+
+  /// The space between lines that suits the user's writing: measured from
+  /// the writing in this document, or remembered from the last time; the
+  /// usual 8 mm when there's none yet.
+  Future<double> _fitLineGap() async {
+    // A few pages are plenty, and keep it quick on a long document.
+    final heights = <double>[
+      for (final page in (_ink.ink.pagesWithInk.toList()..sort()).take(8))
+        for (final line in groupStrokes(_ink.ink.strokesOn(page)))
+          line.letterHeight,
+    ];
+    final letter = typicalLineLetter(heights);
+    final prefs = SharedPreferencesAsync();
+    if (letter != null) {
+      final gap = lineGapFor(letter);
+      try {
+        await prefs.setDouble(_fitGapKey, gap);
+      } catch (_) {}
+      return gap;
+    }
+    try {
+      return await prefs.getDouble(_fitGapKey) ?? ruledGap;
+    } catch (_) {
+      return ruledGap;
+    }
+  }
+
+  /// Asks which paper (and, with [afterPage], whether after that page or
+  /// at the end); null if cancelled.
+  Future<({Paper paper, bool atEnd})?> _choosePaper({
+    required String title,
+    Paper? current,
+    int? afterPage,
+  }) => showModalBottomSheet<({Paper paper, bool atEnd})>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) => PaperChooser(
+      title: title,
+      start: current ?? Paper.plain,
+      afterPage: afterPage,
+      dark: _dark,
+    ),
+  );
 
   Future<void> _removePage(int page) async {
     final p = _shownPages.at(page);
@@ -1051,6 +1152,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   void _paintDark(Canvas canvas, Rect pageRect, PdfPage page) {
     if (_dark) paintDarkPage(canvas, pageRect);
+  }
+
+  /// A blank page's paper, under the ink (owner's choice: lined, squared,
+  /// dotted, or lined to fit their writing).
+  void _paintPaper(Canvas canvas, Rect pageRect, PdfPage page) {
+    final layout = _layout;
+    final n = page.pageNumber;
+    if (layout == null || n < 1 || n > layout.length) return;
+    paintPaper(canvas, pageRect, layout.at(n), dark: _dark);
   }
 
   void _openSearch() {
@@ -2951,6 +3061,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         darkPages: choice.darkPages,
         pageOrder: choice.pageOrder,
         laidOut: _laidOutForExport(),
+        paper: {
+          if (_layout case final layout?)
+            for (var n = 1; n <= layout.length; n++)
+              if (paperExportLines(layout.at(n)) case final lines
+                  when lines.isNotEmpty)
+                n: lines,
+        },
         trace: trace,
       );
     } catch (e) {

@@ -5,6 +5,8 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdfium_dart/pdfium_dart.dart' as pdfium;
 import 'package:writing_recogniser/core/blank_pdf.dart' as app;
+import 'package:writing_recogniser/core/page_layout.dart';
+import 'package:writing_recogniser/core/paper.dart' as app2;
 import 'package:writing_recogniser/core/ink_export_plan.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/core/page_ranges.dart';
@@ -680,6 +682,36 @@ void main() {
       expect(lib.FPDFPage_CountObjects(page), 1);
       lib.FPDF_ClosePage(page);
       lib.FPDF_CloseDocument(d2);
+    });
+
+    test('paper is drawn under the ink of a blank page', () async {
+      final src = blankPdf(lib, dir, 1);
+      final bytes = writeInkIntoPdf(
+        lib,
+        src,
+        {
+          2: [
+            ...app2.paperExportLines(
+              const LaidOutPage.blank(
+                9,
+                paper: Paper.lined,
+                width: 300,
+                height: 100,
+              ),
+            ),
+          ],
+        },
+        laidOut: const [(1, 0, 0), (0, 300, 100)],
+      );
+      final out = File('${dir.path}/paper.pdf')..writeAsBytesSync(bytes);
+      final path = out.path.toNativeUtf8();
+      final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+      malloc.free(path);
+      final page = lib.FPDF_LoadPage(doc, 1);
+      // 100 pt high, lines 8 mm (22.7 pt) apart from 34 pt down: 3 lines.
+      expect(lib.FPDFPage_CountObjects(page), 3);
+      lib.FPDF_ClosePage(page);
+      lib.FPDF_CloseDocument(doc);
     });
 
     test('the app\'s own blank pages open in PDFium at their sizes', () {
