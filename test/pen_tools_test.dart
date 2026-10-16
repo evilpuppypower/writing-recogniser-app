@@ -145,6 +145,72 @@ void main() {
     });
   });
 
+  group('Pens used most', () {
+    const blue = PenStyle(tool: InkTool.pen, colorArgb: 0xFF1565C0, width: 2);
+    const red = PenStyle(tool: InkTool.pen, colorArgb: 0xFFD32F2F, width: 2);
+    const yellow = PenStyle(
+      tool: InkTool.highlighter,
+      colorArgb: 0xFFFFEB3B,
+      width: 10,
+    );
+
+    test('most used first, at least 5 uses, not the one in use', () {
+      final u = PenUsage();
+      for (var i = 0; i < 9; i++) {
+        u.add(red);
+      }
+      for (var i = 0; i < 6; i++) {
+        u.add(blue);
+        u.add(yellow);
+      }
+      expect(u.mostUsed(InkTool.pen), [red, blue]);
+      expect(u.mostUsed(InkTool.pen, except: red), [blue]);
+      expect(u.mostUsed(InkTool.highlighter), [yellow]);
+      expect(u.mostUsed(InkTool.pen, atLeast: 7), [red]);
+    });
+
+    test('a new style still gets counted when the list is full', () {
+      final u = PenUsage();
+      for (var w = 1; w <= PenUsage.kept; w++) {
+        for (var i = 0; i < 3; i++) {
+          u.add(
+            PenStyle(tool: InkTool.pen, colorArgb: 0xFF000000, width: w + 0.0),
+          );
+        }
+      }
+      for (var i = 0; i < 6; i++) {
+        u.add(red);
+      }
+      expect(u.mostUsed(InkTool.pen, count: 1), [red]);
+      // Slider steps that aren't exact count as the same thickness.
+      final a = PenUsage()
+        ..add(const PenStyle(tool: InkTool.pen, colorArgb: 1, width: 2.3))
+        ..add(
+          const PenStyle(
+            tool: InkTool.pen,
+            colorArgb: 1,
+            width: 2.3000000000000003,
+          ),
+        );
+      expect(a.toJson(), hasLength(1));
+    });
+
+    test('kept between sessions, and only the most used are kept', () {
+      final u = PenUsage();
+      for (var i = 0; i < 5; i++) {
+        u.add(red);
+      }
+      for (var w = 1; w <= PenUsage.kept + 5; w++) {
+        u.add(
+          PenStyle(tool: InkTool.pen, colorArgb: 0xFF000000, width: w + 0.0),
+        );
+      }
+      final back = PenUsage()..load(u.toJson());
+      expect(back.mostUsed(InkTool.pen), [red]);
+      expect(u.toJson(), hasLength(PenUsage.kept));
+    });
+  });
+
   group('Toolbar and favourites', () {
     late PenToolsController tools;
 
@@ -164,6 +230,39 @@ void main() {
     }
 
     setUp(() => tools = PenToolsController());
+
+    testWidgets('back to the last tool, e.g. from the eraser to the pen', (
+      tester,
+    ) async {
+      await pump(tester);
+      expect(
+        find.byTooltip('Back to the last tool (none yet)'),
+        findsOneWidget,
+      );
+      await tester.tap(find.byIcon(Icons.auto_fix_normal)); // eraser
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Back to the pen'));
+      await tester.pumpAndSettle();
+      expect(tools.value.mode, PenMode.pen);
+      // And straight back again.
+      await tester.tap(find.byTooltip('Back to the eraser'));
+      await tester.pumpAndSettle();
+      expect(tools.value.mode, PenMode.eraser);
+    });
+
+    testWidgets('the pens used most are offered first', (tester) async {
+      const red = PenStyle(tool: InkTool.pen, colorArgb: 0xFFD32F2F, width: 2);
+      for (var i = 0; i < 6; i++) {
+        tools.noteUse(red);
+      }
+      await pump(tester);
+      await tester.tap(find.byIcon(Icons.edit)); // the pen, already chosen
+      await tester.pumpAndSettle();
+      expect(find.text('Your most used'), findsOneWidget);
+      await tester.tap(find.byTooltip('${describePen(red)}. Tap to use'));
+      await tester.pumpAndSettle();
+      expect(tools.value.pen, red);
+    });
 
     testWidgets('choose a tool; tap it again for colour and size', (
       tester,

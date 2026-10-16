@@ -643,3 +643,10 @@ Reading waits after the pen lifts. That wait now adapts to the user. Each time a
 - Only strokes the pen has just finished count. Moving, recolouring, undoing or erasing ink doesn't, and neither do two strokes on different pages.
 - The learned pause is kept between sessions. It's saved when the PDF closes or the app is put away, not while writing, because saving settings redraws the whole app. Settings shows it: "Learn how long I pause" (on by default). Turning it off brings back the fixed slider.
 - The handwriting test screen uses the same pause.
+
+## 2026-10-16 — A toolbar that learns which tools the user reaches for (owner's approved idea 9)
+
+- **Back to the last tool:** a new toolbar button with a swap icon. Its tooltip names the tool it goes back to, e.g. "Back to the pen" after erasing. Tapping again goes back the other way.
+- **Your most used:** the pen and highlighter panels start with the user's most used styles of that tool (colour, thickness, arrowhead), up to 4, each used at least 5 times. The one in use isn't repeated. Counts come from strokes the pen has just finished, not from edits. Thickness is counted to a tenth of a point. The 24 most used styles are kept between sessions, saved every 10 strokes and when the PDF closes.
+- The pen panel now scrolls when the screen is short (it could overflow with the new row, e.g. on a tablet held sideways).
+- Favourites stay as they were: pinned by the user, never changed automatically.

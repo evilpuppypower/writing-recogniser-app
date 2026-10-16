@@ -151,7 +151,11 @@ class PenToolsState {
     this.favouritesY = 0.85,
     this.eraser = EraserKind.stroke,
     this.eraserSize = 8,
+    this.previousMode,
   });
+
+  /// The tool used before the current one (for "back to the last tool").
+  final PenMode? previousMode;
 
   final PenMode mode;
   final PenStyle pen;
@@ -194,6 +198,8 @@ class PenToolsState {
     EraserKind? eraser,
     double? eraserSize,
   }) => PenToolsState(
+    // Changing tool remembers the one before.
+    previousMode: mode != null && mode != this.mode ? this.mode : previousMode,
     mode: mode ?? this.mode,
     pen: pen ?? this.pen,
     highlighter: highlighter ?? this.highlighter,
@@ -289,3 +295,63 @@ double widthAtPressure(
 ]) => style.tool == InkTool.highlighter
     ? style.width
     : style.width * response.factor(pressure);
+
+/// How often each pen and highlighter is used (owner's approved idea 9),
+/// so the ones used most can be offered first. Pure Dart.
+class PenUsage {
+  final _counts = <String, (PenStyle, int)>{};
+
+  /// Most styles kept (the least used make room).
+  static const kept = 24;
+
+  // Thickness to a tenth of a point: the slider's steps aren't exact.
+  static String _key(PenStyle s) =>
+      '${s.tool.name}:${s.colorArgb}:${s.width.toStringAsFixed(1)}:${s.arrow}';
+
+  /// Counts one stroke with [style]; false for tools that aren't pens.
+  bool add(PenStyle style) {
+    if (style.tool != InkTool.pen && style.tool != InkTool.highlighter) {
+      return false;
+    }
+    final k = _key(style);
+    _counts[k] = (style, (_counts[k]?.$2 ?? 0) + 1);
+    if (_counts.length > kept) {
+      // The least used of the others makes room (never the one just
+      // counted, or a new style could never build up a count).
+      final least = _counts.entries
+          .where((e) => e.key != k)
+          .reduce((a, b) => a.value.$2 <= b.value.$2 ? a : b);
+      _counts.remove(least.key);
+    }
+    return true;
+  }
+
+  /// The [count] most used styles of [tool], most used first, leaving out
+  /// [except] (the one in use) and any used fewer than [atLeast] times.
+  List<PenStyle> mostUsed(
+    InkTool tool, {
+    PenStyle? except,
+    int count = 4,
+    int atLeast = 5,
+  }) {
+    final list = [
+      for (final (s, n) in _counts.values)
+        if (s.tool == tool && n >= atLeast && s != except) (s, n),
+    ]..sort((a, b) => b.$2.compareTo(a.$2));
+    return [for (final (s, _) in list.take(count)) s];
+  }
+
+  List<Object?> toJson() => [
+    for (final (s, n) in _counts.values) [s.toJson(), n],
+  ];
+
+  void load(Object? j) {
+    if (j is! List) return;
+    for (final e in j) {
+      if (e is! List || e.length != 2) continue;
+      final s = PenStyle.fromJson(e[0]);
+      final n = e[1];
+      if (s != null && n is int && n > 0) _counts[_key(s)] = (s, n);
+    }
+  }
+}

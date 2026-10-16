@@ -1277,6 +1277,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// A stroke the pen has just finished (not an edit, undo or move): is
   /// it carrying on the word before it, on the same page?
   void _strokeWritten(int page, PageStroke stroke) {
+    // Which pens are used most (owner's approved idea 9).
+    if (stroke.points.isNotEmpty) {
+      _tools.noteUse(
+        PenStyle(
+          tool: stroke.tool,
+          colorArgb: stroke.colorArgb,
+          width: stroke.width,
+          arrow: stroke.arrow,
+        ),
+      );
+    }
     final rhythm = _rhythmFor(SettingsScope.of(context).value);
     final before = _lastStroke;
     _lastStroke = (page: page, stroke: stroke);
@@ -1403,6 +1414,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _autosaver?.flush();
     _textSaver?.flush();
     _saveRhythm();
+    _tools.saveUsage();
   }
 
   late final AppLifecycleListener _lifecycle;
@@ -1964,7 +1976,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _controller.addListener(_showThumbForAWhile);
     _showThumbForAWhile();
     PenToolsController.load().then((saved) {
-      if (mounted) _tools.value = saved.value;
+      if (mounted) {
+        _tools.value = saved.value;
+        _tools.usage.load(saved.usage.toJson());
+      }
       saved.dispose();
     });
     // Save straight away if the app is sent to the background (it may be

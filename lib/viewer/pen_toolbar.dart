@@ -74,6 +74,28 @@ class PenToolbar extends StatelessWidget {
             Icons.text_fields,
             'Text box: tap the page to type, or tap a text box to edit it',
           ),
+          () {
+            // Back to the tool used before (owner's approved idea 9: e.g.
+            // straight back to the pen after erasing).
+            final back = tools.previousMode;
+            final name = switch (back) {
+              PenMode.pen => 'the pen',
+              PenMode.highlighter => 'the highlighter',
+              PenMode.eraser => 'the eraser',
+              PenMode.lasso => 'Select',
+              PenMode.text => 'the text box tool',
+              null => null,
+            };
+            return IconButton(
+              tooltip: name == null
+                  ? 'Back to the last tool (none yet)'
+                  : 'Back to $name',
+              onPressed: back == null || back == tools.mode
+                  ? null
+                  : () => controller.update(tools.copyWith(mode: back)),
+              icon: const Icon(Icons.swap_horiz),
+            );
+          }(),
           const SizedBox(width: 8, height: 8),
           IconButton(
             tooltip: tools.mode != PenMode.pen
@@ -229,65 +251,94 @@ Future<void> showPenSettings(
           ? penColours
           : highlighterColours;
       return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                style.tool == InkTool.pen ? 'Pen' : 'Highlighter',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  for (final c in colours)
-                    Tooltip(
-                      message: describePen(style.copyWith(colorArgb: c)),
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: () => controller.update(
-                          tools.withCurrent(style.copyWith(colorArgb: c)),
+        // Scrolls when the screen is short (e.g. a tablet held sideways).
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  style.tool == InkTool.pen ? 'Pen' : 'Highlighter',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 16),
+                // The pens used most (owner's approved idea 9), one tap away.
+                if (controller.usage.mostUsed(style.tool, except: style)
+                    case final used when used.isNotEmpty) ...[
+                  Text(
+                    'Your most used',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      for (final u in used)
+                        Tooltip(
+                          message: '${describePen(u)}. Tap to use',
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () =>
+                                controller.update(tools.withCurrent(u)),
+                            child: _PenDot(style: u, size: 36),
+                          ),
                         ),
-                        child: _PenDot(
-                          style: style.copyWith(colorArgb: c),
-                          size: 36,
-                          ring: c == style.colorArgb,
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    for (final c in colours)
+                      Tooltip(
+                        message: describePen(style.copyWith(colorArgb: c)),
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: () => controller.update(
+                            tools.withCurrent(style.copyWith(colorArgb: c)),
+                          ),
+                          child: _PenDot(
+                            style: style.copyWith(colorArgb: c),
+                            size: 36,
+                            ring: c == style.colorArgb,
+                          ),
                         ),
                       ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text('Thickness: ${style.width.toStringAsFixed(1)} pt'),
-              Slider(
-                value: style.width,
-                min: style.minWidth,
-                max: style.maxWidth,
-                divisions: ((style.maxWidth - style.minWidth) * 10).round(),
-                label: '${style.width.toStringAsFixed(1)} pt',
-                onChanged: (w) => controller.update(
-                  tools.withCurrent(style.copyWith(width: w)),
+                  ],
                 ),
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.tonalIcon(
-                  icon: const Icon(Icons.push_pin_outlined),
-                  label: Text(
-                    tools.isFavourite(style)
-                        ? 'In favourites'
-                        : 'Pin to favourites',
+                const SizedBox(height: 16),
+                Text('Thickness: ${style.width.toStringAsFixed(1)} pt'),
+                Slider(
+                  value: style.width,
+                  min: style.minWidth,
+                  max: style.maxWidth,
+                  divisions: ((style.maxWidth - style.minWidth) * 10).round(),
+                  label: '${style.width.toStringAsFixed(1)} pt',
+                  onChanged: (w) => controller.update(
+                    tools.withCurrent(style.copyWith(width: w)),
                   ),
-                  onPressed: tools.isFavourite(style)
-                      ? null
-                      : () => controller.update(tools.pin(style)),
                 ),
-              ),
-            ],
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.tonalIcon(
+                    icon: const Icon(Icons.push_pin_outlined),
+                    label: Text(
+                      tools.isFavourite(style)
+                          ? 'In favourites'
+                          : 'Pin to favourites',
+                    ),
+                    onPressed: tools.isFavourite(style)
+                        ? null
+                        : () => controller.update(tools.pin(style)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );
