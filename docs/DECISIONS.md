@@ -657,3 +657,13 @@ Each time the user marks ink "This isn't writing", or says ink is writing ("This
 - The newest marks win, so changing one's mind takes effect.
 - Strokes the user marked themselves are never overridden.
 - Up to 400 examples are kept on the tablet.
+
+## 2026-10-16 — Writing around printed text, at any size (owner's choice: options A and B together)
+
+The owner asked how the lag fix decides which ink to send, and pointed out that users write as small and as large as they please, in margins, around the PDF's printed text.
+- **Sorting writing from drawing (A):** after a pause, the new strokes are sent with the whole of each line they're on, so a long sentence is never cut off. Ink within 3 letters of each new stroke is sent too, measured in the letters of that stroke's own line (or the nearest line, for a stroke that isn't on one). Tiny margin notes get a tiny border and big writing a big one. Each new stroke gets its own border, so two strokes far apart don't bring in the page between them. Zoom never matters: all of this is in page units.
+- **Printed text (B):** each page's printed text positions are read from the PDF in the background the first time its writing is read (scanned pages have none, so they work as before). Three rules use them:
+  - Writing on either side of printed text is two lines, two notes in the margins, even when big writing would otherwise reach across.
+  - The exception is writing that carried straight on: its next stroke started within 15 s of the line's last one. Then it's one line however wide the printed text is, since only the free space between counts.
+  - The words "just before" that help the engine come from the writing above in the same column, not from whatever is at that height elsewhere on the page. A note in one margin no longer takes a note in the other margin as its context, and writing below a printed paragraph starts fresh.
+- On a page of 1000 words, choosing the ink to send takes about 20 ms in the tests, and printed text adds little to grouping.

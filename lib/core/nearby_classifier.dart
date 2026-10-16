@@ -2,12 +2,15 @@
 /// (owner: "insane lag after writing 50 words"). An engine that sorts a
 /// whole page at a time (MyScript's Raw Content) took longer with every
 /// stroke, and each pause waited for it before reading the new word. Now
-/// only new strokes and the ink around them are sent; the rest keep the
-/// answer they had. Works with any classifier. Pure Dart.
+/// only new strokes, their lines and the ink around them are sent (see
+/// [NearbyClassifier.nearby]); the rest keep the answer they had. Works with any classifier. Pure Dart.
 library;
+
+import 'dart:math' as math;
 
 import 'ink_classifier.dart';
 import 'page_ink.dart';
+import 'printed_text.dart';
 import 'stroke_grouping.dart';
 
 class NearbyClassifier implements InkClassifier {
@@ -21,7 +24,8 @@ class NearbyClassifier implements InkClassifier {
   final bool Function()? trusted;
 
   /// How far round the new strokes is sorted again with them, in letter
-  /// heights (a word finished, a stroke that turns a letter into a box).
+  /// heights of their own line (a word finished, a stroke that turns a
+  /// letter into a box).
   final double reach;
 
   /// Each stroke's last answer (a changed stroke is a new object, so it's
@@ -32,47 +36,107 @@ class NearbyClassifier implements InkClassifier {
   /// log).
   int lastSent = 0;
 
+  /// [printed]: the page's printed text, so lines are found as reading
+  /// finds them (see groupStrokes).
   @override
-  Future<List<InkKind>> classify(List<PageStroke> strokes) async {
+  Future<List<InkKind>> classify(
+    List<PageStroke> strokes, {
+    PrintedText? printed,
+  }) async {
     final fresh = [
-      for (final s in strokes)
-        if (_kinds[s] == null) s,
+      for (var i = 0; i < strokes.length; i++)
+        if (_kinds[strokes[i]] == null && strokes[i].points.isNotEmpty) i,
     ];
     lastSent = 0;
-    if (fresh.isEmpty) return [for (final s in strokes) _kinds[s]!];
+    if (fresh.isEmpty) {
+      return [for (final s in strokes) _kinds[s] ?? InkKind.writing];
+    }
     // Mostly new (a page opened for the first time): the whole page.
     if (fresh.length * 2 >= strokes.length) {
       await _sort(strokes);
     } else {
-      final boxes = [
-        for (final s in strokes)
-          if (s.points.isNotEmpty) InkBox.of(s),
-      ];
-      final margin = typicalLetterHeight(boxes) * reach;
-      InkBox? around;
-      for (final s in fresh) {
-        if (s.points.isEmpty) continue;
-        final b = InkBox.of(s);
-        around = around == null ? b : around.union(b);
-      }
-      final area = around == null
-          ? null
-          : InkBox(
-              around.left - margin,
-              around.bottom - margin,
-              around.right + margin,
-              around.top + margin,
-            );
       await _sort([
-        for (final s in strokes)
-          if (_kinds[s] == null ||
-              (area != null &&
-                  s.points.isNotEmpty &&
-                  _overlaps(InkBox.of(s), area)))
-            s,
+        for (final i in nearby(strokes, fresh, reach: reach, printed: printed))
+          strokes[i],
       ]);
     }
     return [for (final s in strokes) _kinds[s] ?? _stand[s] ?? InkKind.writing];
+  }
+
+  /// The strokes sorted again with the new ones ([fresh], indexes into
+  /// [strokes]), in page order (owner: writing as small and as large as
+  /// they please, around printed text): the new strokes, the whole of each
+  /// line they're on (so a long sentence is never cut off), and ink within
+  /// [reach] letters of them, measured in the letters of their own line
+  /// (or the nearest line, for a stroke that isn't on one), so tiny margin
+  /// notes and big writing each get a border their own size. Each new
+  /// stroke gets its own border, so strokes far apart don't drag in the
+  /// page between them.
+  static List<int> nearby(
+    List<PageStroke> strokes,
+    List<int> fresh, {
+    double reach = 3,
+    PrintedText? printed,
+  }) {
+    final lines = groupStrokes(strokes, printed: printed);
+    final lineOf = <int, int>{};
+    for (var l = 0; l < lines.length; l++) {
+      for (final w in lines[l].words) {
+        for (final i in w.strokes) {
+          lineOf[i] = l;
+        }
+      }
+    }
+    final boxes = [
+      for (final s in strokes) s.points.isEmpty ? null : InkBox.of(s),
+    ];
+    final send = <int>{...fresh};
+    final areas = <InkBox>[];
+    final lineBoxes = [for (final l in lines) l.box];
+    final pageLetter = typicalLetterHeight([for (final b in boxes) ?b]);
+    for (final i in fresh) {
+      final b = boxes[i]!;
+      final l = lineOf[i];
+      double letter;
+      if (l != null) {
+        letter = lines[l].letterHeight;
+        for (final w in lines[l].words) {
+          send.addAll(w.strokes);
+        }
+      } else {
+        letter = pageLetter;
+        var nearest = double.infinity;
+        for (var k = 0; k < lines.length; k++) {
+          final d = _distance(b, lineBoxes[k]);
+          if (d < nearest) {
+            nearest = d;
+            letter = lines[k].letterHeight;
+          }
+        }
+      }
+      final m = letter * reach;
+      areas.add(InkBox(b.left - m, b.bottom - m, b.right + m, b.top + m));
+    }
+    for (var i = 0; i < strokes.length; i++) {
+      final b = boxes[i];
+      if (b == null || send.contains(i)) continue;
+      for (final a in areas) {
+        if (_overlaps(b, a)) {
+          send.add(i);
+          break;
+        }
+      }
+    }
+    return send.toList()..sort();
+  }
+
+  static double _distance(InkBox a, InkBox b) {
+    final dx = math.max(0.0, a.horizontalGap(b));
+    final dy = math.max(
+      0.0,
+      math.max(a.bottom, b.bottom) - math.min(a.top, b.top),
+    );
+    return math.sqrt(dx * dx + dy * dy);
   }
 
   /// This time's answers that aren't kept (see [trusted]).

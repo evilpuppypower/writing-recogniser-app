@@ -3,7 +3,10 @@
 /// engine is called elsewhere through the Recognizer interface.
 library;
 
+import 'dart:math' as math;
+
 import 'page_ink.dart';
+import 'printed_text.dart';
 import 'stroke_grouping.dart';
 
 /// Identifies a word by its strokes, so its text is kept until a stroke is
@@ -87,21 +90,32 @@ RecognitionPlan planRecognition(
   bool Function(String key, InkWord word)? reread,
   Map<String, String>? hints,
   bool Function(List<String> keys)? lineNeedsReading,
+  PrintedText? printed,
 }) {
   final lines = groupStrokes(
     strokes,
     params: params,
     include: include,
     hints: hints,
+    printed: printed,
   );
   final jobs = <RecognitionJob>[];
   final lineJobs = <LineJob>[];
   final keys = <String>{};
-  final before = StringBuffer();
+  // Each line follows on from the writing above it (see [followsOn]): the
+  // text so far of each run of lines, so a note in one margin isn't read
+  // as carrying on from a note in the other.
+  final after = followsOn(lines, printed: printed);
+  final runText = <int, StringBuffer>{};
   String cut(String ctx) => ctx.length > preContextChars
       ? ctx.substring(ctx.length - preContextChars)
       : ctx;
   for (var l = 0; l < lines.length; l++) {
+    final above = after[l];
+    final before = above == null
+        ? StringBuffer()
+        : runText.remove(above) ?? StringBuffer();
+    runText[l] = before;
     final lineStart = before.toString();
     var lineQueued = false;
     void queueLine() {
@@ -147,6 +161,51 @@ RecognitionPlan planRecognition(
     }
   }
   return RecognitionPlan(lines, jobs, keys, lineJobs);
+}
+
+/// For each of [lines] (top first, as [groupStrokes] gives them), the line
+/// it follows on from, or null when it starts a new note: the nearest line
+/// above it that shares some of its width, with no more than 4 letters of
+/// space between and no [printed] text in that space. Lines that don't
+/// follow anything (a note in another margin, writing below a printed
+/// paragraph) start with no earlier text. Each line is followed by at
+/// most one other.
+List<int?> followsOn(List<InkLine> lines, {PrintedText? printed}) {
+  final out = List<int?>.filled(lines.length, null);
+  final taken = <int>{};
+  final boxes = [for (final l in lines) l.box];
+  for (var l = 0; l < lines.length; l++) {
+    final b = boxes[l];
+    int? best;
+    var bestGap = double.infinity;
+    for (var k = l - 1; k >= 0; k--) {
+      if (taken.contains(k)) continue;
+      final a = boxes[k];
+      final h = math.max(lines[k].letterHeight, lines[l].letterHeight);
+      final gap = a.bottom - b.top;
+      if (gap > h * 4 || gap >= bestGap) continue;
+      // Below it (allowing a little overlap: tall and low letters).
+      if (b.centerY >= a.bottom || a.centerY <= b.top) continue;
+      final shared = math.min(a.right, b.right) - math.max(a.left, b.left);
+      if (shared <= 0) continue;
+      if (printed != null && !printed.isEmpty && gap > 0) {
+        final between = InkBox(
+          math.max(a.left, b.left),
+          b.top,
+          math.min(a.right, b.right),
+          a.bottom,
+        );
+        if (printed.within(between).isNotEmpty) continue;
+      }
+      best = k;
+      bestGap = gap;
+    }
+    if (best != null) {
+      out[l] = best;
+      taken.add(best);
+    }
+  }
+  return out;
 }
 
 /// One piece of ink the user marked "This isn't writing" (task 2.4c),
