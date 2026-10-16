@@ -4,6 +4,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/viewer/two_page_layout.dart';
 
 void main() {
+  test('bookmarks in two-page view offer both pages showing', () {
+    expect(pagePair(1, 5), [1, 2]);
+    expect(pagePair(2, 5), [1, 2]);
+    expect(pagePair(4, 5), [3, 4]);
+    expect(pagePair(5, 5), [5]);
+  });
+
   test('pages go in pairs, side by side, each row centred', () {
     const a4 = Size(595, 842);
     final r = twoPageRects([a4, a4, a4], 8);

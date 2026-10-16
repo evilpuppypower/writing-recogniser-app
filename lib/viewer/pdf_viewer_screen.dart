@@ -364,8 +364,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   // Bookmarks (owner's choice, 2026-10-15): the pages marked in this PDF.
   BookmarkStore? _bookmarkStore;
-  List<int> _bookmarks = const [];
   Future<void> _bookmarksLoaded = Future.value();
+
+  /// The bookmarked pages, first page first; also shown as a ribbon on
+  /// each bookmarked page (the pages' layers listen to this).
+  final _bookmarked = ValueNotifier<List<int>>(const []);
+  List<int> get _bookmarks => _bookmarked.value;
+  set _bookmarks(List<int> pages) => _bookmarked.value = pages;
+
+  List<int> _pairOf(int page) => pagePair(page, _pageCount ?? page);
 
   Future<void> _loadBookmarks() async {
     try {
@@ -1473,6 +1480,26 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     Rect pageRect,
     PdfPage page,
   ) => [
+    // A ribbon on a bookmarked page, so it shows which of two pages side
+    // by side is marked. Never takes a touch.
+    Positioned(
+      top: 0,
+      right: pageRect.width * 0.04,
+      child: IgnorePointer(
+        child: ValueListenableBuilder(
+          valueListenable: _bookmarked,
+          builder: (context, bookmarks, _) =>
+              bookmarks.contains(page.pageNumber)
+              ? Icon(
+                  Icons.bookmark,
+                  size: (pageRect.width * 0.05).clamp(14.0, 40.0),
+                  color: Theme.of(context).colorScheme.primary,
+                  semanticLabel: 'Bookmarked',
+                )
+              : const SizedBox.shrink(),
+        ),
+      ),
+    ),
     Positioned.fill(
       // Finger tap on typed text: edit it (task 2.3c). Fingers otherwise
       // pass through to scroll and zoom.
@@ -2251,6 +2278,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _controller.removeListener(_showThumbForAWhile);
     _thumbActive.dispose();
     _pageNumber.dispose();
+    _bookmarked.dispose();
     _ink.dispose();
     _tools.dispose();
     _showTyped.dispose();
@@ -2301,18 +2329,42 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           actions: [
             ValueListenableBuilder(
               valueListenable: _pageNumber,
-              builder: (context, page, _) {
-                final marked = page != null && _bookmarks.contains(page);
-                return IconButton(
-                  tooltip: marked
-                      ? 'Remove the bookmark on this page'
-                      : 'Bookmark this page',
-                  icon: Icon(marked ? Icons.bookmark : Icons.bookmark_border),
-                  onPressed: page == null || _pageCount == null
-                      ? null
-                      : () => _toggleBookmark(page),
-                );
-              },
+              builder: (context, page, _) => ValueListenableBuilder(
+                valueListenable: _bookmarked,
+                builder: (context, bookmarks, _) {
+                  // Two pages showing (owner: bookmarks work in two-page
+                  // view): a choice of either.
+                  final pair = page != null && _twoPages && _pageCount != null
+                      ? _pairOf(page)
+                      : const <int>[];
+                  if (pair.length == 2) {
+                    final any = pair.any(bookmarks.contains);
+                    return PopupMenuButton<int>(
+                      tooltip: 'Bookmark page ${pair[0]} or ${pair[1]}',
+                      icon: Icon(any ? Icons.bookmark : Icons.bookmark_border),
+                      onSelected: _toggleBookmark,
+                      itemBuilder: (context) => [
+                        for (final p in pair)
+                          CheckedPopupMenuItem(
+                            value: p,
+                            checked: bookmarks.contains(p),
+                            child: Text('Bookmark page $p'),
+                          ),
+                      ],
+                    );
+                  }
+                  final marked = page != null && bookmarks.contains(page);
+                  return IconButton(
+                    tooltip: marked
+                        ? 'Remove the bookmark on this page'
+                        : 'Bookmark this page',
+                    icon: Icon(marked ? Icons.bookmark : Icons.bookmark_border),
+                    onPressed: page == null || _pageCount == null
+                        ? null
+                        : () => _toggleBookmark(page),
+                  );
+                },
+              ),
             ),
             Builder(
               builder: (context) {
