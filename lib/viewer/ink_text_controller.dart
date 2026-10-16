@@ -540,7 +540,16 @@ class InkTextController extends ChangeNotifier {
       for (var k = 0; k < inkOnly.length && k < sorted.length; k++) {
         allKinds[inkOnly[k]] = sorted[k];
       }
-      final kinds = reconcileKinds(strokes, allKinds);
+      final kinds = reconcileKinds(
+        strokes,
+        allKinds,
+        // Already the shape check's answer: not worked out twice (it's the
+        // slowest step on a heavily written page).
+        shape:
+            classifier is ShapeInkClassifier && inkOnly.length == strokes.length
+            ? allKinds
+            : null,
+      );
       if (_disposed) return;
       final flipped = _notWriting[page] ?? const <String>{};
       final lineEngine = engine is LineRecognizer

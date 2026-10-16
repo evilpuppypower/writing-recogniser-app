@@ -66,7 +66,12 @@ class ShapeInkClassifier implements InkClassifier {
     final near = <InkBox>[];
     // Only strokes near enough sideways are looked at (quick on a full
     // page: not every stroke against every other).
-    for (final o in index.within(b.left - reach, b.right + reach)) {
+    for (final o in index.near(
+      b.left - reach,
+      b.right + reach,
+      b.bottom,
+      b.top,
+    )) {
       final dx = b.horizontalGap(o);
       final sharesHeight = o.bottom <= b.top && o.top >= b.bottom;
       if (sharesHeight && dx <= reach) near.add(o);
@@ -110,13 +115,21 @@ class ShapeInkClassifier implements InkClassifier {
 /// taken for a drawing). A pen stroke sorted as a drawing counts as writing
 /// when the user said it is part of a word ([PageStroke.manualWord]), or
 /// when the shape check says it looks like writing and it touches writing.
-List<InkKind> reconcileKinds(List<PageStroke> strokes, List<InkKind> kinds) {
+/// [shape] is the shape check's answer for [strokes] when the caller
+/// already has it (it's worked out again otherwise).
+List<InkKind> reconcileKinds(
+  List<PageStroke> strokes,
+  List<InkKind> kinds, {
+  List<InkKind>? shape,
+}) {
   if (kinds.length != strokes.length) return kinds;
   final out = [...kinds];
   final boxes = [
     for (final s in strokes) s.points.isEmpty ? null : InkBox.of(s),
   ];
-  final shape = const ShapeInkClassifier().classifySync(strokes);
+  if (shape == null || shape.length != strokes.length) {
+    shape = const ShapeInkClassifier().classifySync(strokes);
+  }
   final index = _BoxIndex(boxes);
   // Boxes have no equality of their own, so this map goes by identity.
   final indexOf = <InkBox, int>{
@@ -142,7 +155,12 @@ List<InkKind> reconcileKinds(List<PageStroke> strokes, List<InkKind> kinds) {
       final b = boxes[i]!;
       final margin = page * 0.1;
       final touches = index
-          .within(b.left - margin, b.right + margin)
+          .near(
+            b.left - margin,
+            b.right + margin,
+            b.bottom - margin,
+            b.top + margin,
+          )
           .any(
             (o) =>
                 !identical(o, b) &&
@@ -160,36 +178,65 @@ List<InkKind> reconcileKinds(List<PageStroke> strokes, List<InkKind> kinds) {
   return out;
 }
 
-/// The boxes of a page's strokes sorted by their left edge, to find those
-/// overlapping a stretch of the page sideways without checking them all.
+/// The boxes of a page's strokes in a grid of squares, to find those near
+/// a spot without checking every stroke on the page (on a page of 1000
+/// words, checking a whole column of lines for every stroke was the
+/// slowest step).
 class _BoxIndex {
-  _BoxIndex(List<InkBox?> boxes)
-    : _sorted = boxes.nonNulls.toList()
-        ..sort((a, b) => a.left.compareTo(b.left)) {
-    for (final b in _sorted) {
-      if (b.width > _widest) _widest = b.width;
+  _BoxIndex(List<InkBox?> boxes) {
+    final all = boxes.nonNulls.toList();
+    final sizes = [for (final b in all) math.max(b.width, b.height)]..sort();
+    _cell = sizes.isEmpty ? 1.0 : math.max(1.0, sizes[sizes.length ~/ 2] * 4);
+    for (final b in all) {
+      // Very big boxes (a long underline, a frame round the page) are kept
+      // apart and always checked, not put in hundreds of squares.
+      if (math.max(b.width, b.height) > _cell * 8) {
+        _big.add(b);
+        continue;
+      }
+      for (var cx = _col(b.left); cx <= _col(b.right); cx++) {
+        for (var cy = _col(b.bottom); cy <= _col(b.top); cy++) {
+          (_cells[(cx, cy)] ??= []).add(b);
+        }
+      }
     }
   }
 
-  final List<InkBox> _sorted;
-  double _widest = 0;
+  late final double _cell;
+  final _cells = <(int, int), List<InkBox>>{};
+  final _big = <InkBox>[];
 
-  /// The boxes reaching into [from]..[to] sideways (some may be just
-  /// outside; callers check exactly).
-  Iterable<InkBox> within(double from, double to) sync* {
-    // First box whose left edge could still reach [from].
-    var lo = 0, hi = _sorted.length;
-    final start = from - _widest;
-    while (lo < hi) {
-      final mid = (lo + hi) >> 1;
-      if (_sorted[mid].left < start) {
-        lo = mid + 1;
-      } else {
-        hi = mid;
+  int _col(double v) => (v / _cell).floor();
+
+  /// The boxes reaching into [left]..[right] sideways and [bottom]..[top]
+  /// up and down (some may be just outside; callers check exactly).
+  Iterable<InkBox> near(
+    double left,
+    double right,
+    double bottom,
+    double top,
+  ) sync* {
+    for (final b in _big) {
+      if (b.left <= right &&
+          b.right >= left &&
+          b.bottom <= top &&
+          b.top >= bottom) {
+        yield b;
       }
     }
-    for (var k = lo; k < _sorted.length && _sorted[k].left <= to; k++) {
-      if (_sorted[k].right >= from) yield _sorted[k];
+    final seen = Set<InkBox>.identity();
+    for (var cx = _col(left); cx <= _col(right); cx++) {
+      for (var cy = _col(bottom); cy <= _col(top); cy++) {
+        for (final b in _cells[(cx, cy)] ?? const <InkBox>[]) {
+          if (b.left <= right &&
+              b.right >= left &&
+              b.bottom <= top &&
+              b.top >= bottom &&
+              seen.add(b)) {
+            yield b;
+          }
+        }
+      }
     }
   }
 }

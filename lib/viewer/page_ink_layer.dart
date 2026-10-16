@@ -1216,43 +1216,95 @@ class StylusInkRecognizer extends OneSequenceGestureRecognizer {
   String get debugDescription => 'stylus ink';
 }
 
-/// A page's finished ink, drawn once and kept (task: owner's test
-/// feedback on stutter). Everything on the page scales with the view width,
-/// so one drawing serves every zoom level; it's redrawn only when the
-/// page's ink, the typed-text switch or the pressure setting changes.
-/// A page's finished ink, recorded once ([picture], at [width] pixels
+/// A piece of a page's finished ink: up to [_InkPicture.chunkSize] strokes
+/// in writing order, recorded once.
+class _InkChunk {
+  _InkChunk(this.id, this.strokes, this.pen, this.marker, this.bounds);
+
+  /// New for every recording, so a ready-made image knows which pieces it
+  /// holds.
+  final int id;
+  final List<PageStroke> strokes;
+  final ui.Picture pen;
+
+  /// The highlighter strokes, always drawn straight onto the page; null
+  /// when there are none.
+  final ui.Picture? marker;
+
+  /// The area its pen ink covers (pixels at [_InkPicture.width]).
+  final Rect bounds;
+
+  void dispose() {
+    pen.dispose();
+    marker?.dispose();
+  }
+}
+
+/// A page's finished ink, recorded in pieces ([chunks], at [width] pixels
 /// wide) and, once the zoom has settled, drawn into a ready-made [image]
 /// of just the inked area: scrolling then costs one image draw however
 /// much ink there is (owner: scrolling got laggy with a lot of writing).
+/// Only the pieces whose strokes changed are recorded again, so writing
+/// one more stroke on a full page doesn't redraw the whole page (owner:
+/// pages hold up to about 300 words).
 class _InkPicture {
-  ui.Picture? picture;
-
-  /// The highlighter strokes, always drawn straight onto the page.
-  ui.Picture? marker;
+  final chunks = <_InkChunk>[];
   double width = 0;
+
+  /// What, besides the strokes, the [chunks] were recorded for.
   Object? key;
 
+  /// The stroke list last drawn (a page's list is replaced whenever its
+  /// ink changes).
+  List<PageStroke>? strokes;
+
+  /// Strokes per piece.
+  static const chunkSize = 64;
+
+  int _nextId = 0;
+  int newId() => _nextId++;
+
   /// The inked area, in pixels at [width].
-  Rect bounds = Rect.zero;
+  Rect get bounds {
+    Rect? r;
+    for (final c in chunks) {
+      if (c.bounds.isEmpty) continue;
+      r = r == null ? c.bounds : r.expandToInclude(c.bounds);
+    }
+    return r ?? Rect.zero;
+  }
 
   ui.Image? image;
 
-  /// The page width and pixel ratio the [image] was made for, and the
-  /// inked area there.
+  /// The page width and pixel ratio the [image] was made for, the inked
+  /// area there, and the pieces it holds.
   double imageWidth = 0;
   double imageRatio = 0;
   Rect imageBounds = Rect.zero;
+  Set<int> imageChunks = const {};
 
   /// Page widths this close count as the same: moving a zoomed page
   /// changes its width in the last decimal places.
   static bool sameWidth(double a, double b) => (a - b).abs() < 0.5;
 
   /// Whether the image (or the decision not to make one) is for this
-  /// width and pixel ratio.
+  /// width and pixel ratio, and still shows all the ink.
   bool imageFits(double viewWidth, double ratio) =>
       imageWidth != 0 &&
       sameWidth(imageWidth, viewWidth) &&
-      imageRatio == ratio;
+      imageRatio == ratio &&
+      // Exactly the pieces showing: ink added since, or a whole piece
+      // erased, means a new image (ids are never reused).
+      imageChunks.length == chunks.length &&
+      chunks.every((c) => imageChunks.contains(c.id));
+
+  /// Whether the image shows only ink that is still there (pieces added
+  /// since are drawn over it).
+  bool get imageCurrent {
+    if (image == null) return false;
+    final ids = {for (final c in chunks) c.id};
+    return imageChunks.every(ids.contains);
+  }
 
   /// The page width an image is wanted for, once it has stayed the same
   /// for [_settle] (no image is made mid-zoom), and whether that time has
@@ -1265,9 +1317,11 @@ class _InkPicture {
   /// Ticks when an image can be made (the painter repaints on it).
   final ready = ValueNotifier<int>(0);
 
-  /// Images bigger than this (pixels) aren't made: the ink is drawn as it
-  /// is (only when zoomed in a long way on a heavily inked page).
-  static const maxPixels = 4000000;
+  /// Images bigger than this (pixels, 32 MB) are made smaller and drawn
+  /// stretched (only when zoomed in a long way on a heavily inked page);
+  /// past [minImageScale] none is made and the ink is drawn as it is.
+  static const maxPixels = 8000000;
+  static const minImageScale = 0.6;
 
   void want(double viewWidth) {
     if (sameWidth(viewWidth, _wanted) &&
@@ -1297,14 +1351,16 @@ class _InkPicture {
     image = null;
     imageWidth = 0;
     imageRatio = 0;
+    imageChunks = const {};
   }
 
   void dispose() {
-    picture?.dispose();
-    picture = null;
-    marker?.dispose();
-    marker = null;
+    for (final c in chunks) {
+      c.dispose();
+    }
+    chunks.clear();
     key = null;
+    strokes = null;
     dropImage();
   }
 
@@ -1349,7 +1405,6 @@ class _PageInkPainter extends CustomPainter {
     if (strokes.isEmpty) return;
     final typedShown = showTyped?.value ?? false;
     final key = (
-      strokes,
       typedShown,
       dark,
       pressure,
@@ -1357,103 +1412,239 @@ class _PageInkPainter extends CustomPainter {
       geometry.height,
       geometry.quarterTurns,
     );
-    if (cache.picture == null || cache.key != key) {
-      // Pen ink, and highlighter apart: it's multiplied over the page so
-      // printed text stays readable, which only works drawn straight onto
-      // the page (never in the ready-made image).
-      final pen = ui.PictureRecorder(), marker = ui.PictureRecorder();
-      final penCanvas = Canvas(pen), markerCanvas = Canvas(marker);
-      final ink = _InkDrawer(geometry, viewWidth, pressure, dark: dark);
-      // Typed text shown instead of the ink of converted words.
-      final typed = typedShown ? convertedGroups(strokes) : const <String>{};
-      for (final s in strokes) {
-        if (typed.contains(s.typedGroup)) continue;
-        ink.draw(
-          s.tool == InkTool.highlighter ? markerCanvas : penCanvas,
-          s.points,
-          PenStyle(
-            tool: s.tool,
-            colorArgb: s.colorArgb,
-            width: s.width,
-            arrow: s.arrow,
-          ),
-        );
-      }
+    if (cache.key != key) {
       cache
         ..dispose()
-        ..picture = pen.endRecording()
-        ..marker = marker.endRecording()
-        ..width = viewWidth
         ..key = key
-        ..bounds = ink.bounds([
-          for (final s in strokes)
-            if (s.tool != InkTool.highlighter) s,
-        ], skip: typed)
-        // The ink changed: a new image once it has stayed the same a
-        // moment (not on every move of the eraser).
-        ..restartWait(viewWidth);
+        ..width = viewWidth;
+    }
+    if (!identical(cache.strokes, strokes)) {
+      _update(strokes, typedShown);
+      // The ink changed: a new image once it has stayed the same a
+      // moment (not on every move of the eraser).
+      cache.restartWait(viewWidth);
     }
     final zoom = viewWidth / cache.width;
     canvas.save();
     canvas.scale(zoom, zoom);
-    canvas.drawPicture(cache.marker!);
+    for (final c in cache.chunks) {
+      if (c.marker != null) canvas.drawPicture(c.marker!);
+    }
     canvas.restore();
     if (!cache.imageFits(viewWidth, devicePixelRatio)) {
-      cache.dropImage();
       if (cache.settledAt(viewWidth)) {
-        _makeImage(zoom);
+        _makeImage();
       } else {
         cache.want(viewWidth);
       }
     }
     final image = cache.image;
-    if (image != null) {
+    if (image != null && cache.imageCurrent) {
+      // Mid-zoom the image made for the last zoom is stretched until the
+      // zoom settles (a moment slightly soft rather than every stroke
+      // drawn on every frame).
+      final stretch = viewWidth / cache.imageWidth;
+      canvas.save();
+      canvas.scale(stretch, stretch);
       canvas.drawImageRect(
         image,
         Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
         cache.imageBounds,
         Paint()..filterQuality = FilterQuality.medium,
       );
+      canvas.restore();
+      // Ink written since the image was made, drawn over it.
+      canvas.save();
+      canvas.scale(zoom, zoom);
+      for (final c in cache.chunks) {
+        if (!cache.imageChunks.contains(c.id)) canvas.drawPicture(c.pen);
+      }
+      canvas.restore();
       return;
     }
     canvas.save();
     canvas.scale(zoom, zoom);
-    canvas.drawPicture(cache.picture!);
+    for (final c in cache.chunks) {
+      canvas.drawPicture(c.pen);
+    }
     canvas.restore();
   }
 
-  /// The ready-made image of the inked area at this zoom (see
-  /// [_InkPicture]); none if it would be too big.
-  void _makeImage(double zoom) {
-    final b = Rect.fromLTRB(
-      (cache.bounds.left * zoom).floorToDouble(),
-      (cache.bounds.top * zoom).floorToDouble(),
-      (cache.bounds.right * zoom).ceilToDouble(),
-      (cache.bounds.bottom * zoom).ceilToDouble(),
+  /// Brings the cache's pieces up to date with [strokes]: pieces whose
+  /// strokes are all still there, in the same order, are kept; a piece
+  /// that lost strokes (erased) is recorded again with the rest; from the
+  /// first piece that doesn't match (strokes changed or moved), and for
+  /// new strokes, new pieces are recorded.
+  void _update(List<PageStroke> strokes, bool typedShown) {
+    cache.strokes = strokes;
+    // Typed text shown instead of the ink of converted words.
+    final typed = typedShown ? convertedGroups(strokes) : const <String>{};
+    final shown = [
+      for (final s in strokes)
+        if (!typed.contains(s.typedGroup) &&
+            !s.isTextBox &&
+            s.points.isNotEmpty)
+          s,
+    ];
+    final there = Set<PageStroke>.identity()..addAll(shown);
+    final kept = <_InkChunk>[];
+    var at = 0;
+    var k = 0;
+    for (; k < cache.chunks.length; k++) {
+      final c = cache.chunks[k];
+      final left = [
+        for (final s in c.strokes)
+          if (there.contains(s)) s,
+      ];
+      var same = at + left.length <= shown.length;
+      for (var j = 0; same && j < left.length; j++) {
+        same = identical(shown[at + j], left[j]);
+      }
+      if (!same) break;
+      at += left.length;
+      if (left.length == c.strokes.length) {
+        kept.add(c);
+      } else {
+        c.dispose();
+        if (left.isNotEmpty) kept.add(_record(left));
+      }
+    }
+    for (; k < cache.chunks.length; k++) {
+      cache.chunks[k].dispose();
+    }
+    for (var i = at; i < shown.length; i += _InkPicture.chunkSize) {
+      kept.add(
+        _record(
+          shown.sublist(i, math.min(shown.length, i + _InkPicture.chunkSize)),
+        ),
+      );
+    }
+    cache.chunks
+      ..clear()
+      ..addAll(kept);
+  }
+
+  _InkChunk _record(List<PageStroke> strokes) {
+    // Pen ink, and highlighter apart: it's multiplied over the page so
+    // printed text stays readable, which only works drawn straight onto
+    // the page (never in the ready-made image).
+    final pen = ui.PictureRecorder(), marker = ui.PictureRecorder();
+    final penCanvas = Canvas(pen), markerCanvas = Canvas(marker);
+    final ink = _InkDrawer(geometry, cache.width, pressure, dark: dark);
+    var markers = false;
+    for (final s in strokes) {
+      final highlight = s.tool == InkTool.highlighter;
+      markers |= highlight;
+      ink.draw(
+        highlight ? markerCanvas : penCanvas,
+        s.points,
+        PenStyle(
+          tool: s.tool,
+          colorArgb: s.colorArgb,
+          width: s.width,
+          arrow: s.arrow,
+        ),
+      );
+    }
+    final markerPicture = marker.endRecording();
+    if (!markers) markerPicture.dispose();
+    return _InkChunk(
+      cache.newId(),
+      strokes,
+      pen.endRecording(),
+      markers ? markerPicture : null,
+      ink.bounds([
+        for (final s in strokes)
+          if (s.tool != InkTool.highlighter) s,
+      ]),
     );
-    final w = (b.width * devicePixelRatio).ceil();
-    final h = (b.height * devicePixelRatio).ceil();
+  }
+
+  /// Joins runs of small pieces (one per stroke while writing) back into
+  /// full ones, so a page doesn't end up as hundreds of pieces.
+  void _compact() {
+    final chunks = cache.chunks;
+    if (chunks.length <= 1) return;
+    final out = <_InkChunk>[];
+    var run = <_InkChunk>[];
+    void flush() {
+      if (run.length <= 1) {
+        out.addAll(run);
+      } else {
+        final strokes = [for (final c in run) ...c.strokes];
+        for (final c in run) {
+          c.dispose();
+        }
+        for (var i = 0; i < strokes.length; i += _InkPicture.chunkSize) {
+          out.add(
+            _record(
+              strokes.sublist(
+                i,
+                math.min(strokes.length, i + _InkPicture.chunkSize),
+              ),
+            ),
+          );
+        }
+      }
+      run = [];
+    }
+
+    for (final c in chunks) {
+      if (c.strokes.length < _InkPicture.chunkSize ~/ 2) {
+        run.add(c);
+      } else {
+        flush();
+        out.add(c);
+      }
+    }
+    flush();
+    chunks
+      ..clear()
+      ..addAll(out);
+  }
+
+  /// The ready-made image of the inked area at this zoom (see
+  /// [_InkPicture]); smaller and stretched if it would be too big, none
+  /// if it would be far too big.
+  void _makeImage() {
+    _compact();
+    final zoom = viewWidth / cache.width;
+    final bounds = cache.bounds;
+    final b = Rect.fromLTRB(
+      (bounds.left * zoom).floorToDouble(),
+      (bounds.top * zoom).floorToDouble(),
+      (bounds.right * zoom).ceilToDouble(),
+      (bounds.bottom * zoom).ceilToDouble(),
+    );
+    cache.dropImage();
     cache
       ..imageWidth = viewWidth
-      ..imageRatio = devicePixelRatio;
-    if (w <= 0 || h <= 0 || w * h > _InkPicture.maxPixels) return;
+      ..imageRatio = devicePixelRatio
+      ..imageChunks = {for (final c in cache.chunks) c.id};
+    var ratio = devicePixelRatio;
+    final full = b.width * b.height * ratio * ratio;
+    if (full > _InkPicture.maxPixels) {
+      final shrink = math.sqrt(_InkPicture.maxPixels / full);
+      if (shrink < _InkPicture.minImageScale) return;
+      ratio *= shrink;
+    }
+    final w = (b.width * ratio).ceil();
+    final h = (b.height * ratio).ceil();
+    if (w <= 0 || h <= 0) return;
     final recorder = ui.PictureRecorder();
-    Canvas(recorder)
-      ..scale(devicePixelRatio)
+    final canvas = Canvas(recorder)
+      ..scale(ratio)
       ..translate(-b.left, -b.top)
-      ..scale(zoom)
-      ..drawPicture(cache.picture!);
+      ..scale(zoom);
+    for (final c in cache.chunks) {
+      canvas.drawPicture(c.pen);
+    }
     final picture = recorder.endRecording();
     try {
       cache
         ..image = picture.toImageSync(w, h)
         // Exactly the image's own size, so the ink isn't squeezed.
-        ..imageBounds = Rect.fromLTWH(
-          b.left,
-          b.top,
-          w / devicePixelRatio,
-          h / devicePixelRatio,
-        );
+        ..imageBounds = Rect.fromLTWH(b.left, b.top, w / ratio, h / ratio);
     } finally {
       picture.dispose();
     }

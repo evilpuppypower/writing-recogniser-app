@@ -154,6 +154,31 @@ class PageStroke {
   /// Whether this is a typed text box (see [InkTool.text]).
   bool get isTextBox => tool == InkTool.text;
 
+  /// Whether (x, y) could be within [reach] points of this stroke: a quick
+  /// check of its box before [distanceTo] looks at every point (the eraser
+  /// checks every stroke on the page at each move).
+  bool mayReach(double x, double y, double reach) {
+    if (points.isEmpty) return false;
+    final b = _boxes[this] ??= _boxOf(points);
+    return x >= b.$1 - reach &&
+        x <= b.$3 + reach &&
+        y >= b.$2 - reach &&
+        y <= b.$4 + reach;
+  }
+
+  static final _boxes = Expando<(double, double, double, double)>();
+
+  static (double, double, double, double) _boxOf(List<PageInkPoint> p) {
+    var l = p.first.x, r = l, b = p.first.y, t = b;
+    for (final q in p) {
+      l = math.min(l, q.x);
+      r = math.max(r, q.x);
+      b = math.min(b, q.y);
+      t = math.max(t, q.y);
+    }
+    return (l, b, r, t);
+  }
+
   double distanceTo(double x, double y) {
     if (points.isEmpty) return double.infinity;
     if (isTextBox) {
@@ -544,18 +569,22 @@ class DocumentInk {
     final removed = [
       for (final s in strokes)
         // A text box's "width" is its text size: only the box counts.
-        if (s.distanceTo(x, y) <= radius + (s.isTextBox ? 0 : s.width / 2) &&
+        if (_within(s, x, y, radius + (s.isTextBox ? 0 : s.width / 2)) &&
             !(protect?.call(s) ?? false))
           s,
     ];
     if (removed.isNotEmpty) {
+      final gone = Set<PageStroke>.identity()..addAll(removed);
       _pages[page] = [
         for (final s in strokes)
-          if (!removed.contains(s)) s,
+          if (!gone.contains(s)) s,
       ];
     }
     return removed;
   }
+
+  static bool _within(PageStroke s, double x, double y, double reach) =>
+      s.mayReach(x, y, reach) && s.distanceTo(x, y) <= reach;
 
   /// Partial erase: removes only the parts of strokes within [radius]
   /// points of (x, y) on [page], splitting strokes where they are cut.
@@ -572,7 +601,7 @@ class DocumentInk {
     final next = <PageStroke>[];
     for (final s in strokes) {
       final reach = radius + (s.isTextBox ? 0 : s.width / 2);
-      if (s.distanceTo(x, y) > reach || (protect?.call(s) ?? false)) {
+      if (!_within(s, x, y, reach) || (protect?.call(s) ?? false)) {
         next.add(s);
         continue;
       }
