@@ -48,8 +48,13 @@ abstract class TagStore {
   /// Deletes a tag, from every document too.
   Future<void> deleteTag(String name);
 
-  /// [documentId]'s tags become [names].
-  Future<void> setDocumentTags(String documentId, Set<String> names);
+  /// [documentId]'s tags become [names], and [newTags] are added, all
+  /// together (so a document never has a tag that doesn't exist).
+  Future<void> setDocumentTags(
+    String documentId,
+    Set<String> names, {
+    Iterable<Tag> newTags = const [],
+  });
 }
 
 class MemoryTagStore implements TagStore {
@@ -78,8 +83,16 @@ class MemoryTagStore implements TagStore {
   }
 
   @override
-  Future<void> setDocumentTags(String documentId, Set<String> names) async =>
-      _docs[documentId] = {...names};
+  Future<void> setDocumentTags(
+    String documentId,
+    Set<String> names, {
+    Iterable<Tag> newTags = const [],
+  }) async {
+    for (final t in newTags) {
+      _tags[t.name] = t;
+    }
+    _docs[documentId] = {...names};
+  }
 }
 
 /// Words that say nothing about a document.

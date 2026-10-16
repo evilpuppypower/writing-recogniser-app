@@ -41,18 +41,27 @@ class SqliteTagStore implements TagStore {
   });
 
   @override
-  Future<void> setDocumentTags(String documentId, Set<String> names) =>
-      _db.transaction((t) async {
-        await t.delete(
-          'document_tags',
-          where: 'document_id = ?',
-          whereArgs: [documentId],
-        );
-        for (final n in names) {
-          await t.insert('document_tags', {
-            'document_id': documentId,
-            'tag': n,
-          }, conflictAlgorithm: ConflictAlgorithm.ignore);
-        }
-      });
+  Future<void> setDocumentTags(
+    String documentId,
+    Set<String> names, {
+    Iterable<Tag> newTags = const [],
+  }) => _db.transaction((t) async {
+    for (final tag in newTags) {
+      await t.insert('tags', {
+        'name': tag.name,
+        'colour': tag.colourArgb,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await t.delete(
+      'document_tags',
+      where: 'document_id = ?',
+      whereArgs: [documentId],
+    );
+    for (final n in names) {
+      await t.insert('document_tags', {
+        'document_id': documentId,
+        'tag': n,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+  });
 }

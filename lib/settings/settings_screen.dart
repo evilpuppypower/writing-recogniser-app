@@ -23,6 +23,7 @@ import 'open_times_screen.dart';
 import 'replay_screen.dart';
 import 'stored_copies_screen.dart';
 import 'your_writing_screen.dart';
+import 'dictionary_screen.dart';
 import '../storage/sqlite_page_layout_store.dart';
 
 /// App settings: scroll tab appearance and how many imported PDFs to keep.
@@ -538,6 +539,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             PressureExample(response: s.pressureResponse),
           ],
+          ListTile(
+            leading: const Icon(Icons.menu_book_outlined),
+            title: const Text('My words and shorthand'),
+            subtitle: const Text(
+              'Your own words, preferred when reading, and shorthand written '
+              'out in full.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const DictionaryScreen()),
+            ),
+          ),
           ListTile(
             leading: const Icon(Icons.straighten),
             title: const Text('Your writing'),

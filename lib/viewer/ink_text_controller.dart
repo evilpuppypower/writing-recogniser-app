@@ -1064,23 +1064,24 @@ Map<Set<String>, String> typedTextByLine(List<RecognizedWord> words) {
 DocumentInk inkWithRestConverted(
   DocumentInk ink,
   Iterable<int> pages,
-  List<RecognizedWord> Function(int page) wordsOn,
-) {
+  List<RecognizedWord> Function(int page) wordsOn, {
+  String Function(String text)? expand,
+}) {
   final copy = DocumentInk();
   for (final p in ink.pagesWithInk) {
     copy.setPage(p, ink.strokesOn(p));
   }
   for (final p in pages) {
     final done = convertedStrokeIds(ink.strokesOn(p));
-    copy.convert(
-      p,
-      typedTextByLine([
-        // A word with any converted stroke is left as it is: converting
-        // the rest of it would repeat the converted part's text.
-        for (final w in wordsOn(p))
-          if (!w.key.split(',').any(done.contains)) w,
-      ]),
-    );
+    final map = typedTextByLine([
+      // A word with any converted stroke is left as it is: converting the
+      // rest of it would repeat the converted part's text.
+      for (final w in wordsOn(p))
+        if (!w.key.split(',').any(done.contains)) w,
+    ]);
+    // Shorthand written out in full.
+    if (expand != null) map.updateAll((_, t) => expand(t));
+    copy.convert(p, map);
   }
   return copy;
 }
