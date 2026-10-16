@@ -626,4 +626,4 @@ The diagnostic report showed the screen itself drawing smoothly the whole time, 
 
 Now each stroke's answer is kept, and a pause sends only the new strokes plus the ink within 3 letter heights of them, so a new word can still change how its neighbours are sorted. A page seen for the first time is still sorted whole, once. A test with 540 strokes, the size in the report, checks that one more letter sends fewer than 40.
 
-The diagnostic report now records each read after a pause: strokes on the page, how many were sorted, sorting time, engine calls, total time, and whether more writing was waiting. Sizes and times only.
+If the engine hits an error and answers with the shape check instead, that answer is used once and not kept, so those strokes are sorted properly next time. The diagnostic report now has a reading summary every 20 pauses, not one entry per pause: median and worst reading time, sorting time, the most strokes sorted at once, strokes on the page, engine calls, and how often more writing was waiting. Sizes and times only.

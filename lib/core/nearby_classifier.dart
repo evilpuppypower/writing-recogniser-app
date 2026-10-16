@@ -11,9 +11,14 @@ import 'page_ink.dart';
 import 'stroke_grouping.dart';
 
 class NearbyClassifier implements InkClassifier {
-  NearbyClassifier(this.inner, {this.reach = 3});
+  NearbyClassifier(this.inner, {this.reach = 3, this.trusted});
 
   final InkClassifier inner;
+
+  /// Whether [inner]'s last answer can be kept (an engine that hit an
+  /// error and answered with a fallback says no): if not, those strokes
+  /// are sorted again next time instead of keeping a stand-in answer.
+  final bool Function()? trusted;
 
   /// How far round the new strokes is sorted again with them, in letter
   /// heights (a word finished, a stroke that turns a letter into a box).
@@ -67,12 +72,23 @@ class NearbyClassifier implements InkClassifier {
             s,
       ]);
     }
-    return [for (final s in strokes) _kinds[s] ?? InkKind.writing];
+    return [for (final s in strokes) _kinds[s] ?? _stand[s] ?? InkKind.writing];
   }
+
+  /// This time's answers that aren't kept (see [trusted]).
+  Map<PageStroke, InkKind> _stand = const {};
 
   Future<void> _sort(List<PageStroke> strokes) async {
     lastSent = strokes.length;
     final kinds = await inner.classify(strokes);
+    if (!(trusted?.call() ?? true)) {
+      _stand = {
+        for (var i = 0; i < strokes.length && i < kinds.length; i++)
+          strokes[i]: kinds[i],
+      };
+      return;
+    }
+    _stand = const {};
     for (var i = 0; i < strokes.length && i < kinds.length; i++) {
       _kinds[strokes[i]] = kinds[i];
     }
@@ -83,4 +99,46 @@ class NearbyClassifier implements InkClassifier {
       a.right >= b.left &&
       a.bottom <= b.top &&
       a.top >= b.bottom;
+}
+
+/// Reading times after pauses, gathered into one diagnostic entry every
+/// [every] reads (sizes and times only), so the log doesn't grow by one
+/// entry per pause.
+class ReadSummary {
+  ReadSummary({this.every = 20});
+
+  final int every;
+  final _total = <int>[], _sort = <int>[];
+  int _strokes = 0, _sorted = 0, _calls = 0, _queued = 0;
+
+  /// Adds one read's timings (see InkTextController.onRead); returns the
+  /// summary to log once [every] reads are in, else null.
+  Map<String, Object?>? add(Map<String, Object?> t) {
+    _total.add((t['totalMs'] as int?) ?? 0);
+    _sort.add((t['sortMs'] as int?) ?? 0);
+    _strokes = (t['strokes'] as int?) ?? _strokes;
+    _sorted = _sorted > ((t['sorted'] as int?) ?? 0)
+        ? _sorted
+        : (t['sorted'] as int?) ?? 0;
+    _calls += (t['engineCalls'] as int?) ?? 0;
+    if (t['queued'] == true) _queued++;
+    if (_total.length < every) return null;
+    int median(List<int> v) => ([...v]..sort())[v.length ~/ 2];
+    int worst(List<int> v) => v.reduce((a, b) => a > b ? a : b);
+    final out = {
+      'reads': _total.length,
+      'medianMs': median(_total),
+      'worstMs': worst(_total),
+      'medianSortMs': median(_sort),
+      'worstSortMs': worst(_sort),
+      'mostSorted': _sorted,
+      'strokesOnPage': _strokes,
+      'engineCalls': _calls,
+      'queued': _queued,
+    };
+    _total.clear();
+    _sort.clear();
+    _sorted = _calls = _queued = 0;
+    return out;
+  }
 }

@@ -184,7 +184,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     engine: widget.makeRecognizer(),
     // Only new strokes and the ink around them are sorted (owner: lag
     // after writing 50 words).
-    classifier: NearbyClassifier(widget.makeClassifier()),
+    classifier: () {
+      final c = widget.makeClassifier();
+      return NearbyClassifier(
+        c,
+        // MyScript answered with the shape check after an error: sort
+        // those strokes again next time.
+        trusted: () => c is! MyScriptInkClassifier || c.problem == null,
+      );
+    }(),
     documentId: widget.documentId,
   );
 
@@ -1234,6 +1242,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     settings.update(settings.value.copyWith(textPanel: place));
   }
 
+  /// Reading times, logged as a summary every 20 reads (not one entry per
+  /// pause, so the log doesn't keep growing).
+  final _reads = ReadSummary();
+
   void _inkChangedForText(int page) {
     _labelsShown.wake();
     _text.inkChanged(
@@ -1905,7 +1917,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
     // How long reading takes after each pause, for the diagnostic report
     // (sizes and times only).
-    _text.onRead = (timings) => _logDiagnostic('reading', timings);
+    _text.onRead = (timings) {
+      final summary = _reads.add(timings);
+      if (summary != null) _logDiagnostic('reading', summary);
+    };
     _loadInk();
     widget
         .openCorrections()
