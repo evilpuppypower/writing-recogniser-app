@@ -3,7 +3,10 @@
 /// engine is called elsewhere through the Recognizer interface.
 library;
 
+import 'dart:math' as math;
+
 import 'page_ink.dart';
+import 'printed_text.dart';
 import 'stroke_grouping.dart';
 
 /// Identifies a word by its strokes, so its text is kept until a stroke is
@@ -87,21 +90,32 @@ RecognitionPlan planRecognition(
   bool Function(String key, InkWord word)? reread,
   Map<String, String>? hints,
   bool Function(List<String> keys)? lineNeedsReading,
+  PrintedText? printed,
 }) {
   final lines = groupStrokes(
     strokes,
     params: params,
     include: include,
     hints: hints,
+    printed: printed,
   );
   final jobs = <RecognitionJob>[];
   final lineJobs = <LineJob>[];
   final keys = <String>{};
-  final before = StringBuffer();
+  // Each line follows on from the writing above it (see [followsOn]): the
+  // text so far of each run of lines, so a note in one margin isn't read
+  // as carrying on from a note in the other.
+  final after = followsOn(lines, printed: printed);
+  final runText = <int, StringBuffer>{};
   String cut(String ctx) => ctx.length > preContextChars
       ? ctx.substring(ctx.length - preContextChars)
       : ctx;
   for (var l = 0; l < lines.length; l++) {
+    final above = after[l];
+    final before = above == null
+        ? StringBuffer()
+        : runText.remove(above) ?? StringBuffer();
+    runText[l] = before;
     final lineStart = before.toString();
     var lineQueued = false;
     void queueLine() {
@@ -147,6 +161,85 @@ RecognitionPlan planRecognition(
     }
   }
   return RecognitionPlan(lines, jobs, keys, lineJobs);
+}
+
+/// For each of [lines] (top first, as [groupStrokes] gives them), the line
+/// it follows on from, or null when it starts a new note: the nearest line
+/// above it that shares some of its width, with no more than 6 letters of
+/// space between and no [printed] text in that space. Lines written at the
+/// same slant are measured across the slant instead. Lines that don't
+/// follow anything (a note in another margin, writing below a printed
+/// paragraph) start with no earlier text. Each line is followed by at
+/// most one other.
+List<int?> followsOn(List<InkLine> lines, {PrintedText? printed}) {
+  final out = List<int?>.filled(lines.length, null);
+  final taken = <int>{};
+  final boxes = [for (final l in lines) l.box];
+  for (var l = 0; l < lines.length; l++) {
+    final b = boxes[l];
+    int? best;
+    var bestGap = double.infinity;
+    for (var k = l - 1; k >= 0; k--) {
+      if (taken.contains(k)) continue;
+      final a = boxes[k];
+      final h = math.max(lines[k].letterHeight, lines[l].letterHeight);
+      final gap = _slanted(lines[k], lines[l])
+          ? _gapAcross(lines[k], a, lines[l], b, h)
+          : _gapBelow(a, b, printed);
+      if (gap == null || gap > h * 6 || gap >= bestGap) continue;
+      best = k;
+      bestGap = gap;
+    }
+    if (best != null) {
+      out[l] = best;
+      taken.add(best);
+    }
+  }
+  return out;
+}
+
+/// Both written at about the same slant (not level).
+bool _slanted(InkLine a, InkLine b) =>
+    a.angle.abs() > 0.05 &&
+    b.angle.abs() > 0.05 &&
+    (a.angle - b.angle).abs() < 0.15;
+
+/// The space from level line box [a] down to [b] below it, or null when
+/// [b] isn't below it, they share none of their width, or [printed] text
+/// lies between.
+double? _gapBelow(InkBox a, InkBox b, PrintedText? printed) {
+  final gap = a.bottom - b.top;
+  // Below it (allowing a little overlap: tall and low letters).
+  if (b.centerY >= a.bottom || a.centerY <= b.top) return null;
+  final shared = math.min(a.right, b.right) - math.max(a.left, b.left);
+  if (shared <= 0) return null;
+  if (printed != null && !printed.isEmpty && gap > 0) {
+    final between = InkBox(
+      math.max(a.left, b.left),
+      b.top,
+      math.min(a.right, b.right),
+      a.bottom,
+    );
+    if (printed.within(between).isNotEmpty) return null;
+  }
+  return gap;
+}
+
+/// For lines at a slant (their boxes on the page are much taller than
+/// their letters): the space from [la] to [lb], measured across the slant,
+/// or null when [lb] isn't the next line along from it.
+double? _gapAcross(InkLine la, InkBox a, InkLine lb, InkBox b, double h) {
+  final angle = (la.angle + lb.angle) / 2;
+  final c = math.cos(angle), s = math.sin(angle);
+  final dx = (a.left + a.right) / 2 - (b.left + b.right) / 2;
+  final dy = a.centerY - b.centerY;
+  final across = dy * c - dx * s; // how far [a] is "above" [b]
+  final along = (dx * c + dy * s).abs();
+  if (across < h * 0.5) return null;
+  // Side by side along the slant rather than one under the other.
+  double length(InkBox x) => x.width * c.abs() + x.height * s.abs();
+  if (along > (length(a) + length(b)) / 2) return null;
+  return across - h;
 }
 
 /// One piece of ink the user marked "This isn't writing" (task 2.4c),

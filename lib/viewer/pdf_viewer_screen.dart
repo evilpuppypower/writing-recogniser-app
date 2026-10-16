@@ -27,6 +27,7 @@ import '../core/feedback/vocabulary.dart';
 import '../core/ink_store.dart';
 import '../core/nearby_classifier.dart';
 import '../core/personal_ink_kinds.dart';
+import '../core/printed_text.dart';
 import '../core/writing_rhythm.dart';
 import '../core/open_timing.dart';
 import '../core/page_coordinates.dart';
@@ -797,6 +798,50 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _text.personalKinds = _inkKinds;
   }
 
+  /// Each page's printed text, once read (owner: writing in the margins
+  /// works its way around the printed text). Read in the background the
+  /// first time the page is written on; until then grouped from the ink
+  /// alone.
+  final _printed = <int, PrintedText>{};
+  final _printedLoading = <int>{};
+
+  PrintedText? _printedOf(int page) {
+    final known = _printed[page];
+    if (known != null || !_printedLoading.add(page)) return known;
+    unawaited(() async {
+      final PdfDocument doc;
+      try {
+        doc = _controller.document;
+      } catch (_) {
+        _printedLoading.remove(page); // not ready yet: asked again later
+        return;
+      }
+      try {
+        if (page < 1 || page > doc.pages.length) return;
+        final raw = await doc.pages[page - 1].loadText();
+        if (raw == null) {
+          _printedLoading.remove(page); // not loaded yet: asked again later
+          return;
+        }
+        final text = raw.fullText, rects = raw.charRects;
+        final sameLength = text.length == rects.length;
+        _printed[page] = PrintedText([
+          for (var i = 0; i < rects.length; i++)
+            if (!sameLength || text.codeUnitAt(i) > 0x20)
+              InkBox(
+                rects[i].left,
+                rects[i].bottom,
+                rects[i].right,
+                rects[i].top,
+              ),
+        ]);
+      } catch (_) {
+        _printed[page] = PrintedText.none; // grouped from the ink alone
+      }
+    }());
+    return null;
+  }
+
   /// The user marked [ids] on [page] as [kind]: learned, and saved.
   void _learnKind(int page, Set<String> ids, InkKind kind) {
     _inkKinds.learn(_ink.ink.strokesOn(page), ids, kind);
@@ -1311,6 +1356,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// A stroke the pen has just finished (not an edit, undo or move): is
   /// it carrying on the word before it, on the same page?
   void _strokeWritten(int page, PageStroke stroke) {
+    // Ready by the time the pen pauses and the page's writing is read.
+    _printedOf(page);
     // Which pens are used most (owner's approved idea 9).
     if (stroke.points.isNotEmpty) {
       _tools.noteUse(
@@ -1998,6 +2045,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _frames.start();
     _bookmarksLoaded = _loadBookmarks();
     unawaited(_loadInkKinds());
+    _text.printedText = _printedOf;
     _coloursLoaded = _loadColours();
     // A selection belongs to the Select tool.
     _tools.addListener(() {

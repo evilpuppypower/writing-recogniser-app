@@ -4,9 +4,11 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/ink_classifier.dart';
+import 'package:writing_recogniser/core/nearby_classifier.dart';
 import 'package:writing_recogniser/core/page_coordinates.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/core/page_recognition.dart';
+import 'package:writing_recogniser/core/printed_text.dart';
 import 'package:writing_recogniser/core/stroke_grouping.dart';
 import 'package:writing_recogniser/core/typed_text.dart';
 import 'package:writing_recogniser/viewer/page_ink_layer.dart';
@@ -107,6 +109,37 @@ void main() {
         final ms = timeOf(() => plan = planRecognition(more, known));
         report('planning after a stroke', n, ms);
         expect(plan.jobs, hasLength(1));
+        expect(ms, lessThan(n * 1.0));
+      });
+
+      test('a page full of printed text doesn\'t slow grouping much', () {
+        // 60 printed lines of 90 characters, between the lines of ink.
+        final printed = PrintedText([
+          for (var l = 0; l < 60; l++)
+            for (var c = 0; c < 90; c++)
+              InkBox(
+                20.0 + c * 6,
+                30.0 + l * 12.5,
+                25.0 + c * 6,
+                33.0 + l * 12.5,
+              ),
+        ]);
+        late List<InkLine> lines;
+        final ms = timeOf(
+          () => lines = groupStrokes(strokes, printed: printed),
+        );
+        report('grouping with printed text', n, ms);
+        expect(lines.fold(0, (a, l) => a + l.words.length), n);
+        expect(ms, lessThan(n * 1.5));
+      });
+
+      test('a new stroke sorts only its line and the ink near it', () {
+        final fresh = [strokes.length - 1];
+        late List<int> sent;
+        final ms = timeOf(() => sent = NearbyClassifier.nearby(strokes, fresh));
+        report('choosing ink near a new stroke', n, ms);
+        // Its line (20 words of 5 strokes) and the lines next to it.
+        expect(sent.length, lessThan(400));
         expect(ms, lessThan(n * 1.0));
       });
 

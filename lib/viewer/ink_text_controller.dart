@@ -14,6 +14,7 @@ import '../core/ink.dart';
 import '../core/ink_classifier.dart';
 import '../core/nearby_classifier.dart';
 import '../core/personal_ink_kinds.dart';
+import '../core/printed_text.dart';
 import '../core/page_ink.dart';
 import '../core/page_recognition.dart';
 import '../core/recognition/recognizer.dart';
@@ -625,9 +626,12 @@ class InkTextController extends ChangeNotifier {
         for (var i = 0; i < strokes.length; i++)
           if (!strokes[i].isTextBox) i,
       ];
-      final sorted = await classifier.classify([
-        for (final i in inkOnly) strokes[i],
-      ]);
+      final printed = printedText?.call(page);
+      final c = classifier;
+      final ink = [for (final i in inkOnly) strokes[i]];
+      final sorted = c is NearbyClassifier
+          ? await c.classify(ink, printed: printed)
+          : await c.classify(ink);
       sortMs = watch.elapsedMilliseconds;
       final allKinds = List.filled(strokes.length, InkKind.drawing);
       for (var k = 0; k < inkOnly.length && k < sorted.length; k++) {
@@ -654,6 +658,7 @@ class InkTextController extends ChangeNotifier {
       final plan = planRecognition(
         strokes,
         known,
+        printed: printed,
         // With an engine that reads whole lines, its words stay as it split
         // them (each word's key lists its strokes).
         hints: lineEngine == null
@@ -877,6 +882,11 @@ class InkTextController extends ChangeNotifier {
   /// What this user draws and writes, learned from their marks (null: not
   /// used).
   PersonalInkKinds? personalKinds;
+
+  /// Where each page's printed text sits (page number -> text), so
+  /// writing around it is grouped and read as written (see PrintedText).
+  /// Null, or none for a page: grouped from the ink alone.
+  PrintedText? Function(int page)? printedText;
 
   /// Told how long each read took after a pause (sizes and times only),
   /// for the diagnostic report.

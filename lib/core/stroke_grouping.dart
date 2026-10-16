@@ -8,6 +8,7 @@ import 'dart:math' as math;
 
 import 'ink.dart';
 import 'page_ink.dart';
+import 'printed_text.dart';
 
 /// Tuning for [groupStrokes]. Distances are in multiples of the writing's
 /// typical letter height (each line's own, so big and small writing on the
@@ -19,7 +20,12 @@ class GroupingParams {
     this.lineReach = 8,
     this.newSessionMs = 60000,
     this.lineDrift = 0.75,
+    this.carryOnMs = 8000,
   });
+
+  /// Writing carries on past printed text when its next stroke starts
+  /// within this long of the line's last one (see [groupStrokes]).
+  final int carryOnMs;
 
   /// Writing that carries on to the right of a line's end joins it when its
   /// middle is within this (x letter height) of the line's middle.
@@ -132,11 +138,18 @@ bool isWriting(PageStroke s) =>
 /// Groups the handwriting in [strokes] (one page) into lines, top to
 /// bottom, each with its words left to right. Other strokes (highlighter,
 /// arrows, and any [include] says no to, e.g. drawings) are left out.
+///
+/// With the page's [printed] text: writing on either side of printed text
+/// is two lines (two notes in the margins), unless it was written straight
+/// on, one stroke after the other ([GroupingParams.carryOnMs]): then it's
+/// one line however wide the printed text is, as only the free space
+/// between counts.
 List<InkLine> groupStrokes(
   List<PageStroke> strokes, {
   GroupingParams params = const GroupingParams(),
   bool Function(int index)? include,
   Map<String, String>? hints,
+  PrintedText? printed,
 }) {
   final idx = [
     for (var i = 0; i < strokes.length; i++)
@@ -157,6 +170,7 @@ List<InkLine> groupStrokes(
     letter,
     params,
     hints,
+    printed,
   );
   // Writing at a slant: grouped turned level, so its words and lines are
   // found the usual way, and the engine is sent it level.
@@ -538,8 +552,26 @@ List<InkLine> _group(
   Map<int, InkBox> boxes,
   double letter,
   GroupingParams params,
-  Map<String, String>? hints,
-) {
+  Map<String, String>? hints, [
+  PrintedText? printed,
+]) {
+  // The side gap from [line] to stroke box [b] that counts: the free
+  // space, when the writing carried straight on past printed text; null
+  // when printed text stands between them and it didn't (two notes).
+  double? sideGap(_Line line, InkBox b, int start, double h) {
+    final l = line.box, gap = b.horizontalGap(l);
+    if (printed == null || printed.isEmpty || gap <= 0) return gap;
+    // Only the line's own height band: cheap, and printed text above or
+    // below the line doesn't count.
+    final band = line.band(h);
+    final left = b.left >= l.right ? l.right : b.right;
+    final right = b.left >= l.right ? b.left : l.left;
+    final print = printed.covered(left, right, band.bottom, band.top);
+    if (print < h * 0.5) return gap;
+    final carriedOn = start >= line.end && start - line.end <= params.carryOnMs;
+    return carriedOn ? gap - print : null;
+  }
+
   // Lines: each stroke joins the line it overlaps most in height (and is
   // near enough to sideways), in writing order. Sizes are measured against
   // each line's own letters, so big writing next to small writing works.
@@ -563,14 +595,17 @@ List<InkLine> _group(
         break;
       }
     }
+    final start = strokes[i].points.first.t;
     for (final line in best == null ? lines : const <_Line>[]) {
       final h = math.max(letter, line.letter ?? letter);
-      if (b.horizontalGap(line.box) > params.lineReach * h) continue;
+      // The cheap checks first: printed text is only looked at for lines
+      // the stroke is level with.
       final o = b.verticalOverlap(line.band(line.letter ?? letter));
-      if (o >= bestOverlap) {
-        bestOverlap = o;
-        best = line;
-      }
+      if (o < bestOverlap) continue;
+      final gap = sideGap(line, b, start, h);
+      if (gap == null || gap > params.lineReach * h) continue;
+      bestOverlap = o;
+      best = line;
     }
     // Carrying on a line after scrolling (owner's report): writing just to
     // the right of where a line ends joins it even if it drifts a little up
@@ -580,19 +615,24 @@ List<InkLine> _group(
       for (final line in lines) {
         final h = line.letter ?? letter;
         final l = line.box;
-        final gap = b.left - l.right;
-        if (gap < -h || gap > params.lineReach * h) continue;
+        final along = b.left - l.right;
+        if (along < -h) continue;
         if ((b.centerY - l.centerY).abs() > h * params.lineDrift) continue;
+        final gap = along <= 0 ? along : sideGap(line, b, start, h);
+        if (gap == null || gap > params.lineReach * h) continue;
         if (gap < bestGap) {
           bestGap = gap;
           best = line;
         }
       }
     }
+    final end = strokes[i].points.last.t;
     if (best == null) {
-      lines.add(_Line(i, b));
+      lines.add(_Line(i, b)..end = end);
     } else {
-      best.add(i, b);
+      best
+        ..add(i, b)
+        ..end = math.max(best.end, end);
     }
   }
 
@@ -836,6 +876,9 @@ class _Line {
 
   final List<int> strokes;
   InkBox box;
+
+  /// The line's last pen-up, ms since epoch.
+  int end = 0;
 
   /// The heights of this line's strokes (dots left out), kept in order so
   /// [letter] doesn't need sorting again on every stroke.
