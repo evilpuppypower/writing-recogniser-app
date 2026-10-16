@@ -710,3 +710,10 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - **Renaming:** a notebook's card has "Rename" (long-press). The name is kept with its pages, and its file keeps its own name, so nothing written in it moves. The name shows on the home screen, in the viewer and in exported file names.
 - **Page sizes:** a new notebook can be A4 (the default), A5 or US Letter. Added pages take the size of the page they follow.
 - **Paper standards, checked:** 8 mm ruled lines are the usual A4 lined paper in Europe and Asia. US college ruled is 7.1 mm and wide ruled 8.7 mm. 5 mm is the usual squared and dotted grid. "Lined to fit your writing" covers anyone who wants something else.
+
+## 2026-10-16 — Each document remembers how it was shown (owner)
+
+- **What it remembers:** where it was (the page in the middle of the screen and where on it), the zoom, the last tool, pen and highlighter, two pages or one, recognised-text labels and the text panel, and typed or handwritten view. They're kept in a `document_views` table (database version 11), deleted with the document.
+- **A new document starts from Settings.** Changing two pages, labels or the text panel inside a document changes that document only. Settings stay the default for documents that haven't changed them. Favourites, the toolbar's place and the eraser stay app-wide.
+- The zoom is kept as a share of the zoom that fills the screen, and the place as a point on its page, so both come back right after the tablet is turned. After pages are added, moved or taken out, the document opens on the page it was told to, not the old place.
+- It's saved a second after scrolling stops, when leaving the document, and when the app goes to the background.

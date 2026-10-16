@@ -7,7 +7,7 @@ class AppDatabase {
   AppDatabase._();
 
   static const fileName = 'writing_recogniser.db';
-  static const version = 10;
+  static const version = 11;
 
   /// Opens (and creates or upgrades) the database. [factory] and [path] can
   /// be overridden for tests.
@@ -138,6 +138,15 @@ class AppDatabase {
         CREATE TABLE page_layouts (
           document_id TEXT PRIMARY KEY, -- library id (as in page_ink)
           layout TEXT NOT NULL          -- PageLayout.toJson
+        )
+      ''');
+    }
+    if (from < 11) {
+      // How each document was last shown (owner, 2026-10-16).
+      await db.execute('''
+        CREATE TABLE document_views (
+          document_id TEXT PRIMARY KEY, -- library id (as in page_ink)
+          view TEXT NOT NULL            -- DocumentView.toJson
         )
       ''');
     }

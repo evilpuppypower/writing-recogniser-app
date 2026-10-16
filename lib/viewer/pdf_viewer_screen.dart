@@ -32,6 +32,9 @@ import '../core/personal_ink_kinds.dart';
 import '../core/blank_pdf.dart';
 import '../core/laid_out_stores.dart';
 import '../core/page_layout.dart';
+import '../core/document_view.dart';
+import '../settings/document_settings.dart';
+import '../storage/sqlite_document_view_store.dart';
 import '../core/paper.dart';
 import '../storage/sqlite_page_layout_store.dart';
 import '../core/printed_text.dart';
@@ -97,6 +100,7 @@ class PdfViewerScreen extends StatefulWidget {
     this.openBookmarks = SqliteBookmarkStore.open,
     this.openDocumentColours = SqliteDocumentColoursStore.open,
     this.openPageLayouts = SqlitePageLayoutStore.open,
+    this.openDocumentViews = SqliteDocumentViewStore.open,
     this.sourcePath,
     this.locateSource,
     this.exportPdf = exportPdfWithInk,
@@ -168,6 +172,10 @@ class PdfViewerScreen extends StatefulWidget {
   /// database by default).
   final Future<PageLayoutStore> Function() openPageLayouts;
 
+  /// Where each document's own view is kept (zoom and place, pen, two
+  /// pages, labels; the app database by default).
+  final Future<DocumentViewStore> Function() openDocumentViews;
+
   /// The PDF file on the tablet; exporting is offered when it's known.
   final String? sourcePath;
 
@@ -228,6 +236,7 @@ class _PdfViewerHostState extends State<PdfViewerScreen> {
       openBookmarks: w.openBookmarks,
       openDocumentColours: w.openDocumentColours,
       openPageLayouts: w.openPageLayouts,
+      openDocumentViews: w.openDocumentViews,
       sourcePath: w.sourcePath,
       locateSource: w.locateSource,
       exportPdf: w.exportPdf,
@@ -259,6 +268,7 @@ class _PdfViewerPages extends PdfViewerScreen {
     required super.openBookmarks,
     required super.openDocumentColours,
     required super.openPageLayouts,
+    required super.openDocumentViews,
     super.sourcePath,
     super.locateSource,
     required super.exportPdf,
@@ -487,6 +497,138 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   // Bookmarks (owner's choice, 2026-10-15): the pages marked in this PDF.
   BookmarkStore? _bookmarkStore;
   Future<void> _bookmarksLoaded = Future.value();
+
+  /// How this document was last shown (owner: each document remembers its
+  /// own view; a new one starts from Settings).
+  DocumentView _view = const DocumentView();
+  DocumentViewStore? _viewStore;
+  Future<void> _viewLoaded = Future.value();
+
+  /// The settings as this document sees them (its own two pages, labels
+  /// and text panel).
+  DocumentSettingsController? _docSettings;
+
+  Future<void> _loadView() async {
+    try {
+      final store = await widget.openDocumentViews();
+      _view = await store.load(widget.documentId);
+      _viewStore = store;
+    } catch (_) {
+      // Starts from Settings; not kept this time.
+    }
+    if (!mounted) return;
+    final app = context
+        .getInheritedWidgetOfExactType<SettingsScope>()
+        ?.notifier;
+    if (app != null) {
+      setState(() {
+        _docSettings = DocumentSettingsController(
+          app,
+          twoPages: _view.twoPages,
+          textLabels: TextLabelPlace.values
+              .where((v) => v.name == _view.textLabels)
+              .firstOrNull,
+          textPanel: TextPanelPlace.values
+              .where((v) => v.name == _view.textPanel)
+              .firstOrNull,
+          onOwn: (two, labels, panel) {
+            _view = DocumentView(
+              page: _view.page,
+              pageX: _view.pageX,
+              pageY: _view.pageY,
+              zoomToFit: _view.zoomToFit,
+              mode: _view.mode,
+              pen: _view.pen,
+              highlighter: _view.highlighter,
+              twoPages: two,
+              textLabels: labels?.name,
+              textPanel: panel?.name,
+              showTyped: _view.showTyped,
+            );
+            _saveView();
+          },
+        );
+      });
+    }
+    final typed = _view.showTyped;
+    if (typed != null) _showTyped.value = typed;
+  }
+
+  /// Keeps where the document is shown, its zoom and pen.
+  void _saveView() {
+    final store = _viewStore;
+    if (store == null) return;
+    var view = _view;
+    final t = _tools.value;
+    view = view.copyWith(
+      mode: t.mode == PenMode.text ? null : t.mode,
+      pen: t.pen,
+      highlighter: t.highlighter,
+      showTyped: _showTyped.value,
+    );
+    if (_controller.isReady && _restored) {
+      try {
+        final place = _placeShown();
+        if (place != null) {
+          view = view.copyWith(
+            page: place.$1,
+            pageX: place.$2,
+            pageY: place.$3,
+            zoomToFit: _controller.currentZoom / _controller.coverScale,
+          );
+        }
+      } catch (_) {}
+    }
+    _view = view;
+    unawaited(store.save(widget.documentId, view).catchError((_) {}));
+  }
+
+  /// The page in the middle of the screen, and where on it (0..1).
+  (int, double, double)? _placeShown() {
+    final c = _controller.centerPosition;
+    final rects = _controller.layout.pageLayouts;
+    var best = -1;
+    var bestDistance = double.infinity;
+    for (var i = 0; i < rects.length; i++) {
+      final r = rects[i];
+      final dx = c.dx < r.left
+          ? r.left - c.dx
+          : (c.dx > r.right ? c.dx - r.right : 0.0);
+      final dy = c.dy < r.top
+          ? r.top - c.dy
+          : (c.dy > r.bottom ? c.dy - r.bottom : 0.0);
+      final d = dx * dx + dy * dy;
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = i;
+      }
+      if (d == 0) break;
+    }
+    if (best < 0) return null;
+    final r = rects[best];
+    return (
+      best + 1,
+      ((c.dx - r.left) / r.width).clamp(0.0, 1.0),
+      ((c.dy - r.top) / r.height).clamp(0.0, 1.0),
+    );
+  }
+
+  /// Back where it was shown last time, at the same zoom; false if there's
+  /// no such place.
+  Future<bool> _restoreView(PdfViewerController controller) async {
+    final v = _view;
+    final page = v.page, x = v.pageX, y = v.pageY, z = v.zoomToFit;
+    if (page == null || x == null || y == null || z == null) return false;
+    final rects = controller.layout.pageLayouts;
+    if (page < 1 || page > rects.length) return false;
+    final r = rects[page - 1];
+    final centre = Offset(r.left + r.width * x, r.top + r.height * y);
+    await controller.goTo(
+      controller.calcMatrixFor(centre, zoom: z * controller.coverScale),
+      duration: Duration.zero,
+    );
+    return true;
+  }
 
   /// The order pages are shown in, with blank pages of the user's own
   /// (owner: blank pages like any notes app); null when the PDF is shown
@@ -1902,7 +2044,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   TextLabelPlace _lastLabels = TextLabelPlace.above;
 
   void _toggleLabels() {
-    final settings = SettingsScope.of(context);
+    final settings = _settingsOf(context);
     final s = settings.value;
     // On but faded: bring them back rather than switching them off (C4).
     if (s.textLabels != TextLabelPlace.off && !_labelsShown.value) {
@@ -1924,7 +2066,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   TextPanelPlace _lastPanel = TextPanelPlace.right;
 
   void _togglePanel() {
-    final settings = SettingsScope.of(context);
+    final settings = _settingsOf(context);
     final s = settings.value;
     if (s.textPanel != TextPanelPlace.off) _lastPanel = s.textPanel;
     _placePanel(
@@ -1933,7 +2075,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   void _placePanel(TextPanelPlace place) {
-    final settings = SettingsScope.of(context);
+    final settings = _settingsOf(context);
     settings.update(settings.value.copyWith(textPanel: place));
   }
 
@@ -1965,7 +2107,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         ),
       );
     }
-    final rhythm = _rhythmFor(SettingsScope.of(context).value);
+    final rhythm = _rhythmFor(_settingsOf(context).value);
     final before = _lastStroke;
     _lastStroke = (page: page, stroke: stroke);
     if (before == null ||
@@ -1983,14 +2125,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   void _saveRhythm() {
     final rhythm = _rhythm;
     if (rhythm == null || !mounted) return;
-    final settings = SettingsScope.of(context);
+    final settings = _settingsOf(context);
     if (settings.value.learnedPauseMs == rhythm.pauseMs) return;
     settings.update(settings.value.copyWith(learnedPauseMs: rhythm.pauseMs));
   }
 
   void _inkChangedForText(int page) {
     _labelsShown.wake();
-    final settings = SettingsScope.of(context).value;
+    final settings = _settingsOf(context).value;
     _text.inkChanged(
       page,
       _ink.ink.strokesOn(page),
@@ -2088,6 +2230,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   void _flushSaves() {
+    _saveView();
     _autosaver?.flush();
     _textSaver?.flush();
     _saveRhythm();
@@ -2214,7 +2357,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _readyMs ??= DateTime.now().difference(_tappedAt).inMilliseconds;
     final resume = _saved?.resumePageFor(pages) ?? 1;
     _resumePage = resume;
-    if (resume > 1 && controller.pageNumber != resume) {
+    await _viewLoaded;
+    // Where it was and how zoomed in, unless its pages just changed (then
+    // the page it was told to open on).
+    final placed =
+        !widget.reopenedForPages &&
+        mounted &&
+        await _restoreView(controller).catchError((_) => false);
+    if (!placed && resume > 1 && controller.pageNumber != resume) {
       await controller.goToPage(pageNumber: resume, duration: Duration.zero);
     }
     _restored = true;
@@ -2299,7 +2449,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     if (!_restored || pageNumber == null) return;
     // Save shortly after scrolling settles, not on every page flick.
     _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(seconds: 1), _savePosition);
+    _saveTimer = Timer(const Duration(seconds: 1), () {
+      _savePosition();
+      _saveView();
+    });
   }
 
   void _savePosition() {
@@ -2601,7 +2754,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     PdfViewerController controller,
   ) {
     final scheme = Theme.of(context).colorScheme;
-    final settings = SettingsScope.of(context).value;
+    final settings = _settingsOf(context).value;
     final idleMode = settings.scrollTabIdle;
     final slimOpacity = settings.slimTabOpacityPercent / 100;
     return ValueListenableBuilder(
@@ -2663,6 +2816,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     super.initState();
     _frames.start();
     _layoutLoaded = _loadLayout();
+    _viewLoaded = _loadView();
     _bookmarksLoaded = _loadBookmarks();
     unawaited(_loadInkKinds());
     _text.printedText = _printedOf;
@@ -2678,9 +2832,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     // Any scroll or zoom shows the tab and restarts the hide countdown.
     _controller.addListener(_showThumbForAWhile);
     _showThumbForAWhile();
-    PenToolsController.load().then((saved) {
+    PenToolsController.load().then((saved) async {
+      // This document's own pen and tool, over the app's.
+      await _viewLoaded;
       if (mounted) {
-        _tools.value = saved.value;
+        _tools.value = _view.applyTo(saved.value);
         _tools.usage.load(saved.usage.toJson());
       }
       saved.dispose();
@@ -2955,7 +3111,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               dark: _dark,
             )
           : null,
-      convertRest: switch (SettingsScope.of(context).value.exportConvertRest) {
+      convertRest: switch (_settingsOf(context).value.exportConvertRest) {
         ExportConvertRest.on => true,
         ExportConvertRest.off => false,
         ExportConvertRest.auto => null,
@@ -2974,7 +3130,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     if (choice == null || !mounted) return;
     if (choice.askedConvertRest) {
       // Remembered for next time (owner).
-      final settings = SettingsScope.of(context);
+      final settings = _settingsOf(context);
       settings.update(
         settings.value.copyWith(
           exportConvertRest: choice.convertRest
@@ -3014,7 +3170,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       if (typed.isNotEmpty) text[page] = [...?text[page], ...typed];
     }
     if (!mounted) return;
-    final pressure = SettingsScope.of(context).value.pressureResponse;
+    final pressure = _settingsOf(context).value.pressureResponse;
     final watch = Stopwatch()..start();
     showDialog<void>(
       context: context,
@@ -3185,6 +3341,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _slowOpenTimer?.cancel();
     _slowOpen.dispose();
     _savePosition();
+    _saveView();
+    _docSettings?.dispose();
     _lifecycle.dispose();
     _autosaver?.flush();
     _autosaver?.dispose();
@@ -3214,8 +3372,18 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     super.dispose();
   }
 
+  /// The settings as this document sees them (see [_docSettings]).
+  SettingsController _settingsOf(BuildContext context) =>
+      _docSettings ?? SettingsScope.of(context);
+
   @override
   Widget build(BuildContext context) {
+    final page = _buildPage(context);
+    final own = _docSettings;
+    return own == null ? page : SettingsScope(controller: own, child: page);
+  }
+
+  Widget _buildPage(BuildContext context) {
     // Save the page as soon as Back is pressed: the library reloads right
     // away, before this screen is disposed (and before the 1 s timer).
     return PopScope(
