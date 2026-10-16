@@ -19,6 +19,7 @@ class PageTextLabels extends StatefulWidget {
     required this.pageNumber,
     required this.geometry,
     required this.viewWidth,
+    this.showUnsure = true,
     required this.text,
     required this.strokes,
     this.above = true,
@@ -48,6 +49,10 @@ class PageTextLabels extends StatefulWidget {
   final int pageNumber;
   final PageGeometry geometry;
   final double viewWidth;
+
+  /// Words the app isn't sure about get a "?" that opens the correction
+  /// pop-up with one tap (owner's approved idea 3; can be turned off).
+  final bool showUnsure;
   final InkTextController text;
 
   /// The page's ink now (to recognise saved ink when first shown).
@@ -236,6 +241,7 @@ class _PageTextLabelsState extends State<PageTextLabels> {
           scheme,
           MediaQuery.textScalerOf(context),
           widget.onDoubleTap != null,
+          widget.showUnsure,
         );
         final width = widget.viewWidth;
         if (_built != null &&
@@ -273,6 +279,7 @@ class _PageTextLabelsState extends State<PageTextLabels> {
                   widget.above,
                 );
                 final size = l.fontSize;
+                final ask = widget.showUnsure && w.unsure && !w.corrected;
                 final box = DecoratedBox(
                   decoration: BoxDecoration(
                     color: scheme.primaryContainer.withValues(alpha: 0.85),
@@ -280,18 +287,34 @@ class _PageTextLabelsState extends State<PageTextLabels> {
                   ),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 3),
-                    child: Text(
-                      w.text,
-                      style: TextStyle(
-                        fontSize: size,
-                        height: 1.15,
-                        color: scheme.onPrimaryContainer,
-                        // Swapped automatically from an earlier
-                        // correction (owner: underlined).
-                        decoration: w.autoReplaced
-                            ? TextDecoration.underline
-                            : null,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          w.text,
+                          style: TextStyle(
+                            fontSize: size,
+                            height: 1.15,
+                            color: scheme.onPrimaryContainer,
+                            // Swapped automatically from an earlier
+                            // correction (owner: underlined).
+                            decoration: w.autoReplaced
+                                ? TextDecoration.underline
+                                : null,
+                          ),
+                        ),
+                        if (ask)
+                          Text(
+                            ' ?',
+                            semanticsLabel: 'not sure',
+                            style: TextStyle(
+                              fontSize: size,
+                              height: 1.15,
+                              fontWeight: FontWeight.bold,
+                              color: scheme.tertiary,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 );
@@ -304,6 +327,8 @@ class _PageTextLabelsState extends State<PageTextLabels> {
                     : _PassThrough(
                         child: GestureDetector(
                           onDoubleTap: () => tap(w),
+                          // Not sure: one tap asks.
+                          onTap: ask ? () => tap(w) : null,
                           child: box,
                         ),
                       );

@@ -89,6 +89,11 @@ void main() {
     );
     expect(find.text('Now using 550 MB for 2 PDFs.'), findsOneWidget);
     // The slim bar is the default.
+    await tester.scrollUntilVisible(
+      find.textContaining('thin see-through bar'),
+      -200, // above the storage use
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.textContaining('thin see-through bar'), findsOneWidget);
   });
 
@@ -117,6 +122,9 @@ void main() {
       200,
       scrollable: find.byType(Scrollable).first,
     );
+    // Fully on screen (not half under the edge) before tapping.
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
     await tester.tap(tile);
     await tester.pumpAndSettle();
     expect(savedFiles.single.$1, startsWith('diagnostics-'));

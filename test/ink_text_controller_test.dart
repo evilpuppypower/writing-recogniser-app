@@ -432,6 +432,38 @@ void main() {
       c.dispose();
     });
 
+    testWidgets('a word it isn\'t sure of is asked about until confirmed', (
+      tester,
+    ) async {
+      final log = MemoryLog();
+      final c = InkTextController(engine: FakeEngine(), eventLog: log);
+      c.inkChanged(1, word(100, 700, 3, 0), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      // "w3" is new to the user and the engine also thought "alt".
+      final w = c.wordsOn(1).single;
+      expect(w.unsure, isTrue);
+      expect(RecognizedWord.fromJson(w.toJson()).unsure, isTrue); // kept
+      c.confirm(1, w);
+      expect(c.wordsOn(1).single.unsure, isFalse);
+      await tester.pump();
+      expect(log.events.last.type, 'accept');
+      // Now a word the user writes: not asked about again.
+      c.inkChanged(2, word(100, 700, 3, 50000), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      expect(c.wordsOn(2).single.unsure, isFalse);
+      // Correcting a word also ends the asking.
+      c.inkChanged(3, word(100, 700, 4, 90000), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      final four = c.wordsOn(3).single;
+      expect(four.unsure, isTrue);
+      await c.correct(3, four, 'fox');
+      expect(c.wordsOn(3).single.unsure, isFalse);
+      c.dispose();
+    });
+
     testWidgets('saved corrections apply from when the PDF opens', (
       tester,
     ) async {

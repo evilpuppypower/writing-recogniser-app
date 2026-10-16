@@ -554,6 +554,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          SwitchListTile(
+            title: const Text('Ask about words it isn\'t sure of'),
+            subtitle: const Text(
+              'A "?" on a label when the word may be misread. Tap it to say '
+              "it's right or fix it; the app learns from either.",
+            ),
+            value: s.askWhenUnsure,
+            onChanged: (v) => settings.update(s.copyWith(askWhenUnsure: v)),
+          ),
           ListTile(
             title: const Text('Text panel'),
             subtitle: const Text(

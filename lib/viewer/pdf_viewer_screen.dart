@@ -22,6 +22,7 @@ import '../core/ink_classifier.dart';
 import '../core/event_log.dart';
 import '../core/feedback/vocabulary.dart';
 import '../core/ink_store.dart';
+import '../core/nearby_classifier.dart';
 import '../core/open_timing.dart';
 import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
@@ -181,7 +182,17 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// The recognised text of the handwriting (task 2.3).
   late final InkTextController _text = InkTextController(
     engine: widget.makeRecognizer(),
-    classifier: widget.makeClassifier(),
+    // Only new strokes and the ink around them are sorted (owner: lag
+    // after writing 50 words).
+    classifier: () {
+      final c = widget.makeClassifier();
+      return NearbyClassifier(
+        c,
+        // MyScript answered with the shape check after an error: sort
+        // those strokes again next time.
+        trusted: () => c is! MyScriptInkClassifier || c.problem == null,
+      );
+    }(),
     documentId: widget.documentId,
   );
 
@@ -1147,6 +1158,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     switch (fix) {
       case UseText(:final text):
         await _text.correct(page, word, text);
+      case LooksRight():
+        _text.confirm(page, word);
       case NotWriting():
         // Saved on the strokes, so it lasts when the PDF is reopened.
         _ink.markNotWriting(page, word.key.split(',').toSet());
@@ -1228,6 +1241,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final settings = SettingsScope.of(context);
     settings.update(settings.value.copyWith(textPanel: place));
   }
+
+  /// Reading times, logged as a summary every 20 reads (not one entry per
+  /// pause, so the log doesn't keep growing).
+  final _reads = ReadSummary();
 
   void _inkChangedForText(int page) {
     _labelsShown.wake();
@@ -1650,11 +1667,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     Positioned.fill(
       child: Builder(
         builder: (context) {
-          final place = SettingsScope.valueOf(context).textLabels;
+          final settings = SettingsScope.valueOf(context);
+          final place = settings.textLabels;
           return place == TextLabelPlace.off
               ? const SizedBox.shrink()
               : PageTextLabels(
                   above: place == TextLabelPlace.above,
+                  showUnsure: settings.askWhenUnsure,
                   pageNumber: page.pageNumber,
                   geometry: _geometryOf(page),
                   viewWidth: pageRect.width,
@@ -1896,6 +1915,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       onHide: _flushSaves,
       onPause: _flushSaves,
     );
+    // How long reading takes after each pause, for the diagnostic report
+    // (sizes and times only).
+    _text.onRead = (timings) {
+      final summary = _reads.add(timings);
+      if (summary != null) _logDiagnostic('reading', summary);
+    };
     _loadInk();
     widget
         .openCorrections()
