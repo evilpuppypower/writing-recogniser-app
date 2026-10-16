@@ -581,3 +581,7 @@ Slanted writing was only noticed up to 60 degrees from level, because the shape 
 ## 2026-10-16 — Tilted shapes (owner: tilted shapes should be recognised)
 
 Shape tidy-up now works at any tilt. Two guesses are made at the angle a shape was drawn at: the tilt whose box fits the ink most tightly (good for rectangles), and the direction the ink stretches most (good for ellipses). The shape is tidied turned level at each guess, and whichever fits better is kept and turned back. A shape within 6 degrees of level (or upright) is made exactly level, since that's what people mean. Triangles always kept their own corners. Any tidied shape can still be turned afterwards with the Select tool's rotate handle.
+
+## 2026-10-16 — Bookmarks in two-page view (owner: bookmarks should work in a 2-page view)
+
+With two pages side by side, the bookmark button opens a short menu, "Bookmark page 3" and "Bookmark page 4", each ticked when that page is marked. The icon is filled when either page is marked. With one page showing, or on the last page of an odd count, it works as before. A bookmarked page also shows a small ribbon at its top right corner, so it's clear which of the two pages is marked. The ribbon never takes a touch, so writing near it isn't affected.

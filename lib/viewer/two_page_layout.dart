@@ -72,3 +72,11 @@ PdfPageLayout pageLayout(
       : onePageRects(sizes, params.margin);
   return PdfPageLayout(pageLayouts: r.pages, documentSize: r.document);
 }
+
+/// The pages showing side by side with [page] in two-page view, first
+/// first: it and the other page of its pair (1 and 2, 3 and 4, ...); just
+/// it for the last page of an odd count.
+List<int> pagePair(int page, int pageCount) {
+  final first = page.isOdd ? page : page - 1;
+  return [first, if (first + 1 <= pageCount) first + 1];
+}
