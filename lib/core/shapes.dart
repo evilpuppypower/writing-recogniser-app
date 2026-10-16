@@ -1,6 +1,7 @@
 /// Tidying a drawn shape (owner's choice: text & shapes, 2026-10-15): a
 /// closed stroke held still at its end becomes the circle, ellipse,
-/// rectangle or triangle it's closest to. Pure Dart, PDF page points.
+/// rectangle or triangle it's closest to, at the tilt it was drawn at. Pure
+/// Dart, PDF page points.
 library;
 
 import 'dart:math' as math;
@@ -16,6 +17,113 @@ enum ShapeKind { circle, ellipse, rectangle, triangle }
   List<PageInkPoint> points,
 ) {
   if (points.length < 8) return null;
+  // Drawn at a tilt (owner: tilted shapes should be recognised): tidied
+  // turned level, then turned back. The tilt is the one whose level box
+  // fits the ink most tightly; within [_levelEnough] of level (or of
+  // upright) it counts as level, as people mean it to be.
+  var cx = 0.0, cy = 0.0;
+  for (final p in points) {
+    cx += p.x;
+    cy += p.y;
+  }
+  cx /= points.length;
+  cy /= points.length;
+  _Tidy? best;
+  // Two guesses at the tilt: the tightest box (rectangles), and the way
+  // the ink stretches most (ellipses, whose tightest box is a poor guide).
+  for (final tilt in {_tilt(points), _stretch(points, cx, cy)}) {
+    final t = tilt == 0
+        ? _tidyLevel(points)
+        : _tidyLevel([for (final p in points) _turn(p, -tilt, cx, cy)]);
+    if (t == null || (best != null && t.error >= best.error)) continue;
+    best = tilt == 0
+        ? t
+        : (
+            kind: t.kind,
+            points: [for (final p in t.points) _turn(p, tilt, cx, cy)],
+            error: t.error,
+          );
+  }
+  if (best == null) return null;
+  return (kind: best.kind, points: best.points);
+}
+
+typedef _Tidy = ({ShapeKind kind, List<PageInkPoint> points, double error});
+
+/// The direction [points] stretch along most (radians, -90..90 degrees),
+/// 0 when nearly level or upright, or when they hardly stretch (round).
+double _stretch(List<PageInkPoint> points, double cx, double cy) {
+  var sxx = 0.0, syy = 0.0, sxy = 0.0;
+  for (final p in points) {
+    sxx += (p.x - cx) * (p.x - cx);
+    syy += (p.y - cy) * (p.y - cy);
+    sxy += (p.x - cx) * (p.y - cy);
+  }
+  final half = (sxx - syy) / 2;
+  final spread = math.sqrt(half * half + sxy * sxy);
+  if (spread < (sxx + syy) / 2 * 0.15) return 0; // round
+  var a = 0.5 * math.atan2(2 * sxy, sxx - syy);
+  // Within a quarter turn either way: the shapes look the same turned 90.
+  if (a > math.pi / 4) a -= math.pi / 2;
+  if (a < -math.pi / 4) a += math.pi / 2;
+  return a.abs() < _levelEnough ? 0 : a;
+}
+
+/// Tilts closer than this to level or upright count as level.
+const _levelEnough = 6 * math.pi / 180;
+
+/// The tilt (radians, -45..45 degrees) at which the level box round
+/// [points] is smallest: a rectangle's or ellipse's own tilt. 0 when
+/// nearly level.
+double _tilt(List<PageInkPoint> points) {
+  double area(double a) {
+    final c = math.cos(a), s = math.sin(a);
+    var l = double.infinity, r = -double.infinity;
+    var b = double.infinity, t = -double.infinity;
+    for (final p in points) {
+      final x = p.x * c + p.y * s, y = -p.x * s + p.y * c;
+      l = math.min(l, x);
+      r = math.max(r, x);
+      b = math.min(b, y);
+      t = math.max(t, y);
+    }
+    return (r - l) * (t - b);
+  }
+
+  var best = 0.0, bestArea = area(0);
+  for (var d = -45.0; d < 45; d += 1) {
+    final a = area(d * math.pi / 180);
+    if (a < bestArea) {
+      bestArea = a;
+      best = d * math.pi / 180;
+    }
+  }
+  // A little finer round the best.
+  for (var d = -1.0; d <= 1; d += 0.25) {
+    final t = best + d * math.pi / 180;
+    final a = area(t);
+    if (a < bestArea) {
+      bestArea = a;
+      best = t;
+    }
+  }
+  // A box that's barely smaller isn't a tilt (a circle fits any way).
+  if (bestArea > area(0) * 0.97 || best.abs() < _levelEnough) return 0;
+  return best;
+}
+
+PageInkPoint _turn(PageInkPoint p, double a, double cx, double cy) {
+  final c = math.cos(a), s = math.sin(a);
+  final dx = p.x - cx, dy = p.y - cy;
+  return PageInkPoint(
+    cx + dx * c - dy * s,
+    cy + dx * s + dy * c,
+    p.t,
+    p.pressure,
+  );
+}
+
+_Tidy? _tidyLevel(List<PageInkPoint> points) {
   var l = double.infinity, b = double.infinity;
   var r = -double.infinity, t = -double.infinity;
   for (final p in points) {
@@ -108,6 +216,7 @@ enum ShapeKind { circle, ellipse, rectangle, triangle }
     ),
   ]..sort((a, c) => a.$2.compareTo(c.$2));
   if (best.first.$2 > 0.05) return null;
+  final error = best.first.$2;
 
   final t0 = first.t, t1 = last.t;
   final pressures = [for (final p in points) p.pressure]..sort();
@@ -132,6 +241,7 @@ enum ShapeKind { circle, ellipse, rectangle, triangle }
       final way = _turnsAnticlockwise(points, cx, cy) ? 1 : -1;
       return (
         kind: round ? ShapeKind.circle : ShapeKind.ellipse,
+        error: error,
         points: timed([
           for (var i = 0; i <= 64; i++)
             (
@@ -144,9 +254,14 @@ enum ShapeKind { circle, ellipse, rectangle, triangle }
       return (
         kind: ShapeKind.rectangle,
         points: timed([(l, t), (r, t), (r, b), (l, b), (l, t)]),
+        error: error,
       );
     case ShapeKind.triangle || ShapeKind.circle:
-      return (kind: ShapeKind.triangle, points: timed([...tri!, tri.first]));
+      return (
+        kind: ShapeKind.triangle,
+        points: timed([...tri!, tri.first]),
+        error: error,
+      );
   }
 }
 

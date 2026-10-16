@@ -557,7 +557,7 @@ A new **Text** tool in the pen toolbar. Tap the page with the pen to type a text
 
 ## 2026-10-15 — Shape tidy-up (owner's choice: text & shapes)
 
-Holding the pen still at the end of a stroke already snapped it straight. Now, if the stroke is a closed loop (it ends near where it started), it's tidied into the shape it's closest to: a circle (when nearly round), an ellipse, a rectangle or a triangle. "Closest" is checked both ways: on average, within a twentieth of its size from ink to shape and from shape to ink, so scribbles and zigzags are left alone. A tidied shape keeps its colour, width and the pen's typical pressure. It has no arrowhead, and it's marked "not writing" so it's never read as a letter (O, D, A). Rectangles are level (not tilted).
+Holding the pen still at the end of a stroke already snapped it straight. Now, if the stroke is a closed loop (it ends near where it started), it's tidied into the shape it's closest to: a circle (when nearly round), an ellipse, a rectangle or a triangle. "Closest" is checked both ways: on average, within a twentieth of its size from ink to shape and from shape to ink, so scribbles and zigzags are left alone. A tidied shape keeps its colour, width and the pen's typical pressure. It has no arrowhead, and it's marked "not writing" so it's never read as a letter (O, D, A).
 
 ## 2026-10-15 — Heavy pages: speed at 300, 600 and 1000 words (owner: heavy pages are about 300 words)
 
@@ -577,3 +577,7 @@ Slanted writing was only noticed up to 60 degrees from level, because the shape 
 - Above 45 degrees, letters must sit close together along the line (a median gap under half a letter). So a column of numbers or single letters written one under another stays separate level lines, and isn't read as a word written sideways.
 - Writing whose letters are upright but stacked downward (like a vertical sign) isn't supported; it's rare in English.
 - Straighten still only levels writing up to 60 degrees.
+
+## 2026-10-16 — Tilted shapes (owner: tilted shapes should be recognised)
+
+Shape tidy-up now works at any tilt. Two guesses are made at the angle a shape was drawn at: the tilt whose box fits the ink most tightly (good for rectangles), and the direction the ink stretches most (good for ellipses). The shape is tidied turned level at each guess, and whichever fits better is kept and turned back. A shape within 6 degrees of level (or upright) is made exactly level, since that's what people mean. Triangles always kept their own corners. Any tidied shape can still be turned afterwards with the Select tool's rotate handle.
