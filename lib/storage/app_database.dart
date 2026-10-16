@@ -7,7 +7,7 @@ class AppDatabase {
   AppDatabase._();
 
   static const fileName = 'writing_recogniser.db';
-  static const version = 9;
+  static const version = 10;
 
   /// Opens (and creates or upgrades) the database. [factory] and [path] can
   /// be overridden for tests.
@@ -128,6 +128,16 @@ class AppDatabase {
         CREATE TABLE document_colours (
           document_id TEXT PRIMARY KEY, -- library id (as in page_ink)
           colours TEXT NOT NULL         -- a PageColours name
+        )
+      ''');
+    }
+    if (from < 10) {
+      // The order pages are shown in, with pages of the user's own to
+      // write on (owner, 2026-10-16). No row: the PDF's own pages.
+      await db.execute('''
+        CREATE TABLE page_layouts (
+          document_id TEXT PRIMARY KEY, -- library id (as in page_ink)
+          layout TEXT NOT NULL          -- PageLayout.toJson
         )
       ''');
     }

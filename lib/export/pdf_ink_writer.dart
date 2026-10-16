@@ -33,6 +33,11 @@ class PdfExportException implements Exception {
 /// [pageOrder], the new PDF has exactly these pages in this order (1-based
 /// page numbers; null is a blank page the size of the page before it),
 /// instead of [onlyPages] (owner's choice: page tools).
+/// With [laidOut], the PDF's pages are first put in the order the app
+/// shows them, with blank pages between (owner: blank pages like any notes
+/// app): one entry per page shown, (the PDF's page number, 0, 0) or
+/// (0, width, height) for a blank page; [pages], [text], [onlyPages] and
+/// [pageOrder] then count pages as shown.
 /// The source file is
 /// never changed (CLAUDE.md rule 6): PDFium works on a copy in memory and
 /// writes a new file.
@@ -48,6 +53,7 @@ Uint8List writeInkIntoPdf(
   Set<int>? onlyPages,
   bool darkPages = false,
   List<int?>? pageOrder,
+  List<(int, double, double)>? laidOut,
   List<String>? trace,
 }) {
   final steps = trace ?? <String>[];
@@ -61,7 +67,7 @@ Uint8List writeInkIntoPdf(
     step('source file unreadable (${e.runtimeType})');
   }
   final path = sourcePath.toNativeUtf8();
-  final doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
+  var doc = lib.FPDF_LoadDocument(path.cast(), nullptr);
   malloc.free(path);
   if (doc == nullptr) {
     final error = lib.FPDF_GetLastError();
@@ -70,6 +76,18 @@ Uint8List writeInkIntoPdf(
       "Couldn't open the PDF to export (PDFium error $error).",
       trace: steps,
     );
+  }
+  if (laidOut != null) {
+    final shown = _layOut(lib, doc, laidOut, step);
+    lib.FPDF_CloseDocument(doc);
+    if (shown == null) {
+      throw PdfExportException(
+        "Couldn't put the pages in order (PDFium error "
+        '${lib.FPDF_GetLastError()}).',
+        trace: steps,
+      );
+    }
+    doc = shown;
   }
   try {
     final pageCount = lib.FPDF_GetPageCount(doc);
@@ -355,6 +373,55 @@ int _writeBlock(
 /// non-incremental file (some PDFs only save that way); if that fails too,
 /// says why as far as it can be told (owner's test: "couldn't save" came
 /// back with no reason).
+/// A new document with [doc]'s pages in the order shown in the app, with
+/// blank pages between (see [writeInkIntoPdf]'s laidOut), or null if
+/// PDFium couldn't copy a page.
+pdfium.FPDF_DOCUMENT? _layOut(
+  pdfium.PDFium lib,
+  pdfium.FPDF_DOCUMENT doc,
+  List<(int, double, double)> laidOut,
+  void Function(String) step,
+) {
+  final count = lib.FPDF_GetPageCount(doc);
+  final out = lib.FPDF_CreateNewDocument();
+  // The PDF's pages in one go (fonts and pictures they share are copied
+  // once), then the blank pages put in between.
+  final own = [
+    for (final (n, _, _) in laidOut)
+      if (n >= 1 && n <= count) n - 1,
+  ];
+  final index = calloc<Int>(own.isEmpty ? 1 : own.length);
+  try {
+    for (var i = 0; i < own.length; i++) {
+      index[i] = own[i];
+    }
+    if (own.isNotEmpty &&
+        lib.FPDF_ImportPagesByIndex(out, doc, index, own.length, 0) == 0) {
+      step('copying pages failed');
+      lib.FPDF_CloseDocument(out);
+      return null;
+    }
+    var at = 0, blank = 0;
+    for (final (n, w, h) in laidOut) {
+      if (!(n >= 1 && n <= count)) {
+        final page = lib.FPDFPage_New(
+          out,
+          at,
+          w > 0 ? w : 612,
+          h > 0 ? h : 792,
+        );
+        lib.FPDF_ClosePage(page);
+        blank++;
+      }
+      at++;
+    }
+    step('laid out: $at pages shown ($blank blank) from $count');
+    return out;
+  } finally {
+    calloc.free(index);
+  }
+}
+
 /// A new PDF with [doc]'s pages (ink already drawn on them) in [order]
 /// (see [writeInkIntoPdf]); [doc] itself is left as it is.
 Uint8List _arranged(

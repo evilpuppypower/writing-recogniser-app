@@ -5,10 +5,51 @@ import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import 'page_ink_layer.dart' show PageInkPreview;
 
+/// What was chosen on the pages screen (see [showPagesSheet]).
+sealed class PagesAction {
+  const PagesAction();
+}
+
+/// Go to [page].
+class GoToPage extends PagesAction {
+  const GoToPage(this.page);
+  final int page;
+}
+
+/// Add a blank page after [page].
+class AddPageAfter extends PagesAction {
+  const AddPageAfter(this.page);
+  final int page;
+}
+
+/// Put a copy of [page] just after it.
+class DuplicatePage extends PagesAction {
+  const DuplicatePage(this.page);
+  final int page;
+}
+
+/// Take [page] out.
+class RemovePage extends PagesAction {
+  const RemovePage(this.page);
+  final int page;
+}
+
+/// Drag the pages into another order.
+class ArrangeShownPages extends PagesAction {
+  const ArrangeShownPages();
+}
+
+/// Show the PDF's pages that were taken out again.
+class RestorePages extends PagesAction {
+  const RestorePages();
+}
+
 /// Every page of the PDF, small, with its ink and bookmarks (owner's
-/// choice: page tools). Tapping one goes there. Returns the page tapped,
-/// or null.
-Future<int?> showPagesSheet(
+/// choice: page tools). Tapping one goes there. With [canEdit], pages can
+/// also be added, copied, taken out and rearranged (owner: blank pages
+/// like any notes app); [removedCount] of the PDF's pages are taken out
+/// now. Returns what was chosen, or null.
+Future<PagesAction?> showPagesSheet(
   BuildContext context, {
   required PdfDocument document,
   required int currentPage,
@@ -16,7 +57,10 @@ Future<int?> showPagesSheet(
   required PageGeometry Function(PdfPage page) geometryOf,
   List<int> bookmarks = const [],
   bool dark = false,
-}) => Navigator.of(context).push<int>(
+  bool canEdit = false,
+  int removedCount = 0,
+  Widget Function(int page, Widget child)? decorate,
+}) => Navigator.of(context).push<PagesAction>(
   MaterialPageRoute(
     builder: (_) => _PagesScreen(
       document: document,
@@ -25,6 +69,9 @@ Future<int?> showPagesSheet(
       geometryOf: geometryOf,
       bookmarks: bookmarks,
       dark: dark,
+      canEdit: canEdit,
+      removedCount: removedCount,
+      decorate: decorate,
     ),
   ),
 );
@@ -37,6 +84,9 @@ class _PagesScreen extends StatefulWidget {
     required this.geometryOf,
     required this.bookmarks,
     required this.dark,
+    required this.canEdit,
+    required this.removedCount,
+    required this.decorate,
   });
 
   final PdfDocument document;
@@ -45,6 +95,11 @@ class _PagesScreen extends StatefulWidget {
   final PageGeometry Function(PdfPage page) geometryOf;
   final List<int> bookmarks;
   final bool dark;
+  final bool canEdit;
+  final int removedCount;
+
+  /// Puts something over page n's thumbnail (e.g. its paper).
+  final Widget Function(int page, Widget child)? decorate;
 
   @override
   State<_PagesScreen> createState() => _PagesScreenState();
@@ -98,6 +153,23 @@ class _PagesScreenState extends State<_PagesScreen> {
             selected: _onlyWritten,
             onSelected: (v) => setState(() => _onlyWritten = v),
           ),
+          if (widget.canEdit) ...[
+            IconButton(
+              tooltip: 'Rearrange pages',
+              icon: const Icon(Icons.swap_vert),
+              onPressed: () =>
+                  Navigator.of(context).pop(const ArrangeShownPages()),
+            ),
+            if (widget.removedCount > 0)
+              IconButton(
+                tooltip:
+                    'Put back ${widget.removedCount} page'
+                    '${widget.removedCount == 1 ? '' : 's'} taken out',
+                icon: const Icon(Icons.restore_page_outlined),
+                onPressed: () =>
+                    Navigator.of(context).pop(const RestorePages()),
+              ),
+          ],
           const SizedBox(width: 8),
         ],
       ),
@@ -123,7 +195,10 @@ class _PagesScreenState extends State<_PagesScreen> {
                       'Page $n'
                       '${widget.bookmarks.contains(n) ? ', bookmarked' : ''}',
                   child: InkWell(
-                    onTap: () => Navigator.of(context).pop(n),
+                    onTap: () => Navigator.of(context).pop(GoToPage(n)),
+                    onLongPress: widget.canEdit
+                        ? () => _pageMenu(context, n, pages.length)
+                        : null,
                     borderRadius: BorderRadius.circular(6),
                     child: Column(
                       children: [
@@ -147,6 +222,9 @@ class _PagesScreenState extends State<_PagesScreen> {
                                 geometry: widget.geometryOf(page),
                                 bookmarked: widget.bookmarks.contains(n),
                                 dark: widget.dark,
+                                decorate: widget.decorate == null
+                                    ? null
+                                    : (child) => widget.decorate!(n, child),
                               ),
                             ),
                           ),
@@ -168,6 +246,49 @@ class _PagesScreenState extends State<_PagesScreen> {
   }
 }
 
+extension on _PagesScreenState {
+  /// Long-press on page [n]: add, copy or take out.
+  Future<void> _pageMenu(BuildContext context, int n, int shown) async {
+    final navigator = Navigator.of(context);
+    final action = await showModalBottomSheet<PagesAction>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                'Page $n',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.note_add_outlined),
+              title: const Text('Add a blank page after this one'),
+              onTap: () => Navigator.of(context).pop(AddPageAfter(n)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_outlined),
+              title: const Text('Duplicate this page'),
+              subtitle: const Text('A copy with its ink, just after it'),
+              onTap: () => Navigator.of(context).pop(DuplicatePage(n)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Take this page out'),
+              enabled: widget.document.pages.length > 1,
+              onTap: () => Navigator.of(context).pop(RemovePage(n)),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action != null) navigator.pop(action);
+  }
+}
+
 /// One page, small, with its ink and bookmark (see [showPagesSheet]).
 class PageThumbnail extends StatelessWidget {
   const PageThumbnail({
@@ -178,6 +299,7 @@ class PageThumbnail extends StatelessWidget {
     required this.geometry,
     this.bookmarked = false,
     this.dark = false,
+    this.decorate,
   });
 
   final PdfDocument document;
@@ -186,6 +308,9 @@ class PageThumbnail extends StatelessWidget {
   final PageGeometry geometry;
   final bool bookmarked;
   final bool dark;
+
+  /// Puts something over the page, under the ink (e.g. its paper).
+  final Widget Function(Widget page)? decorate;
 
   // The page reversed and its black lifted to dark grey, close to how dark
   // pages show in the viewer (see paintDarkPage).
@@ -205,6 +330,7 @@ class PageThumbnail extends StatelessWidget {
       decoration: const BoxDecoration(color: Colors.white),
     );
     if (dark) pdf = ColorFiltered(colorFilter: _night, child: pdf);
+    if (decorate != null) pdf = decorate!(pdf);
     // The page and its ink share one box of the page's own shape, so the
     // ink sits on the page whatever space the thumbnail is given.
     return Center(
