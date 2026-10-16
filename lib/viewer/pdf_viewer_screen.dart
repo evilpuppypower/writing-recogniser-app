@@ -1679,32 +1679,43 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _saveDictionary();
   }
 
+  /// Saves run one after another, so two never read the same old copy
+  /// and the later one undo the earlier.
+  Future<void> _dictionarySaves = Future.value();
+
   void _saveDictionary() {
-    try {
-      unawaited(
-        () async {
-          final prefs = SharedPreferencesAsync();
-          final raw = await prefs.getString(PersonalDictionary.prefsKey);
-          final merged = PersonalDictionary();
-          if (raw != null) merged.load(jsonDecode(raw));
-          for (final w in _addedWords) {
-            merged.addWord(w);
-          }
-          for (final (short, full, learned) in _addedShort) {
-            merged.addShorthand(short, full, learned: learned);
-          }
-          final json = {
-            ...merged.toJson(),
-            // Corrections seen towards learning shorthand: this PDF's.
-            'seen': _dictionary.toJson()['seen'],
-          };
-          await prefs.setString(PersonalDictionary.prefsKey, jsonEncode(json));
-          _addedWords.clear();
-          _addedShort.clear();
-          _dictionary.load(json);
-        }().catchError((_) {}),
-      );
-    } catch (_) {}
+    _dictionarySaves = _dictionarySaves.then((_) async {
+      // What's added while this save waits is kept for the next one.
+      final words = [..._addedWords];
+      final short = [..._addedShort];
+      try {
+        final prefs = SharedPreferencesAsync();
+        final raw = await prefs.getString(PersonalDictionary.prefsKey);
+        final merged = PersonalDictionary();
+        if (raw != null) merged.load(jsonDecode(raw));
+        for (final w in words) {
+          merged.addWord(w);
+        }
+        for (final (s, full, learned) in short) {
+          merged.addShorthand(s, full, learned: learned);
+        }
+        // Corrections seen towards asking about shorthand: here and
+        // elsewhere.
+        merged.mergeSeen(_dictionary.seen);
+        final json = merged.toJson();
+        await prefs.setString(PersonalDictionary.prefsKey, jsonEncode(json));
+        _addedWords.removeRange(0, words.length);
+        _addedShort.removeRange(0, short.length);
+        // Saved, with what's still waiting on top.
+        _dictionary.load(json);
+        for (final w in _addedWords) {
+          _dictionary.addWord(w);
+        }
+        for (final (s, full, learned) in _addedShort) {
+          _dictionary.addShorthand(s, full, learned: learned);
+        }
+      } catch (_) {}
+    });
   }
 
   /// The user's usual letter size and slant (owner's approved idea 6),
@@ -2281,20 +2292,22 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     switch (fix) {
       case UseText(:final text):
         await _text.correct(page, word, text);
-        // Corrected the same way twice, shorthand is learned ("w/" ->
-        // "with").
+        // Corrected the same way twice, it may be shorthand ("w/" ->
+        // "with"): asked, never learned without asking.
         if (_dictionary.learnFromCorrection(word.text, text)) {
-          final learned = _dictionary.shorthand[word.text.trim().toLowerCase()];
-          if (learned != null) {
-            _addedShort.add((word.text, learned.full, true));
-          }
           _saveDictionary();
+          final short = word.text.trim();
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
+                duration: const Duration(seconds: 10),
                 content: Text(
-                  'Learned: “${word.text}” is your shorthand for “$text”. '
-                  'It\'s written out in typed text and found by search.',
+                  'Is “$short” your shorthand for “$text”? It would be '
+                  'written out in typed text and found by search.',
+                ),
+                action: SnackBarAction(
+                  label: 'Yes, it is',
+                  onPressed: () => _addShorthand(short, text, learned: true),
                 ),
               ),
             );
@@ -2303,6 +2316,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           _saveDictionary();
         }
       case AddToMyWords(word: final w):
+        // A typed spelling is the right reading too.
+        if (w != word.text.trim()) await _text.correct(page, word, w);
         _addMyWord(w);
       case AddShorthand(:final short, :final full):
         _addShorthand(short, full);

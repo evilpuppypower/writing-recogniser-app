@@ -335,11 +335,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final fromContents = SettingsScope.of(context)
         .value
         .suggestTagsFromContents;
-    final contents = fromContents
-        ? await _s.handwritingOf(item.cacheId).catchError((_) => '')
-        : '';
-    if (!mounted) return;
     final current = _docTags[item.cacheId] ?? const <String>{};
+    List<String> suggest(String contents) => suggestTags(
+      name: item.name,
+      contents: contents,
+      known: [for (final t in _tagList) t.name],
+      current: current,
+    );
+    // Reading what's written can take a moment: the sheet opens straight
+    // away and those suggestions follow.
     final result = await showModalBottomSheet<TagsChoice>(
       context: context,
       isScrollControlled: true,
@@ -348,20 +352,19 @@ class _HomeScreenState extends State<HomeScreen> {
         documentName: item.name,
         known: _tagList,
         current: current,
-        suggestions: suggestTags(
-          name: item.name,
-          contents: contents,
-          known: [for (final t in _tagList) t.name],
-          current: current,
-        ),
+        suggestions: suggest(''),
+        moreSuggestions: fromContents
+            ? _s.handwritingOf(item.cacheId).catchError((_) => '').then(suggest)
+            : null,
       ),
     );
     if (result == null) return;
     try {
-      for (final t in result.newTags) {
-        await store.saveTag(t);
-      }
-      await store.setDocumentTags(item.cacheId, result.names);
+      await store.setDocumentTags(
+        item.cacheId,
+        result.names,
+        newTags: result.newTags,
+      );
     } catch (e) {
       _message("Couldn't save the tags: $e");
     }
@@ -375,7 +378,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final result = await showModalBottomSheet<Object>(
       context: context,
       showDragHandle: true,
-      builder: (_) => TagColourSheet(tag: tag),
+      builder: (_) => TagColourSheet(
+        tag: tag,
+        usedBy: _docTags.values.where((t) => t.contains(tag.name)).length,
+      ),
     );
     try {
       if (result is int) await store.saveTag(Tag(tag.name, result));
@@ -844,7 +850,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Text(
-                    'PDFs you open will appear here.',
+                    _filter != null
+                        ? (items.pinned.isEmpty
+                              ? 'No documents with this tag.'
+                              : 'No other documents with this tag.')
+                        : 'PDFs you open will appear here.',
                     style: theme.textTheme.bodyMedium,
                   ),
                 ),

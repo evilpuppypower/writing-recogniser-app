@@ -20,12 +20,17 @@ class TagsSheet extends StatefulWidget {
     required this.known,
     required this.current,
     required this.suggestions,
+    this.moreSuggestions,
   });
 
   final String documentName;
   final List<Tag> known;
   final Set<String> current;
   final List<String> suggestions;
+
+  /// Suggestions that take a while (read from what's written): shown
+  /// when ready, with a progress line until then.
+  final Future<List<String>>? moreSuggestions;
 
   @override
   State<TagsSheet> createState() => _TagsSheetState();
@@ -36,6 +41,20 @@ class _TagsSheetState extends State<TagsSheet> {
   final _made = <String, Tag>{};
   final _field = TextEditingController();
   late int _colour = tagColours[(widget.known.length) % tagColours.length];
+  late List<String> _suggestions = widget.suggestions;
+  late bool _looking = widget.moreSuggestions != null;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.moreSuggestions?.catchError((_) => const <String>[]).then((more) {
+      if (!mounted) return;
+      setState(() {
+        _looking = false;
+        _suggestions = more;
+      });
+    });
+  }
 
   @override
   void dispose() {
@@ -76,7 +95,7 @@ class _TagsSheetState extends State<TagsSheet> {
         if (!_names.contains(t.name)) t,
     ];
     final suggested = [
-      for (final s in widget.suggestions)
+      for (final s in _suggestions)
         if (!_names.any((n) => n.toLowerCase() == s.toLowerCase())) s,
     ];
     return SafeArea(
@@ -114,6 +133,15 @@ class _TagsSheetState extends State<TagsSheet> {
                       ),
                   ],
                 ),
+              if (_looking) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Looking through what\'s written for suggestions…',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 4),
+                const LinearProgressIndicator(),
+              ],
               if (suggested.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 Text('Suggested', style: theme.textTheme.titleSmall),
@@ -254,9 +282,12 @@ class ColourChoice extends StatelessWidget {
 
 /// A tag's colour or deleting it. Pops the new colour, or [delete].
 class TagColourSheet extends StatefulWidget {
-  const TagColourSheet({super.key, required this.tag});
+  const TagColourSheet({super.key, required this.tag, this.usedBy = 0});
 
   final Tag tag;
+
+  /// How many documents have it (said before it's deleted).
+  final int usedBy;
 
   static const delete = 'delete';
 
@@ -290,8 +321,35 @@ class _TagColourSheetState extends State<TagColourSheet> {
               TextButton.icon(
                 icon: const Icon(Icons.delete_outline),
                 label: const Text('Delete this tag'),
-                onPressed: () =>
-                    Navigator.of(context).pop(TagColourSheet.delete),
+                onPressed: () async {
+                  final n = widget.usedBy;
+                  final sure = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: Text('Delete the tag "${widget.tag.name}"?'),
+                      content: Text(
+                        n == 0
+                            ? 'No documents have it.'
+                            : 'It comes off ${n == 1 ? 'the 1 document' : 'all $n documents'} '
+                                  'that have it. The documents themselves '
+                                  'are kept.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (sure == true && context.mounted) {
+                    Navigator.of(context).pop(TagColourSheet.delete);
+                  }
+                },
               ),
               const Spacer(),
               FilledButton(
@@ -340,9 +398,12 @@ class TagFilterRow extends StatelessWidget {
         for (final t in tags)
           Padding(
             padding: const EdgeInsets.only(right: 8),
+            // The tip shows on hover only, so a long-press reaches the
+            // GestureDetector and opens the tag's colour and delete.
             child: GestureDetector(
               onLongPress: () => onEdit(t),
               child: Tooltip(
+                triggerMode: TooltipTriggerMode.manual,
                 message: 'Show only "${t.name}" (long-press to change it)',
                 child: ChoiceChip(
                   avatar: _Dot(t.colourArgb),

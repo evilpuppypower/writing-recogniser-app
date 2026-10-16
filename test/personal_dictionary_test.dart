@@ -11,15 +11,22 @@ void main() {
     expect(PersonalDictionary.looksLikeShorthand('teh', 'the'), isFalse);
     expect(PersonalDictionary.looksLikeShorthand('bat', 'cat food'), isFalse);
     expect(PersonalDictionary.looksLikeShorthand('w/', 'without'), isTrue);
+    // Everyday words cut short are misreadings, not shorthand.
+    expect(PersonalDictionary.looksLikeShorthand('in', 'into'), isFalse);
+    expect(PersonalDictionary.looksLikeShorthand('The', 'these'), isFalse);
   });
 
-  test('learned after the same correction twice, then written out', () {
+  test('asked about after the same correction twice, then written out', () {
     final d = PersonalDictionary();
     expect(d.learnFromCorrection('w/', 'with'), isFalse);
-    expect(d.expand('tea w/ milk'), 'tea w/ milk');
     expect(d.learnFromCorrection('w/', 'with'), isTrue);
+    // Never learned without asking.
+    expect(d.shorthand, isEmpty);
+    expect(d.expand('tea w/ milk'), 'tea w/ milk');
+    d.addShorthand('w/', 'with', learned: true);
     expect(d.shorthand['w/']!.learned, isTrue);
-    expect(d.expand('tea w/ milk, W/ sugar'), 'tea with milk, with sugar');
+    // A capital at the start stays.
+    expect(d.expand('tea w/ milk. W/ sugar'), 'tea with milk. With sugar');
     d.addShorthand('approx', 'approximately');
     expect(d.expand('approx. 5'), 'approximately. 5');
   });
@@ -28,6 +35,12 @@ void main() {
     final d = PersonalDictionary()..learnFromCorrection('b/c', 'because');
     d.removeShorthand('b/c');
     expect(d.learnFromCorrection('b/c', 'because'), isFalse);
+  });
+
+  test('counts towards asking are merged, not overwritten', () {
+    final a = PersonalDictionary()..learnFromCorrection('b/c', 'because');
+    final b = PersonalDictionary()..mergeSeen(a.seen);
+    expect(b.learnFromCorrection('b/c', 'because'), isTrue);
   });
 
   test('kept and read back', () {

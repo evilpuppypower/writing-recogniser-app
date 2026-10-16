@@ -50,8 +50,10 @@ class PersonalDictionary {
   }
 
   /// [recognised] corrected to [corrected]: when it looks like shorthand
-  /// written out ([looksLikeShorthand]) [learnAfter] times, it's learned.
-  /// True when it was learned just now.
+  /// written out ([looksLikeShorthand]) [learnAfter] times, true, and the
+  /// user is asked whether it's their shorthand (it's never learned
+  /// without asking: "in" corrected to "into" is usually a misreading).
+  /// Counted again from nothing after each question.
   bool learnFromCorrection(String recognised, String corrected) {
     if (!looksLikeShorthand(recognised, corrected)) return false;
     final s = _k(recognised);
@@ -60,17 +62,29 @@ class PersonalDictionary {
     final n = (_seen[key] ?? 0) + 1;
     _seen[key] = n;
     if (n < learnAfter) return false;
-    addShorthand(recognised, corrected, learned: true);
     _seen.remove(key);
     return true;
   }
 
+  /// Corrections seen towards asking about shorthand, merged from
+  /// [other]'s (the larger count of each).
+  void mergeSeen(Map<String, int> other) {
+    for (final e in other.entries) {
+      if (e.value > (_seen[e.key] ?? 0)) _seen[e.key] = e.value;
+    }
+  }
+
+  Map<String, int> get seen => Map.unmodifiable(_seen);
+
   /// Whether [short] could be shorthand for [full]: short (at most 5
   /// characters), at least 2 letters shorter, the same first letter, and
-  /// its letters in [full] in the same order ("b/c" for "because").
+  /// its letters in [full] in the same order ("b/c" for "because"), and
+  /// not an everyday word ("in" for "into" is a misreading, not
+  /// shorthand).
   static bool looksLikeShorthand(String short, String full) {
     final s = short.trim().toLowerCase(), f = full.trim().toLowerCase();
     if (s.isEmpty || s.length > 5 || f.length < s.length + 2) return false;
+    if (_everyday.contains(s)) return false;
     final sl = s.replaceAll(RegExp('[^a-z0-9]'), '');
     final fl = f.replaceAll(RegExp('[^a-z0-9]'), '');
     if (sl.isEmpty || fl.isEmpty || sl[0] != fl[0]) return false;
@@ -82,7 +96,8 @@ class PersonalDictionary {
   }
 
   /// [text] with shorthand written out in full (word by word; a full stop
-  /// or comma after it stays).
+  /// or comma after it stays, and a capital at the start stays: "B/c" is
+  /// "Because").
   String expand(String text) {
     if (_short.isEmpty) return text;
     return text
@@ -92,9 +107,18 @@ class PersonalDictionary {
           final word = m.group(1)!, tail = m.group(2)!;
           final s = _short[_k(token)] ?? _short[_k(word)];
           if (s == null) return token;
-          return _short.containsKey(_k(token)) ? s.full : '${s.full}$tail';
+          final full = _capitalLike(token, s.full);
+          return _short.containsKey(_k(token)) ? full : '$full$tail';
         })
         .join(' ');
+  }
+
+  static String _capitalLike(String token, String full) {
+    if (token.isEmpty || full.isEmpty) return full;
+    final first = token[0];
+    final isCapital =
+        first != first.toLowerCase() && first == first.toUpperCase();
+    return isCapital ? full[0].toUpperCase() + full.substring(1) : full;
   }
 
   Map<String, Object?> toJson() => {
@@ -138,4 +162,155 @@ class PersonalDictionary {
   }
 
   static const prefsKey = 'dictionary';
+
+  /// Short everyday words that are never taken for shorthand.
+  static const _everyday = {
+    'a',
+    'i',
+    'an',
+    'am',
+    'as',
+    'at',
+    'be',
+    'by',
+    'do',
+    'go',
+    'he',
+    'if',
+    'in',
+    'is',
+    'it',
+    'me',
+    'my',
+    'no',
+    'of',
+    'on',
+    'or',
+    'so',
+    'to',
+    'up',
+    'us',
+    'we',
+    'all',
+    'and',
+    'any',
+    'are',
+    'but',
+    'can',
+    'did',
+    'for',
+    'get',
+    'had',
+    'has',
+    'her',
+    'him',
+    'his',
+    'how',
+    'its',
+    'let',
+    'may',
+    'new',
+    'not',
+    'now',
+    'off',
+    'old',
+    'one',
+    'our',
+    'out',
+    'own',
+    'put',
+    'say',
+    'see',
+    'set',
+    'she',
+    'the',
+    'too',
+    'two',
+    'use',
+    'was',
+    'way',
+    'who',
+    'why',
+    'yes',
+    'yet',
+    'you',
+    'also',
+    'back',
+    'been',
+    'both',
+    'come',
+    'does',
+    'done',
+    'each',
+    'even',
+    'from',
+    'give',
+    'good',
+    'have',
+    'here',
+    'into',
+    'just',
+    'know',
+    'last',
+    'like',
+    'make',
+    'many',
+    'more',
+    'most',
+    'much',
+    'must',
+    'next',
+    'only',
+    'over',
+    'part',
+    'same',
+    'some',
+    'such',
+    'take',
+    'than',
+    'that',
+    'them',
+    'then',
+    'they',
+    'this',
+    'time',
+    'very',
+    'want',
+    'well',
+    'were',
+    'what',
+    'when',
+    'will',
+    'with',
+    'work',
+    'year',
+    'your',
+    'about',
+    'after',
+    'again',
+    'being',
+    'could',
+    'every',
+    'first',
+    'great',
+    'never',
+    'other',
+    'right',
+    'since',
+    'still',
+    'their',
+    'there',
+    'these',
+    'thing',
+    'think',
+    'those',
+    'three',
+    'under',
+    'until',
+    'where',
+    'which',
+    'while',
+    'would',
+    'write',
+  };
 }

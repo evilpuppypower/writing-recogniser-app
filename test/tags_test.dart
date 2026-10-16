@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/tags.dart';
@@ -49,8 +51,12 @@ void main() {
 
   test('a store keeps tags and documents\' tags', () async {
     final s = MemoryTagStore();
-    await s.saveTag(const Tag('Biology', 1));
-    await s.setDocumentTags('a', {'Biology'});
+    await s.setDocumentTags(
+      'a',
+      {'Biology'},
+      newTags: [const Tag('Biology', 1)],
+    );
+    expect(await s.tags(), [const Tag('Biology', 1)]);
     expect(await s.documentTags(), {
       'a': {'Biology'},
     });
@@ -97,5 +103,79 @@ void main() {
     final made = {for (final t in chosen!.newTags) t.name: t.colourArgb};
     expect(made['Year 2'], tagColours[1]);
     expect(made.containsKey('Biology'), isTrue);
+  });
+
+  testWidgets('suggestions read from the writing follow', (tester) async {
+    final more = Completer<List<String>>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TagsSheet(
+            documentName: 'Notes.pdf',
+            known: const [],
+            current: const {},
+            suggestions: const ['Notes'],
+            moreSuggestions: more.future,
+          ),
+        ),
+      ),
+    );
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    more.complete(['Notes', 'Osmosis']);
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(find.text('Osmosis'), findsOneWidget);
+  });
+
+  testWidgets('long-press on a tag opens it; deleting asks first', (
+    tester,
+  ) async {
+    Tag? edited;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TagFilterRow(
+            tags: const [Tag('Exams', 0xFF1E88E5)],
+            selected: null,
+            onSelected: (_) {},
+            onEdit: (t) => edited = t,
+          ),
+        ),
+      ),
+    );
+    await tester.longPress(find.text('Exams'));
+    await tester.pumpAndSettle();
+    expect(edited?.name, 'Exams');
+
+    Object? result = 'none';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async => result = await showModalBottomSheet<Object>(
+              context: context,
+              builder: (_) => const TagColourSheet(
+                tag: Tag('Exams', 0xFF1E88E5),
+                usedBy: 3,
+              ),
+            ),
+            child: const Text('go'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete this tag'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('all 3 documents'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete this tag'), findsOneWidget);
+    await tester.tap(find.text('Delete this tag'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    expect(result, TagColourSheet.delete);
   });
 }
