@@ -1293,6 +1293,9 @@ class _InkPicture {
       imageWidth != 0 &&
       sameWidth(imageWidth, viewWidth) &&
       imageRatio == ratio &&
+      // Exactly the pieces showing: ink added since, or a whole piece
+      // erased, means a new image (ids are never reused).
+      imageChunks.length == chunks.length &&
       chunks.every((c) => imageChunks.contains(c.id));
 
   /// Whether the image shows only ink that is still there (pieces added
