@@ -30,6 +30,14 @@ abstract class FeedbackLayer {
 
   /// Remembers a correction; it affects only words recognised from now on.
   void learn(CorrectionRecord correction);
+
+  /// The user wrote [word] (after [previousWord]) and kept it: it's in
+  /// their vocabulary (see PersonalWords).
+  void used(String word, {String previousWord = ''});
+
+  /// The user undid an automatic swap: [shown] went back to the engine's
+  /// [engineText].
+  void undone(String engineText, String shown);
 }
 
 /// Changes nothing (the "engine only" baseline for Phase 3).
@@ -42,6 +50,12 @@ class PassThroughFeedback implements FeedbackLayer {
 
   @override
   void learn(CorrectionRecord correction) {}
+
+  @override
+  void used(String word, {String previousWord = ''}) {}
+
+  @override
+  void undone(String engineText, String shown) {}
 }
 
 /// The owner's rule (plan 2.6): once a word has been corrected
@@ -61,6 +75,12 @@ class CorrectionMemory implements FeedbackLayer {
   final _memory = <String, Map<String, _Seen>>{};
 
   static String _key(String s) => s.trim().toLowerCase();
+
+  @override
+  void used(String word, {String previousWord = ''}) {}
+
+  @override
+  void undone(String engineText, String shown) {}
 
   @override
   void learn(CorrectionRecord c) {

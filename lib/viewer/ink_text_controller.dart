@@ -8,6 +8,7 @@ import '../core/event_log.dart';
 import '../core/feedback/correction.dart';
 import '../core/feedback/correction_store.dart';
 import '../core/feedback/feedback_layer.dart';
+import '../core/feedback/personal_words.dart';
 import '../core/ink.dart';
 import '../core/ink_classifier.dart';
 import '../core/page_ink.dart';
@@ -181,7 +182,7 @@ class InkTextController extends ChangeNotifier {
     FeedbackLayer? feedback,
     this.corrections,
     this.documentId,
-  }) : feedback = feedback ?? CorrectionMemory();
+  }) : feedback = feedback ?? PersonalWords();
 
   /// Re-ranks or swaps the engine's words using the user's corrections.
   final FeedbackLayer feedback;
@@ -199,6 +200,25 @@ class InkTextController extends ChangeNotifier {
     if (store == null) return;
     for (final c in await store.all()) {
       feedback.learn(c);
+    }
+  }
+
+  /// Teaches the feedback layer the user's vocabulary: every word kept on
+  /// their pages ([pages]: saved page text, as [pageJson] makes it), in
+  /// every PDF. Call once when a PDF opens.
+  void loadVocabulary(Iterable<String> pages) {
+    for (final json in pages) {
+      try {
+        final saved = (jsonDecode(json) as Map).cast<String, Object?>();
+        for (final w in saved['words']! as List) {
+          final word = RecognizedWord.fromJson(
+            (w as Map).cast<String, Object?>(),
+          );
+          feedback.used(word.text, previousWord: word.previousWord);
+        }
+      } catch (_) {
+        // A page that can't be read just doesn't count.
+      }
     }
   }
 
@@ -222,6 +242,8 @@ class InkTextController extends ChangeNotifier {
     _wordsChanged(page);
     final undo = t == word.engineReading; // undoing a swap
     if (undo) {
+      // Never swapped that way again.
+      if (word.autoReplaced) feedback.undone(word.engineReading, word.text);
       _logCorrection(page, word, t, undo: true);
       return; // nothing to learn
     }

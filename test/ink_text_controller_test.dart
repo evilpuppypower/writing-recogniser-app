@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +10,7 @@ import 'package:writing_recogniser/core/feedback/correction_store.dart';
 import 'package:writing_recogniser/core/ink.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
 import 'package:writing_recogniser/core/recognition/recognizer.dart';
+import 'package:writing_recogniser/core/stroke_grouping.dart';
 import 'package:writing_recogniser/viewer/ink_text_controller.dart';
 import 'package:writing_recogniser/viewer/page_text_labels.dart';
 
@@ -379,6 +381,38 @@ void main() {
       await c.correct(2, again, 'w3');
       expect(c.textOf(2), 'w3');
       expect(store.saved, hasLength(1));
+      c.dispose();
+    });
+
+    testWidgets('the words on the user\'s pages win when the engine '
+        'isn\'t sure, and an undone swap stays undone', (tester) async {
+      final c = InkTextController(engine: FakeEngine());
+      // Pages saved earlier in which the user wrote "alt" three times.
+      String saved(int n) => jsonEncode({
+        'seen': <String>[],
+        'words': [
+          for (var i = 0; i < n; i++)
+            RecognizedWord(
+              text: 'alt',
+              alternatives: const [],
+              box: InkBox(0, 0, 1, 1),
+              line: 0,
+              key: 'k$i',
+            ).toJson(),
+        ],
+      });
+      c.loadVocabulary([saved(2), saved(1)]);
+      c.inkChanged(1, word(100, 700, 3, 0), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      final w = c.wordsOn(1).single;
+      expect(w.text, 'alt'); // the engine's "w3" is a word never written
+      expect(w.autoReplaced, isTrue);
+      await c.correct(1, w, 'w3'); // undone
+      c.inkChanged(2, word(100, 700, 3, 50000), pause);
+      await tester.pump(pause);
+      await tester.pumpAndSettle();
+      expect(c.wordsOn(2).single.text, 'w3');
       c.dispose();
     });
 

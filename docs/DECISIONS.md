@@ -594,3 +594,11 @@ With two pages side by side, the bookmark button opens a short menu, "Bookmark p
 - **Settings:** the existing Page colours setting is now the default for PDFs without their own choice. A new switch, "Ask when I import a PDF", sits under it.
 - **Export:** a new "Dark pages" switch starts as the screen shows the PDF. A dark export turns every page dark the same way as the screen. Each page's own content is wrapped up as one object and put on a white page, since a PDF is see-through where nothing is printed. Over it go a "difference" white layer and a "lighten" dark-grey layer, and the ink and typed text come out in their night colours, with the highlighter lightened. The PDF's own text is untouched, so it stays searchable. A test renders an exported page with PDFium, printed content included, to check it really comes out dark and its text can still be found.
 - Night colours are now worked out in pure Dart (same results as before, within one shade), so the export can use them.
+
+## 2026-10-16 — Personal re-ranking: your own words win when the engine isn't sure (owner's approved idea 2)
+
+A new feedback layer, `PersonalWords`, sits on top of the correction memory. It works with any engine (rule 2).
+- **Vocabulary:** every word kept on the user's pages, in every PDF, plus every word they typed in as a correction. It's loaded when a PDF opens and stays on the tablet.
+- **The rule:** when the engine's first reading is a word the user has never written, and one of its next two readings is a word they've written at least 3 times, that one is shown instead. It's underlined, and one tap undoes it (the same as swaps from corrections). If two of the user's words are offered, the one they usually write after the previous word wins.
+- **It stays out of the way:** if the engine's reading is a word the user writes, the engine is trusted. A correction always comes first. A swap the user undoes is never made again.
+- The thresholds (3 uses, the engine's top 3) are a starting point. The replay on the learning screen can measure them on the owner's own samples.

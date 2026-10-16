@@ -1911,6 +1911,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _prepareViewer();
   }
 
+  /// The words kept on every PDF's pages, so the user's own words win
+  /// when the engine isn't sure (owner's approved idea: personal
+  /// re-ranking).
+  Future<void> _loadVocabulary(InkStore store) async {
+    try {
+      final pages = <String>[];
+      for (final id in await store.documentsWithInk()) {
+        pages.addAll((await store.loadText(id)).values);
+      }
+      if (mounted) _text.loadVocabulary(pages);
+    } catch (_) {
+      // Words are then just read as the engine reads them.
+    }
+  }
+
   Future<void> _loadInk() async {
     try {
       final store = await widget.openInkStore();
@@ -1924,6 +1939,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       for (final e in savedText.entries) {
         _text.restore(e.key, e.value);
       }
+      unawaited(_loadVocabulary(store));
       final textSaver = TextAutosaver(
         store: store,
         documentId: widget.documentId,
