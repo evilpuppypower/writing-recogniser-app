@@ -11,9 +11,10 @@ import 'page_ink.dart';
 enum ShapeKind { circle, ellipse, rectangle, triangle }
 
 /// The tidy version of [points] if it's a closed shape close enough to one
-/// of [ShapeKind] (within a twentieth of its size on average, both ways);
-/// null otherwise (e.g. an open stroke, which snaps straight instead).
-({ShapeKind kind, List<PageInkPoint> points})? tidyShape(
+/// of [ShapeKind] (within a twentieth of its size on average, both ways),
+/// and how far off it was ([error], that share); null otherwise (e.g. an
+/// open stroke, which snaps straight instead).
+({ShapeKind kind, List<PageInkPoint> points, double error})? tidyShape(
   List<PageInkPoint> points,
 ) {
   if (points.length < 8) return null;
@@ -45,7 +46,7 @@ enum ShapeKind { circle, ellipse, rectangle, triangle }
           );
   }
   if (best == null) return null;
-  return (kind: best.kind, points: best.points);
+  return (kind: best.kind, points: best.points, error: best.error);
 }
 
 typedef _Tidy = ({ShapeKind kind, List<PageInkPoint> points, double error});

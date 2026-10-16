@@ -717,3 +717,8 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - **A new document starts from Settings.** Changing two pages, labels or the text panel inside a document changes that document only. Settings stay the default for documents that haven't changed them. Favourites, the toolbar's place and the eraser stay app-wide.
 - The zoom is kept as a share of the zoom that fills the screen, and the place as a point on its page, so both come back right after the tablet is turned. After pages are added, moved or taken out, the document opens on the page it was told to, not the old place.
 - It's saved a second after scrolling stops, when leaving the document, and when the app goes to the background.
+
+## 2026-10-16 — Shape tidy-up: a switch, and learning how exact to be (owner)
+
+- Settings → "Tidy up shapes" turns it on or off (on by default). Holding the pen still at the end of a line still straightens it either way.
+- When a tidied shape is undone or erased within 20 s, shapes of that kind must be closer to a neat shape than that one was before they're tidied again. That's 90% of how far off it was, never stricter than 1.5% of its size on average (usually 5%). Each tidied shape that's kept brings it a tenth of the way back. What it learned is kept on the tablet between sessions.

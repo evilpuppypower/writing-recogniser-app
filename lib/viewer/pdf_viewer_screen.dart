@@ -29,6 +29,8 @@ import '../core/feedback/vocabulary.dart';
 import '../core/ink_store.dart';
 import '../core/nearby_classifier.dart';
 import '../core/personal_ink_kinds.dart';
+import '../core/shape_learning.dart';
+import '../core/shapes.dart' show ShapeKind;
 import '../core/blank_pdf.dart';
 import '../core/laid_out_stores.dart';
 import '../core/page_layout.dart';
@@ -1524,6 +1526,61 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// What this user draws and writes, learned from their marks (owner's
   /// approved idea 7); kept on the tablet as shape numbers only.
   final _inkKinds = PersonalInkKinds();
+
+  /// How exact a shape must be before it's tidied (owner's approved idea
+  /// 8), learned from tidied shapes taken back straight away.
+  final _shapeLearning = ShapeLearning();
+  static const _shapeLearningKey = 'shapes.learned';
+
+  /// The shape tidied last, until it's kept or taken back.
+  ({int page, String id, ShapeKind kind, double error, Timer keep})?
+  _lastTidied;
+
+  Future<void> _loadShapeLearning() async {
+    try {
+      final raw = await SharedPreferencesAsync().getString(_shapeLearningKey);
+      if (raw != null) _shapeLearning.load(jsonDecode(raw));
+    } catch (_) {}
+  }
+
+  void _saveShapeLearning() {
+    try {
+      unawaited(
+        SharedPreferencesAsync()
+            .setString(_shapeLearningKey, jsonEncode(_shapeLearning.toJson()))
+            .catchError((_) {}),
+      );
+    } catch (_) {}
+  }
+
+  void _shapeTidied(int page, PageStroke stroke, ShapeKind kind, double error) {
+    _lastTidied?.keep.cancel();
+    _lastTidied = (
+      page: page,
+      id: stroke.id,
+      kind: kind,
+      error: error,
+      keep: Timer(ShapeLearning.rejectWithin, () {
+        final t = _lastTidied;
+        if (t == null || t.id != stroke.id) return;
+        _lastTidied = null;
+        _shapeLearning.kept(kind);
+        _saveShapeLearning();
+      }),
+    );
+  }
+
+  /// A tidied shape undone or erased straight away: tidied too eagerly.
+  void _checkTidiedShape() {
+    final t = _lastTidied;
+    if (t == null) return;
+    if (_ink.ink.strokesOn(t.page).any((s) => s.id == t.id)) return;
+    t.keep.cancel();
+    _lastTidied = null;
+    _shapeLearning.rejected(t.kind, t.error);
+    _saveShapeLearning();
+  }
+
   static const _inkKindsKey = 'ink.kinds';
 
   Future<void> _loadInkKinds() async {
@@ -2533,6 +2590,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           selection: _selection,
           onClearSelection: () => _selection.value = null,
           onTextTap: (at) => _textBoxAt(page.pageNumber, at),
+          // Owner: a switch in Settings, and learning how exact shapes
+          // should be before they're tidied.
+          tidyShape: (kind, error) =>
+              SettingsScope.valueOf(context).tidyShapes &&
+              _shapeLearning.accepts(kind, error),
+          onShapeTidied: (stroke, kind, error) =>
+              _shapeTidied(page.pageNumber, stroke, kind, error),
           // The guide shows once the writing is read as a word.
           wordsRead: _text,
           isRead: (id) => _text
@@ -2819,6 +2883,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _viewLoaded = _loadView();
     _bookmarksLoaded = _loadBookmarks();
     unawaited(_loadInkKinds());
+    unawaited(_loadShapeLearning());
+    _ink.addListener(_checkTidiedShape);
     _text.printedText = _printedOf;
     _coloursLoaded = _loadColours();
     // A selection belongs to the Select tool.
@@ -3343,6 +3409,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _savePosition();
     _saveView();
     _docSettings?.dispose();
+    _lastTidied?.keep.cancel();
+    _ink.removeListener(_checkTidiedShape);
     _lifecycle.dispose();
     _autosaver?.flush();
     _autosaver?.dispose();

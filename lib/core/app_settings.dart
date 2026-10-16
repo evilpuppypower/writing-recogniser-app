@@ -131,6 +131,7 @@ class AppSettings {
     this.arrowHookMs = defaultArrowHookMs,
     this.keepInkOnDelete = true,
     this.twoPages = false,
+    this.tidyShapes = true,
     this.textLabels = TextLabelPlace.above,
     this.textPanel = TextPanelPlace.off,
     this.writingGuide = WritingGuide.grey,
@@ -231,6 +232,10 @@ class AppSettings {
   /// under another.
   final bool twoPages;
 
+  /// A closed shape held still at its end is tidied into a circle,
+  /// ellipse, rectangle or triangle (owner: a switch in Settings).
+  final bool tidyShapes;
+
   /// Recognised text over the handwriting: above, below or off.
   final TextLabelPlace textLabels;
 
@@ -281,6 +286,7 @@ class AppSettings {
     int? arrowHookMs,
     bool? keepInkOnDelete,
     bool? twoPages,
+    bool? tidyShapes,
     TextLabelPlace? textLabels,
     TextPanelPlace? textPanel,
     WritingGuide? writingGuide,
@@ -320,6 +326,7 @@ class AppSettings {
     arrowHookMs: (arrowHookMs ?? this.arrowHookMs).clamp(0, maxArrowHookMs),
     keepInkOnDelete: keepInkOnDelete ?? this.keepInkOnDelete,
     twoPages: twoPages ?? this.twoPages,
+    tidyShapes: tidyShapes ?? this.tidyShapes,
     textLabels: textLabels ?? this.textLabels,
     textPanel: textPanel ?? this.textPanel,
     writingGuide: writingGuide ?? this.writingGuide,
@@ -347,6 +354,7 @@ class AppSettings {
     'arrowHookMs': arrowHookMs,
     'keepInkOnDelete': keepInkOnDelete,
     'twoPages': twoPages,
+    'tidyShapes': tidyShapes,
     'textLabels': textLabels.name,
     'textPanel': textPanel.name,
     'writingGuide': writingGuide.name,
@@ -382,6 +390,7 @@ class AppSettings {
     final hook = m['arrowHookMs'];
     final keepInk = m['keepInkOnDelete'];
     final twoPages = m['twoPages'];
+    final tidyShapes = m['tidyShapes'];
     final askPageColours = m['askPageColours'];
     final askWhenUnsure = m['askWhenUnsure'];
     final autoPause = m['autoPause'];
@@ -430,6 +439,7 @@ class AppSettings {
       arrowHookMs: hook is int ? hook.clamp(0, maxArrowHookMs) : d.arrowHookMs,
       keepInkOnDelete: keepInk is bool ? keepInk : d.keepInkOnDelete,
       twoPages: twoPages is bool ? twoPages : d.twoPages,
+      tidyShapes: tidyShapes is bool ? tidyShapes : d.tidyShapes,
       textLabels: byName(TextLabelPlace.values, m['textLabels'], d.textLabels),
       textPanel: byName(TextPanelPlace.values, m['textPanel'], d.textPanel),
       writingGuide: byName(
@@ -472,6 +482,7 @@ class AppSettings {
       other.arrowHookMs == arrowHookMs &&
       other.keepInkOnDelete == keepInkOnDelete &&
       other.twoPages == twoPages &&
+      other.tidyShapes == tidyShapes &&
       other.textLabels == textLabels &&
       other.textPanel == textPanel &&
       other.writingGuide == writingGuide &&
@@ -499,6 +510,7 @@ class AppSettings {
     arrowHookMs,
     keepInkOnDelete,
     twoPages,
+    tidyShapes,
     textLabels,
     textPanel,
     writingGuide,

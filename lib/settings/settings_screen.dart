@@ -536,6 +536,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             PressureExample(response: s.pressureResponse),
           ],
+          SwitchListTile(
+            title: const Text('Tidy up shapes'),
+            subtitle: const Text(
+              'Hold the pen still at the end of a circle, rectangle or '
+              'triangle to make it neat. Undo or erase a tidied shape '
+              'straight away and shapes like it are only tidied when '
+              'drawn closer to it.',
+            ),
+            value: s.tidyShapes,
+            onChanged: (v) => settings.update(s.copyWith(tidyShapes: v)),
+          ),
           ListTile(
             title: Text(
               s.arrowHookMs == 0
