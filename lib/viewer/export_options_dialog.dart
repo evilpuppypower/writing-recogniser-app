@@ -60,6 +60,7 @@ Future<ExportChoice?> showExportOptions(
   bool anyUnconverted = false,
   bool? convertRest,
   bool darkNow = false,
+  bool pagesChanged = false,
   Widget Function(int page)? thumbnail,
 }) => showDialog<ExportChoice>(
   context: context,
@@ -71,6 +72,7 @@ Future<ExportChoice?> showExportOptions(
     anyUnconverted: anyUnconverted,
     convertRest: convertRest,
     darkNow: darkNow,
+    pagesChanged: pagesChanged,
     thumbnail: thumbnail,
   ),
 );
@@ -84,8 +86,13 @@ class _ExportOptionsDialog extends StatefulWidget {
     required this.anyUnconverted,
     this.convertRest,
     this.darkNow = false,
+    this.pagesChanged = false,
     this.thumbnail,
   });
+
+  /// Pages were added, moved or taken out in the app: even "All pages"
+  /// makes a new PDF page by page (see the note it shows).
+  final bool pagesChanged;
 
   /// A small picture of a page, for arranging pages.
   final Widget Function(int page)? thumbnail;
@@ -320,6 +327,34 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
                 ],
               ),
             ),
+            // Said here, not in a box to click through (owner): what a
+            // PDF made page by page leaves out.
+            if (_which != _Pages.all || widget.pagesChanged)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'The PDF\'s contents list and fill-in form boxes, if '
+                        'it has any, aren\'t kept when pages are '
+                        '${widget.pagesChanged ? 'added, moved or taken out' : 'picked or arranged'}. '
+                        'Your ink and the printed pages are.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),

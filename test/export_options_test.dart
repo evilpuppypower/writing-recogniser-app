@@ -12,6 +12,7 @@ void main() {
     bool anyUnconverted = false,
     bool? convertRest,
     bool darkNow = false,
+    bool pagesChanged = false,
   }) async {
     late Future<ExportChoice?> result;
     await tester.pumpWidget(
@@ -27,6 +28,7 @@ void main() {
               anyUnconverted: anyUnconverted,
               convertRest: convertRest,
               darkNow: darkNow,
+              pagesChanged: pagesChanged,
             ),
             child: const Text('go'),
           ),
@@ -46,6 +48,24 @@ void main() {
     final c = await choice;
     expect(c!.searchable, isTrue);
     expect(c.pages, isNull);
+  });
+
+  testWidgets('says, in place, what picked pages leave out', (tester) async {
+    await open(tester);
+    final note = find.textContaining('contents list and fill-in form boxes');
+    expect(note, findsNothing, reason: 'all pages keep everything');
+    await tester.tap(find.text('Only some pages'));
+    await tester.pumpAndSettle();
+    expect(note, findsOneWidget);
+    // No box to click through: the dialog is still the only one.
+    expect(find.byType(AlertDialog), findsOneWidget);
+  });
+
+  testWidgets('and when pages were added or moved, for all pages too', (
+    tester,
+  ) async {
+    await open(tester, pagesChanged: true);
+    expect(find.textContaining('added, moved or taken out'), findsOneWidget);
   });
 
   testWidgets('dark pages: starts as on screen, and can be switched', (

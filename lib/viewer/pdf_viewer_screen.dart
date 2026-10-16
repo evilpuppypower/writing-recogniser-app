@@ -2943,6 +2943,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           : ExportHandwriting.ink,
       anyConverted: _hasTyped,
       darkNow: _dark,
+      pagesChanged: _layout != null,
       thumbnail: _controller.isReady
           ? (n) => PageThumbnail(
               document: _controller.document,
