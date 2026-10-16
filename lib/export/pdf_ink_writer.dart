@@ -6,6 +6,7 @@ import 'package:ffi/ffi.dart';
 import 'package:pdfium_dart/pdfium_dart.dart' as pdfium;
 
 import '../core/ink_export_plan.dart';
+import '../core/night_colours.dart';
 import '../core/typed_text.dart' show atSlant, typedPlacement, typedSizeOnPage;
 
 class PdfExportException implements Exception {
@@ -26,6 +27,9 @@ class PdfExportException implements Exception {
 /// (task 1.4b), and returns the new PDF's bytes. With [onlyPages] (1-based
 /// page numbers), the new PDF has just those pages, in their original
 /// order (task 1.4c); page numbers that aren't in the PDF are ignored.
+/// With [darkPages], every page is turned dark as on screen and the ink
+/// and typed text come out in their night colours (owner: dark pages are
+/// chosen at export too); the PDF's own text stays searchable.
 /// The source file is
 /// never changed (CLAUDE.md rule 6): PDFium works on a copy in memory and
 /// writes a new file.
@@ -39,6 +43,7 @@ Uint8List writeInkIntoPdf(
   Map<int, List<ExportLine>> pages, {
   Map<int, List<ExportWord>> text = const {},
   Set<int>? onlyPages,
+  bool darkPages = false,
   List<String>? trace,
 }) {
   final steps = trace ?? <String>[];
@@ -74,18 +79,23 @@ Uint8List writeInkIntoPdf(
     );
     calloc.free(version);
     final box = calloc<pdfium.FS_RECTF>();
-    final blend = 'Multiply'.toNativeUtf8();
+    // Highlighter multiplied over a light page, lightened over a dark one.
+    final blend = (darkPages ? 'Screen' : 'Multiply').toNativeUtf8();
+    final difference = 'Difference'.toNativeUtf8();
+    final lighten = 'Lighten'.toNativeUtf8();
     final font = 'Helvetica'.toNativeUtf8();
     final bounds = calloc<Float>(4);
     try {
-      final numbers = {...pages.keys, ...text.keys}.toList()..sort();
+      final numbers = darkPages
+          ? [for (var n = 1; n <= pageCount; n++) n]
+          : ({...pages.keys, ...text.keys}.toList()..sort());
       for (final n in numbers) {
         final lines = pages[n] ?? const <ExportLine>[];
         final words = text[n] ?? const <ExportWord>[];
         if (n < 1 ||
             n > pageCount ||
             (onlyPages != null && !onlyPages.contains(n)) ||
-            (lines.isEmpty && words.isEmpty)) {
+            (lines.isEmpty && words.isEmpty && !darkPages)) {
           continue;
         }
         final page = lib.FPDF_LoadPage(doc, n - 1);
@@ -97,6 +107,41 @@ Uint8List writeInkIntoPdf(
           dx = box.ref.left;
           dy = box.ref.bottom;
         }
+        if (darkPages) {
+          // As on screen (see paintDarkPage): the colours reversed, then
+          // black lifted to a soft dark grey, over the page's own content
+          // and under the ink. First a white page under everything: a
+          // PDF page is see-through where nothing is printed, and
+          // reversing see-through changes nothing.
+          for (final (colour, mode, under) in [
+            (0xFFFFFF, nullptr, true),
+            (0xFFFFFF, difference, false),
+            (0x202124, lighten, false),
+          ]) {
+            final rect = lib.FPDFPageObj_CreateNewRect(
+              box.ref.left,
+              box.ref.bottom,
+              box.ref.right - box.ref.left,
+              box.ref.top - box.ref.bottom,
+            );
+            lib.FPDFPageObj_SetFillColor(
+              rect,
+              colour >> 16 & 0xFF,
+              colour >> 8 & 0xFF,
+              colour & 0xFF,
+              255,
+            );
+            lib.FPDFPath_SetDrawMode(rect, 1, 0); // fill, no stroke
+            if (mode != nullptr) {
+              lib.FPDFPageObj_SetBlendMode(rect, mode.cast());
+            }
+            if (under) {
+              lib.FPDFPage_InsertObjectAtIndex(page, rect, 0);
+            } else {
+              lib.FPDFPage_InsertObject(page, rect);
+            }
+          }
+        }
         for (final line in lines) {
           final p = line.points;
           if (p.length < 4) continue;
@@ -104,7 +149,7 @@ Uint8List writeInkIntoPdf(
           for (var i = 2; i + 1 < p.length; i += 2) {
             lib.FPDFPath_LineTo(obj, p[i] + dx, p[i + 1] + dy);
           }
-          final c = line.colorArgb;
+          final c = darkPages ? nightArgb(line.colorArgb) : line.colorArgb;
           lib.FPDFPageObj_SetStrokeColor(
             obj,
             (c >> 16) & 0xFF,
@@ -121,7 +166,7 @@ Uint8List writeInkIntoPdf(
           lib.FPDFPage_InsertObject(page, obj);
         }
         for (final w in words) {
-          _addWord(lib, doc, page, font, bounds, w, dx, dy);
+          _addWord(lib, doc, page, font, bounds, w, dx, dy, dark: darkPages);
         }
         final generated = lib.FPDFPage_GenerateContent(page) != 0;
         lib.FPDF_ClosePage(page);
@@ -134,6 +179,8 @@ Uint8List writeInkIntoPdf(
       calloc.free(box);
       calloc.free(bounds);
       malloc.free(blend);
+      malloc.free(difference);
+      malloc.free(lighten);
       malloc.free(font);
     }
     if (onlyPages != null) {
@@ -168,8 +215,9 @@ void _addWord(
   Pointer<Float> bounds,
   ExportWord w,
   double dx,
-  double dy,
-) {
+  double dy, {
+  bool dark = false,
+}) {
   final text = w.text.trim();
   final width = w.right - w.left, height = w.top - w.bottom;
   if (text.isEmpty || width <= 0 || height <= 0) return;
@@ -188,7 +236,10 @@ void _addWord(
     lib.FPDFPageObj_Destroy(obj);
     return;
   }
-  final color = w.colorArgb;
+  final color = switch (w.colorArgb) {
+    final c? when dark => nightArgb(c),
+    final c => c,
+  };
   if (color != null) {
     lib.FPDFTextObj_SetTextRenderMode(
       obj,

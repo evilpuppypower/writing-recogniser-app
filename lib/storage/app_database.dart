@@ -7,7 +7,7 @@ class AppDatabase {
   AppDatabase._();
 
   static const fileName = 'writing_recogniser.db';
-  static const version = 8;
+  static const version = 9;
 
   /// Opens (and creates or upgrades) the database. [factory] and [path] can
   /// be overridden for tests.
@@ -119,6 +119,15 @@ class AppDatabase {
           page INTEGER NOT NULL,       -- 1-based
           created_at INTEGER NOT NULL, -- ms since epoch
           PRIMARY KEY (document_id, page)
+        )
+      ''');
+    }
+    if (from < 9) {
+      // Each PDF's own page colours, light or dark (owner, 2026-10-16).
+      await db.execute('''
+        CREATE TABLE document_colours (
+          document_id TEXT PRIMARY KEY, -- library id (as in page_ink)
+          colours TEXT NOT NULL         -- a PageColours name
         )
       ''');
     }

@@ -74,6 +74,12 @@ class SqliteInkStore implements InkStore {
       where: 'document_id = ?',
       whereArgs: [documentId],
     );
+    // And its own page colours.
+    await _db.delete(
+      'document_colours',
+      where: 'document_id = ?',
+      whereArgs: [documentId],
+    );
   }
 
   @override

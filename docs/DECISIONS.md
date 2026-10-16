@@ -585,3 +585,12 @@ Shape tidy-up now works at any tilt. Two guesses are made at the angle a shape w
 ## 2026-10-16 — Bookmarks in two-page view (owner: bookmarks should work in a 2-page view)
 
 With two pages side by side, the bookmark button opens a short menu, "Bookmark page 3" and "Bookmark page 4", each ticked when that page is marked. The icon is filled when either page is marked. With one page showing, or on the last page of an odd count, it works as before. A bookmarked page also shows a small ribbon at its top right corner, so it's clear which of the two pages is marked. The ribbon never takes a touch, so writing near it isn't affected.
+
+## 2026-10-16 — Dark pages: per PDF, at import and at export (owner: "a setting upon pdf ingest, export and a setting in the settings, not in the toolbar")
+
+- **Each PDF has its own choice.** It's kept in the app database (version 9, table `document_colours`) and deleted with the PDF's ink and bookmarks. A PDF with no choice of its own follows Settings.
+- **On import:** the first time a PDF is imported, "How should this PDF look?" asks As printed / Dark / Dark when the tablet is. It starts on the Settings choice, and keeping that choice leaves the PDF following Settings. "Don't ask when I import a PDF" turns the question off; Settings can turn it back on.
+- **Later:** hold the PDF on the home screen, then **Page colours**. This also offers "Same as Settings". There's no toolbar button.
+- **Settings:** the existing Page colours setting is now the default for PDFs without their own choice. A new switch, "Ask when I import a PDF", sits under it.
+- **Export:** a new "Dark pages" switch starts as the screen shows the PDF. A dark export turns every page dark the same way as the screen. Under each page's content goes a white page, since a PDF is see-through where nothing is printed. Over the content go a "difference" white layer and a "lighten" dark-grey layer, and the ink and typed text come out in their night colours, with the highlighter lightened. The PDF's own text is untouched, so it stays searchable. A test renders an exported page with PDFium to check it really comes out dark.
+- Night colours are now worked out in pure Dart (same results as before, within one shade), so the export can use them.
