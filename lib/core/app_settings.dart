@@ -135,6 +135,7 @@ class AppSettings {
     this.textPanel = TextPanelPlace.off,
     this.writingGuide = WritingGuide.grey,
     this.pageColours = PageColours.light,
+    this.askPageColours = true,
     this.exportConvertRest = ExportConvertRest.auto,
   });
 
@@ -236,8 +237,13 @@ class AppSettings {
   /// The guide line under the line being written, or off.
   final WritingGuide writingGuide;
 
-  /// See [PageColours].
+  /// See [PageColours]: the default for PDFs that have no choice of
+  /// their own (each PDF can have one, asked when it's imported).
   final PageColours pageColours;
+
+  /// Ask "light or dark pages?" when a PDF is imported (owner: dark pages
+  /// are chosen when a PDF comes in, at export and in Settings).
+  final bool askPageColours;
 
   /// The export dialog's "Also convert" tick, as last chosen.
   final ExportConvertRest exportConvertRest;
@@ -262,6 +268,7 @@ class AppSettings {
     TextPanelPlace? textPanel,
     WritingGuide? writingGuide,
     PageColours? pageColours,
+    bool? askPageColours,
     ExportConvertRest? exportConvertRest,
   }) => AppSettings(
     appColour: appColour ?? this.appColour,
@@ -297,6 +304,7 @@ class AppSettings {
     textPanel: textPanel ?? this.textPanel,
     writingGuide: writingGuide ?? this.writingGuide,
     pageColours: pageColours ?? this.pageColours,
+    askPageColours: askPageColours ?? this.askPageColours,
     exportConvertRest: exportConvertRest ?? this.exportConvertRest,
   );
 
@@ -320,6 +328,7 @@ class AppSettings {
     'textPanel': textPanel.name,
     'writingGuide': writingGuide.name,
     'pageColours': pageColours.name,
+    'askPageColours': askPageColours,
     'exportConvertRest': exportConvertRest.name,
   };
 
@@ -347,6 +356,7 @@ class AppSettings {
     final hook = m['arrowHookMs'];
     final keepInk = m['keepInkOnDelete'];
     final twoPages = m['twoPages'];
+    final askPageColours = m['askPageColours'];
 
     return AppSettings(
       appColour: byName(
@@ -399,6 +409,9 @@ class AppSettings {
         d.writingGuide,
       ),
       pageColours: byName(PageColours.values, m['pageColours'], d.pageColours),
+      askPageColours: askPageColours is bool
+          ? askPageColours
+          : d.askPageColours,
       exportConvertRest: byName(
         ExportConvertRest.values,
         m['exportConvertRest'],
@@ -429,10 +442,11 @@ class AppSettings {
       other.textPanel == textPanel &&
       other.writingGuide == writingGuide &&
       other.pageColours == pageColours &&
+      other.askPageColours == askPageColours &&
       other.exportConvertRest == exportConvertRest;
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     appColour,
     scrollTabIdle,
     slimTabOpacityPercent,
@@ -452,6 +466,7 @@ class AppSettings {
     textPanel,
     writingGuide,
     pageColours,
+    askPageColours,
     exportConvertRest,
-  );
+  ]);
 }

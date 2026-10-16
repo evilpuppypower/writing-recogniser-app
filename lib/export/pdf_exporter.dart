@@ -20,6 +20,7 @@ Future<Uint8List> exportPdfWithInk({
   PressureResponse pressure = const PressureResponse(),
   Map<int, List<ExportWord>> text = const {},
   Set<int>? onlyPages,
+  bool darkPages = false,
   List<String>? trace,
 }) async {
   final pages = <int, List<List<Object>>>{
@@ -43,6 +44,7 @@ Future<Uint8List> exportPdfWithInk({
       Pdfrx.pdfiumModulePath,
       words,
       onlyPages?.toList(),
+      darkPages,
     ],
   );
   trace?.addAll((result[2] as List).cast<String>());
@@ -82,6 +84,7 @@ List<Object?> _exportOnWorker(List<Object?> m) {
       pages,
       text: text,
       onlyPages: only == null ? null : {for (final n in only) n as int},
+      darkPages: m[5]! as bool,
       trace: steps,
     );
     return ['ok', bytes, steps];

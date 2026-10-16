@@ -10,6 +10,9 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../core/app_settings.dart';
 import '../core/bookmarks.dart';
+import 'page_colours_dialog.dart';
+import '../storage/sqlite_document_colours_store.dart';
+import '../core/document_colours.dart';
 import '../core/document_state.dart';
 import '../core/feedback/correction_store.dart';
 import '../core/handwriting_search.dart';
@@ -74,6 +77,7 @@ class PdfViewerScreen extends StatefulWidget {
     this.openStore = SqliteDocumentStore.open,
     this.openInkStore = SqliteInkStore.open,
     this.openBookmarks = SqliteBookmarkStore.open,
+    this.openDocumentColours = SqliteDocumentColoursStore.open,
     this.sourcePath,
     this.locateSource,
     this.exportPdf = exportPdfWithInk,
@@ -132,6 +136,10 @@ class PdfViewerScreen extends StatefulWidget {
   /// Where the PDF's bookmarks are kept (the app database by default).
   final Future<BookmarkStore> Function() openBookmarks;
 
+  /// Where each PDF's own page colours are kept (the app database by
+  /// default).
+  final Future<DocumentColoursStore> Function() openDocumentColours;
+
   /// The PDF file on the tablet; exporting is offered when it's known.
   final String? sourcePath;
 
@@ -149,6 +157,7 @@ class PdfViewerScreen extends StatefulWidget {
     PressureResponse pressure,
     Map<int, List<ExportWord>> text,
     Set<int>? onlyPages,
+    bool darkPages,
     List<String>? trace,
   })
   exportPdf;
@@ -373,6 +382,61 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   set _bookmarks(List<int> pages) => _bookmarked.value = pages;
 
   List<int> _pairOf(int page) => pagePair(page, _pageCount ?? page);
+
+  // This PDF's own page colours (null: Settings' choice), asked when it's
+  // imported (owner, 2026-10-16).
+  PageColours? _ownColours;
+  DocumentColoursStore? _coloursStore;
+
+  Future<void> _coloursLoaded = Future.value();
+
+  Future<void> _loadColours() async {
+    PageColours? own;
+    try {
+      final store = await widget.openDocumentColours();
+      own = await store.get(widget.documentId);
+      _coloursStore = store;
+    } catch (_) {
+      _coloursStore = MemoryDocumentColoursStore();
+    }
+    if (mounted && own != null) setState(() => _ownColours = own);
+  }
+
+  /// A PDF imported for the very first time (never opened before, so not
+  /// one whose stored copy was removed and brought back): asks how its
+  /// pages should look, once its first page is showing.
+  Future<void> _askColoursIfNew() async {
+    await _coloursLoaded;
+    if (!mounted) return;
+    final settings = context
+        .getInheritedWidgetOfExactType<SettingsScope>()
+        ?.notifier;
+    if (widget.importTook == null ||
+        _saved != null ||
+        _ownColours != null ||
+        settings == null ||
+        !settings.value.askPageColours) {
+      return;
+    }
+    final byDefault = settings.value.pageColours;
+    final pick = await askPageColours(
+      context,
+      byDefault: byDefault,
+      importing: true,
+    );
+    if (pick == null || !mounted) return;
+    if (pick.stopAsking) {
+      settings.update(settings.value.copyWith(askPageColours: false));
+    }
+    // Kept as Settings' choice: the PDF follows Settings from then on.
+    final chosen = pick.colours == byDefault ? null : pick.colours;
+    setState(() => _ownColours = chosen);
+    try {
+      await _coloursStore?.set(widget.documentId, chosen);
+    } catch (_) {
+      // Used this time, just not kept.
+    }
+  }
 
   Future<void> _loadBookmarks() async {
     try {
@@ -1409,6 +1473,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
     if (!mounted) return;
     _showOpenMessage(timing);
+    unawaited(_askColoursIfNew());
   }
 
   void _showOpenMessage(OpenTiming? timing) {
@@ -1807,6 +1872,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     super.initState();
     _frames.start();
     _bookmarksLoaded = _loadBookmarks();
+    _coloursLoaded = _loadColours();
     // A selection belongs to the Select tool.
     _tools.addListener(() {
       if (_tools.value.mode != PenMode.lasso) _selection.value = null;
@@ -2056,6 +2122,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           ? ExportHandwriting.typed
           : ExportHandwriting.ink,
       anyConverted: _hasTyped,
+      darkNow: _dark,
       convertRest: switch (SettingsScope.of(context).value.exportConvertRest) {
         ExportConvertRest.on => true,
         ExportConvertRest.off => false,
@@ -2142,6 +2209,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       'share': share,
       'handwriting': mode.name,
       'searchable': choice.searchable,
+      'darkPages': choice.darkPages,
       'convertRest': choice.convertRest,
       'pagesInPdf': _pageCount,
       'pagesChosen': choice.pages?.length,
@@ -2159,6 +2227,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         pressure: pressure,
         text: text,
         onlyPages: choice.pages,
+        darkPages: choice.darkPages,
         trace: trace,
       );
     } catch (e) {
@@ -2298,295 +2367,307 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         _savePosition();
         _flushSaves();
       },
-      child: Scaffold(
-        appBar: AppBar(
-          title: Builder(
-            builder: (context) {
-              // Pages repainted when dark pages are turned on or off.
-              final dark = darkPagesOf(context);
-              final twoPages = SettingsScope.valueOf(context).twoPages;
-              if (dark != _dark || twoPages != _twoPages) {
-                final relayout = twoPages != _twoPages;
-                _dark = dark;
-                _twoPages = twoPages;
-                WidgetsBinding.instance.addPostFrameCallback((_) async {
-                  if (!mounted || !_controller.isReady) return;
-                  final page = _pageNumber.value;
-                  _controller.invalidate();
-                  // Laid out again: back to the page that was showing.
-                  if (relayout && page != null) {
-                    await _controller.goToPage(
-                      pageNumber: page,
-                      duration: Duration.zero,
+      child: DarkPagesScope(
+        colours: _ownColours,
+        child: Scaffold(
+          appBar: AppBar(
+            title: Builder(
+              builder: (context) {
+                // Pages repainted when dark pages are turned on or off.
+                final dark = darkPagesOf(context);
+                final twoPages = SettingsScope.valueOf(context).twoPages;
+                if (dark != _dark || twoPages != _twoPages) {
+                  final relayout = twoPages != _twoPages;
+                  _dark = dark;
+                  _twoPages = twoPages;
+                  WidgetsBinding.instance.addPostFrameCallback((_) async {
+                    if (!mounted || !_controller.isReady) return;
+                    final page = _pageNumber.value;
+                    _controller.invalidate();
+                    // Laid out again: back to the page that was showing.
+                    if (relayout && page != null) {
+                      await _controller.goToPage(
+                        pageNumber: page,
+                        duration: Duration.zero,
+                      );
+                    }
+                  });
+                }
+                return Text(widget.title, overflow: TextOverflow.ellipsis);
+              },
+            ),
+            bottom: _searchOpen ? _searchBar() : null,
+            actions: [
+              ValueListenableBuilder(
+                valueListenable: _pageNumber,
+                builder: (context, page, _) => ValueListenableBuilder(
+                  valueListenable: _bookmarked,
+                  builder: (context, bookmarks, _) {
+                    // Two pages showing (owner: bookmarks work in two-page
+                    // view): a choice of either.
+                    final pair = page != null && _twoPages && _pageCount != null
+                        ? _pairOf(page)
+                        : const <int>[];
+                    if (pair.length == 2) {
+                      final any = pair.any(bookmarks.contains);
+                      return PopupMenuButton<int>(
+                        tooltip: 'Bookmark page ${pair[0]} or ${pair[1]}',
+                        icon: Icon(
+                          any ? Icons.bookmark : Icons.bookmark_border,
+                        ),
+                        onSelected: _toggleBookmark,
+                        itemBuilder: (context) => [
+                          for (final p in pair)
+                            CheckedPopupMenuItem(
+                              value: p,
+                              checked: bookmarks.contains(p),
+                              child: Text('Bookmark page $p'),
+                            ),
+                        ],
+                      );
+                    }
+                    final marked = page != null && bookmarks.contains(page);
+                    return IconButton(
+                      tooltip: marked
+                          ? 'Remove the bookmark on this page'
+                          : 'Bookmark this page',
+                      icon: Icon(
+                        marked ? Icons.bookmark : Icons.bookmark_border,
+                      ),
+                      onPressed: page == null || _pageCount == null
+                          ? null
+                          : () => _toggleBookmark(page),
                     );
-                  }
-                });
-              }
-              return Text(widget.title, overflow: TextOverflow.ellipsis);
-            },
-          ),
-          bottom: _searchOpen ? _searchBar() : null,
-          actions: [
-            ValueListenableBuilder(
-              valueListenable: _pageNumber,
-              builder: (context, page, _) => ValueListenableBuilder(
-                valueListenable: _bookmarked,
-                builder: (context, bookmarks, _) {
-                  // Two pages showing (owner: bookmarks work in two-page
-                  // view): a choice of either.
-                  final pair = page != null && _twoPages && _pageCount != null
-                      ? _pairOf(page)
-                      : const <int>[];
-                  if (pair.length == 2) {
-                    final any = pair.any(bookmarks.contains);
-                    return PopupMenuButton<int>(
-                      tooltip: 'Bookmark page ${pair[0]} or ${pair[1]}',
-                      icon: Icon(any ? Icons.bookmark : Icons.bookmark_border),
-                      onSelected: _toggleBookmark,
-                      itemBuilder: (context) => [
-                        for (final p in pair)
-                          CheckedPopupMenuItem(
-                            value: p,
-                            checked: bookmarks.contains(p),
-                            child: Text('Bookmark page $p'),
-                          ),
-                      ],
-                    );
-                  }
-                  final marked = page != null && bookmarks.contains(page);
+                  },
+                ),
+              ),
+              Builder(
+                builder: (context) {
+                  final settings = context
+                      .dependOnInheritedWidgetOfExactType<SettingsScope>()
+                      ?.notifier;
+                  if (settings == null) return const SizedBox.shrink();
+                  final two = settings.value.twoPages;
                   return IconButton(
-                    tooltip: marked
-                        ? 'Remove the bookmark on this page'
-                        : 'Bookmark this page',
-                    icon: Icon(marked ? Icons.bookmark : Icons.bookmark_border),
-                    onPressed: page == null || _pageCount == null
-                        ? null
-                        : () => _toggleBookmark(page),
+                    tooltip: two
+                        ? 'Show one page at a time'
+                        : 'Show two pages side by side',
+                    icon: Icon(
+                      two ? Icons.chrome_reader_mode : Icons.auto_stories,
+                    ),
+                    onPressed: () => settings.update(
+                      settings.value.copyWith(twoPages: !two),
+                    ),
                   );
                 },
               ),
-            ),
-            Builder(
-              builder: (context) {
-                final settings = context
-                    .dependOnInheritedWidgetOfExactType<SettingsScope>()
-                    ?.notifier;
-                if (settings == null) return const SizedBox.shrink();
-                final two = settings.value.twoPages;
-                return IconButton(
-                  tooltip: two
-                      ? 'Show one page at a time'
-                      : 'Show two pages side by side',
-                  icon: Icon(
-                    two ? Icons.chrome_reader_mode : Icons.auto_stories,
-                  ),
-                  onPressed: () =>
-                      settings.update(settings.value.copyWith(twoPages: !two)),
-                );
-              },
-            ),
-            IconButton(
-              tooltip: 'Contents and bookmarks',
-              icon: const Icon(Icons.toc),
-              onPressed: _pageCount == null ? null : _showContents,
-            ),
-            IconButton(
-              tooltip: 'Search the PDF and your handwriting',
-              icon: const Icon(Icons.search),
-              // Once the PDF is open (its text can't be searched before).
-              onPressed: _pageCount == null
-                  ? null
-                  : (_searchOpen ? _closeSearch : _openSearch),
-            ),
-            ListenableBuilder(
-              listenable: _ink,
-              builder: (context, _) => Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: 'Undo',
-                    icon: const Icon(Icons.undo),
-                    onPressed: _ink.canUndo ? _ink.undo : null,
-                  ),
-                  IconButton(
-                    tooltip: 'Redo',
-                    icon: const Icon(Icons.redo),
-                    onPressed: _ink.canRedo ? _ink.redo : null,
-                  ),
-                  if (_clipboard != null)
+              IconButton(
+                tooltip: 'Contents and bookmarks',
+                icon: const Icon(Icons.toc),
+                onPressed: _pageCount == null ? null : _showContents,
+              ),
+              IconButton(
+                tooltip: 'Search the PDF and your handwriting',
+                icon: const Icon(Icons.search),
+                // Once the PDF is open (its text can't be searched before).
+                onPressed: _pageCount == null
+                    ? null
+                    : (_searchOpen ? _closeSearch : _openSearch),
+              ),
+              ListenableBuilder(
+                listenable: _ink,
+                builder: (context, _) => Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     IconButton(
-                      tooltip: 'Paste the copied ink on this page',
-                      icon: const Icon(Icons.content_paste),
-                      onPressed: _paste,
+                      tooltip: 'Undo',
+                      icon: const Icon(Icons.undo),
+                      onPressed: _ink.canUndo ? _ink.undo : null,
                     ),
-                  IconButton(
-                    tooltip: "Convert this page's handwriting to typed text",
-                    icon: const Icon(Icons.keyboard),
-                    onPressed: _convertPage,
-                  ),
-                  if (_hasTyped) TypedSwitchButton(showTyped: _showTyped),
-                  Builder(
-                    builder: (context) {
-                      final s = SettingsScope.valueOf(context);
-                      final labels = s.textLabels != TextLabelPlace.off;
-                      final panel = s.textPanel != TextPanelPlace.off;
-                      return Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ValueListenableBuilder(
-                            valueListenable: _labelsShown,
-                            builder: (context, awake, _) => IconButton(
-                              tooltip: !labels
-                                  ? 'Show recognised text over the ink'
-                                  : awake
-                                  ? 'Hide recognised text over the ink'
-                                  : 'Bring back the recognised text (it '
-                                        'fades while you\'re not writing)',
-                              isSelected: labels,
-                              icon: const Icon(Icons.text_fields),
-                              onPressed: _toggleLabels,
+                    IconButton(
+                      tooltip: 'Redo',
+                      icon: const Icon(Icons.redo),
+                      onPressed: _ink.canRedo ? _ink.redo : null,
+                    ),
+                    if (_clipboard != null)
+                      IconButton(
+                        tooltip: 'Paste the copied ink on this page',
+                        icon: const Icon(Icons.content_paste),
+                        onPressed: _paste,
+                      ),
+                    IconButton(
+                      tooltip: "Convert this page's handwriting to typed text",
+                      icon: const Icon(Icons.keyboard),
+                      onPressed: _convertPage,
+                    ),
+                    if (_hasTyped) TypedSwitchButton(showTyped: _showTyped),
+                    Builder(
+                      builder: (context) {
+                        final s = SettingsScope.valueOf(context);
+                        final labels = s.textLabels != TextLabelPlace.off;
+                        final panel = s.textPanel != TextPanelPlace.off;
+                        return Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ValueListenableBuilder(
+                              valueListenable: _labelsShown,
+                              builder: (context, awake, _) => IconButton(
+                                tooltip: !labels
+                                    ? 'Show recognised text over the ink'
+                                    : awake
+                                    ? 'Hide recognised text over the ink'
+                                    : 'Bring back the recognised text (it '
+                                          'fades while you\'re not writing)',
+                                isSelected: labels,
+                                icon: const Icon(Icons.text_fields),
+                                onPressed: _toggleLabels,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: panel
+                                  ? 'Close the text panel'
+                                  : "Show this page's text in a panel",
+                              isSelected: panel,
+                              icon: const Icon(Icons.notes),
+                              onPressed: _togglePanel,
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    if (widget.sourcePath != null)
+                      PopupMenuButton<bool>(
+                        tooltip: 'Export a copy of this PDF with your ink',
+                        icon: const Icon(Icons.ios_share),
+                        onSelected: (share) => _export(share: share),
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: false,
+                            child: ListTile(
+                              leading: Icon(Icons.save_alt),
+                              title: Text('Save a copy with my ink…'),
                             ),
                           ),
-                          IconButton(
-                            tooltip: panel
-                                ? 'Close the text panel'
-                                : "Show this page's text in a panel",
-                            isSelected: panel,
-                            icon: const Icon(Icons.notes),
-                            onPressed: _togglePanel,
+                          PopupMenuItem(
+                            value: true,
+                            child: ListTile(
+                              leading: Icon(Icons.share),
+                              title: Text('Share a copy with my ink…'),
+                            ),
                           ),
                         ],
-                      );
-                    },
-                  ),
-                  if (widget.sourcePath != null)
-                    PopupMenuButton<bool>(
-                      tooltip: 'Export a copy of this PDF with your ink',
-                      icon: const Icon(Icons.ios_share),
-                      onSelected: (share) => _export(share: share),
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(
-                          value: false,
-                          child: ListTile(
-                            leading: Icon(Icons.save_alt),
-                            title: Text('Save a copy with my ink…'),
-                          ),
-                        ),
-                        PopupMenuItem(
-                          value: true,
-                          child: ListTile(
-                            leading: Icon(Icons.share),
-                            title: Text('Share a copy with my ink…'),
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            // Listens without reading the controller's value: the
-            // controller only works once the PDF has loaded (some time
-            // after the viewer is built), and reading it earlier throws,
-            // which took the whole title bar (and its back button) down.
-            ListenableBuilder(
-              listenable: _controller,
-              builder: (context, _) => Text(
-                _controller.isReady
-                    ? '${(_controller.currentZoom * 100).round()}%'
-                    : '',
-              ),
-            ),
-            const SizedBox(width: 8),
-            ValueListenableBuilder(
-              valueListenable: _pageNumber,
-              builder: (context, page, _) => page == null || _pageCount == null
-                  ? const SizedBox.shrink()
-                  : Tooltip(
-                      message: 'Go to a page',
-                      child: TextButton.icon(
-                        icon: const Icon(Icons.find_in_page_outlined),
-                        label: Text('Page $page / $_pageCount'),
-                        onPressed: _askForPage,
                       ),
-                    ),
-            ),
-            const SizedBox(width: 8),
-          ],
-        ),
-        body: ValueListenableBuilder(
-          valueListenable: _tools,
-          // The toolbar only moves when its dock changes.
-          child: Stack(
-            key: _pageKey,
-            children: [
-              _viewer ??
-                  _OpeningBanner(title: widget.title, onCancel: _cancelOpening),
-              Positioned.fill(child: FavouritesBar(controller: _tools)),
-              // Shown only while saved ink is still loading.
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Listens without reading the controller's value: the
+              // controller only works once the PDF has loaded (some time
+              // after the viewer is built), and reading it earlier throws,
+              // which took the whole title bar (and its back button) down.
+              ListenableBuilder(
+                listenable: _controller,
+                builder: (context, _) => Text(
+                  _controller.isReady
+                      ? '${(_controller.currentZoom * 100).round()}%'
+                      : '',
+                ),
+              ),
+              const SizedBox(width: 8),
               ValueListenableBuilder(
-                valueListenable: _inkLoaded,
-                builder: (context, loaded, _) => loaded
+                valueListenable: _pageNumber,
+                builder: (context, page, _) =>
+                    page == null || _pageCount == null
                     ? const SizedBox.shrink()
-                    : const Positioned(
-                        top: 8,
-                        left: 0,
-                        right: 0,
-                        child: Center(child: _LoadingInkChip()),
-                      ),
-              ),
-              // A PDF that is slow to show its first page can be abandoned.
-              ValueListenableBuilder(
-                valueListenable: _slowOpen,
-                builder: (context, slow, _) => !slow || _viewer == null
-                    ? const SizedBox.shrink()
-                    : Positioned(
-                        bottom: 16,
-                        left: 0,
-                        right: 0,
-                        child: Center(
-                          child: _StillOpeningChip(onCancel: _cancelOpening),
+                    : Tooltip(
+                        message: 'Go to a page',
+                        child: TextButton.icon(
+                          icon: const Icon(Icons.find_in_page_outlined),
+                          label: Text('Page $page / $_pageCount'),
+                          onPressed: _askForPage,
                         ),
                       ),
               ),
+              const SizedBox(width: 8),
             ],
           ),
-          builder: (context, tools, pdf) {
-            final bar = PenToolbar(controller: _tools);
-            final place = SettingsScope.valueOf(context).textPanel;
-            final page = TextPanelLayout(
-              place: place,
-              page: pdf!,
-              panel: RecognisedTextPanel(
-                text: _text,
-                ink: _ink,
-                onUnhide: _unhide,
-                page: _pageNumber,
+          body: ValueListenableBuilder(
+            valueListenable: _tools,
+            // The toolbar only moves when its dock changes.
+            child: Stack(
+              key: _pageKey,
+              children: [
+                _viewer ??
+                    _OpeningBanner(
+                      title: widget.title,
+                      onCancel: _cancelOpening,
+                    ),
+                Positioned.fill(child: FavouritesBar(controller: _tools)),
+                // Shown only while saved ink is still loading.
+                ValueListenableBuilder(
+                  valueListenable: _inkLoaded,
+                  builder: (context, loaded, _) => loaded
+                      ? const SizedBox.shrink()
+                      : const Positioned(
+                          top: 8,
+                          left: 0,
+                          right: 0,
+                          child: Center(child: _LoadingInkChip()),
+                        ),
+                ),
+                // A PDF that is slow to show its first page can be abandoned.
+                ValueListenableBuilder(
+                  valueListenable: _slowOpen,
+                  builder: (context, slow, _) => !slow || _viewer == null
+                      ? const SizedBox.shrink()
+                      : Positioned(
+                          bottom: 16,
+                          left: 0,
+                          right: 0,
+                          child: Center(
+                            child: _StillOpeningChip(onCancel: _cancelOpening),
+                          ),
+                        ),
+                ),
+              ],
+            ),
+            builder: (context, tools, pdf) {
+              final bar = PenToolbar(controller: _tools);
+              final place = SettingsScope.valueOf(context).textPanel;
+              final page = TextPanelLayout(
                 place: place,
-                onPlace: _placePanel,
-              ),
-            );
-            return switch (tools.dock) {
-              ToolbarDock.top => Column(
-                children: [
-                  bar,
-                  Expanded(child: page),
-                ],
-              ),
-              ToolbarDock.left => Row(
-                children: [
-                  bar,
-                  Expanded(child: page),
-                ],
-              ),
-              ToolbarDock.right => Row(
-                children: [
-                  Expanded(child: page),
-                  bar,
-                ],
-              ),
-            };
-          },
+                page: pdf!,
+                panel: RecognisedTextPanel(
+                  text: _text,
+                  ink: _ink,
+                  onUnhide: _unhide,
+                  page: _pageNumber,
+                  place: place,
+                  onPlace: _placePanel,
+                ),
+              );
+              return switch (tools.dock) {
+                ToolbarDock.top => Column(
+                  children: [
+                    bar,
+                    Expanded(child: page),
+                  ],
+                ),
+                ToolbarDock.left => Row(
+                  children: [
+                    bar,
+                    Expanded(child: page),
+                  ],
+                ),
+                ToolbarDock.right => Row(
+                  children: [
+                    Expanded(child: page),
+                    bar,
+                  ],
+                ),
+              };
+            },
+          ),
         ),
       ),
     );

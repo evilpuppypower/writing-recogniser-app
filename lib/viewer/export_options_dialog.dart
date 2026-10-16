@@ -11,7 +11,12 @@ class ExportChoice {
     this.handwriting = ExportHandwriting.ink,
     this.convertRest = false,
     this.askedConvertRest = false,
+    this.darkPages = false,
   });
+
+  /// The new PDF's pages dark, as on screen (owner: dark pages are chosen
+  /// at export too).
+  final bool darkPages;
 
   /// Handwriting, typed text or both (task 2.3d).
   final ExportHandwriting handwriting;
@@ -48,6 +53,7 @@ Future<ExportChoice?> showExportOptions(
   bool anyConverted = false,
   bool anyUnconverted = false,
   bool? convertRest,
+  bool darkNow = false,
 }) => showDialog<ExportChoice>(
   context: context,
   builder: (_) => _ExportOptionsDialog(
@@ -57,6 +63,7 @@ Future<ExportChoice?> showExportOptions(
     anyConverted: anyConverted,
     anyUnconverted: anyUnconverted,
     convertRest: convertRest,
+    darkNow: darkNow,
   ),
 );
 
@@ -68,7 +75,11 @@ class _ExportOptionsDialog extends StatefulWidget {
     required this.anyConverted,
     required this.anyUnconverted,
     this.convertRest,
+    this.darkNow = false,
   });
+
+  /// Whether the pages are dark on screen now (the dark switch starts so).
+  final bool darkNow;
 
   final int pageCount;
   final bool share;
@@ -85,6 +96,7 @@ class _ExportOptionsDialog extends StatefulWidget {
 
 class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
   bool _searchable = true;
+  late bool _dark = widget.darkNow;
   late ExportHandwriting _handwriting = widget.startWith;
 
   /// As last chosen (owner); before that, ticked when nothing is converted
@@ -135,6 +147,7 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
             _convertRest,
         askedConvertRest:
             _handwriting != ExportHandwriting.ink && widget.anyUnconverted,
+        darkPages: _dark,
       ),
     );
   }
@@ -157,6 +170,16 @@ class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
               ),
               value: _searchable,
               onChanged: (v) => setState(() => _searchable = v),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Dark pages'),
+              subtitle: const Text(
+                'The new PDF has dark pages with light ink, as on screen. '
+                'Text in it can still be searched and copied.',
+              ),
+              value: _dark,
+              onChanged: (v) => setState(() => _dark = v),
             ),
             if (widget.anyConverted || widget.anyUnconverted) ...[
               const SizedBox(height: 8),

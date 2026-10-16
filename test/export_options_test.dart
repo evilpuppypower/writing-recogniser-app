@@ -11,6 +11,7 @@ void main() {
     bool anyConverted = false,
     bool anyUnconverted = false,
     bool? convertRest,
+    bool darkNow = false,
   }) async {
     late Future<ExportChoice?> result;
     await tester.pumpWidget(
@@ -25,6 +26,7 @@ void main() {
               anyConverted: anyConverted,
               anyUnconverted: anyUnconverted,
               convertRest: convertRest,
+              darkNow: darkNow,
             ),
             child: const Text('go'),
           ),
@@ -44,6 +46,25 @@ void main() {
     final c = await choice;
     expect(c!.searchable, isTrue);
     expect(c.pages, isNull);
+  });
+
+  testWidgets('dark pages: starts as on screen, and can be switched', (
+    tester,
+  ) async {
+    var choice = await open(tester);
+    await tester.tap(find.text('Export'));
+    await tester.pumpAndSettle();
+    expect((await choice)!.darkPages, isFalse);
+    choice = await open(tester, darkNow: true);
+    await tester.tap(find.text('Export'));
+    await tester.pumpAndSettle();
+    expect((await choice)!.darkPages, isTrue);
+    choice = await open(tester, darkNow: true);
+    await tester.tap(find.text('Dark pages'));
+    await tester.pump();
+    await tester.tap(find.text('Export'));
+    await tester.pumpAndSettle();
+    expect((await choice)!.darkPages, isFalse);
   });
 
   testWidgets('only some pages: the typed pages, or a message if wrong', (
@@ -121,6 +142,7 @@ void main() {
     expect(find.text('Handwriting'), findsOneWidget);
     final tick = find.text("Also convert handwriting I haven't converted");
     expect(tick, findsNothing, reason: 'not for "My handwriting"');
+    await tester.ensureVisible(find.text(ExportHandwriting.typed.label));
     await tester.tap(find.text(ExportHandwriting.typed.label));
     await tester.pumpAndSettle();
     expect(tick, findsOneWidget);
@@ -144,6 +166,8 @@ void main() {
       tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
       isFalse,
     );
+    await tester.ensureVisible(tick);
+    await tester.pumpAndSettle();
     await tester.tap(tick);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Export'));

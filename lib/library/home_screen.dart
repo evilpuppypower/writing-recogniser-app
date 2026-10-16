@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import '../core/app_settings.dart' show PageColours;
+import '../core/document_colours.dart';
 import '../core/document_state.dart';
 import '../core/page_ink.dart';
 import '../core/recent_pdfs.dart';
@@ -15,8 +17,10 @@ import '../import/pdf_import_channel.dart';
 import '../platform/diagnostics.dart';
 import '../settings/settings_controller.dart';
 import '../settings/settings_screen.dart';
+import '../storage/sqlite_document_colours_store.dart';
 import '../storage/sqlite_document_store.dart';
 import '../storage/sqlite_ink_store.dart';
+import '../viewer/page_colours_dialog.dart';
 import '../viewer/pdf_viewer_screen.dart';
 import 'locate_copy.dart';
 import 'recent_store.dart';
@@ -44,7 +48,11 @@ class LibraryServices {
     this.clearLastCrash = clearLastCrashReport,
     this.fileExists = _fileExists,
     this.firstPageInk = _loadFirstPageInk,
+    this.documentColours = SqliteDocumentColoursStore.open,
   });
+
+  /// Each PDF's own page colours (owner: dark pages are chosen per PDF).
+  final Future<DocumentColoursStore> Function() documentColours;
 
   final Future<PickedPdf?> Function() pick;
   final Future<PickedPdf?> Function(String uri) inspect;
@@ -435,6 +443,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   _setPinned(item, !item.pinned);
                 },
               ),
+            ListTile(
+              leading: const Icon(Icons.contrast),
+              title: const Text('Page colours'),
+              subtitle: const Text('Light or dark pages for this PDF'),
+              onTap: () {
+                Navigator.pop(context);
+                _choosePageColours(item);
+              },
+            ),
             if (item.recent != null)
               ListTile(
                 leading: const Icon(Icons.history_toggle_off),
@@ -449,6 +466,33 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  /// Light or dark pages for one PDF (owner: dark pages are chosen when a
+  /// PDF comes in, at export and in Settings; not in the toolbar).
+  Future<void> _choosePageColours(_Item item) async {
+    final byDefault = SettingsScope.of(context).value.pageColours;
+    DocumentColoursStore store;
+    PageColours? current;
+    try {
+      store = await _s.documentColours();
+      current = await store.get(item.cacheId);
+    } catch (e) {
+      _message("Couldn't open this PDF's page colours: $e");
+      return;
+    }
+    if (!mounted) return;
+    final pick = await askPageColours(
+      context,
+      byDefault: byDefault,
+      current: current,
+    );
+    if (pick == null) return;
+    try {
+      await store.set(item.cacheId, pick.colours);
+    } catch (e) {
+      _message("Couldn't save the page colours: $e");
+    }
   }
 
   void _message(String text, {SnackBarAction? action}) {

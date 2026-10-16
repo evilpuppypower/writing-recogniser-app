@@ -592,7 +592,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Page colours'),
             subtitle: const Text(
               'Dark pages for reading at night: the page and your ink are '
-              'shown in reverse on screen. The PDF and exports are unchanged.',
+              'shown in reverse on screen. The PDF itself is unchanged. '
+              'For PDFs without a choice of their own (hold a PDF on the '
+              'home screen to give it one); exports can be dark too.',
             ),
             trailing: DropdownButton<PageColours>(
               value: s.pageColours,
@@ -604,6 +606,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   DropdownMenuItem(value: c, child: Text(c.label)),
               ],
             ),
+          ),
+          SwitchListTile(
+            title: const Text('Ask when I import a PDF'),
+            subtitle: const Text('Light or dark pages for each new PDF'),
+            value: s.askPageColours,
+            onChanged: (v) => settings.update(s.copyWith(askPageColours: v)),
           ),
           const Divider(),
           const _Header('MyScript Cloud'),
