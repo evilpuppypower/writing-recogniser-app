@@ -800,3 +800,12 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - **The parts:** stored PDFs, notebooks, your writing (ink and the words read), what the app has learned (corrections and samples), the search index, the diagnostic log, first-page pictures, and "other" (settings, tags, bookmarks and the database's own bookkeeping). The database's parts are measured by the bytes of what they hold; whatever's left of the database file counts as "other".
 - **Actions:** "Manage stored PDFs" (the screen that already existed) and "Clear the search index" (asks first; it's read again the next time you search everything). Nothing else can be deleted from here, so nothing is lost by accident.
 - Backups aren't counted: they're saved where the user chooses, outside the app.
+
+## 2026-10-17 — Highlights summary (owner: answer 17, "yes, as a toggle setting")
+
+- **What it is:** a toolbar button in the PDF ("Highlights and notes, page by page"; it can be turned off in Settings → Highlights summary). It lists, page by page:
+  - the printed text the highlighter went over, made out to whole words, so a highlight that cuts a word in half still gives the whole word;
+  - your notes, each with the printed line it's next to (the nearest line at about the same height, within two lines). Converted lines count by their typed text, and shorthand is written out.
+- **Using it:** tap any line to go to its page. "Copy" puts it all on the clipboard as plain text. "Save" saves it as a `.txt` file wherever you choose. It's worked out when opened, from the ink and the PDF's text, so it's always up to date and nothing extra is stored.
+- **How text counts as highlighted:** the highlighter's line passes within half its width (or half the letter's height) of a letter's middle.
+- **Scanned PDFs** have no printed text to find until OCR comes, so only notes show for them.
