@@ -65,6 +65,8 @@ void main() {
   Set<String> withInk = {};
   var crashCleared = false;
   late MemoryPageLayoutStore layouts;
+  String? quickId;
+  var quickInk = false;
   late List<List<String>> restored;
   late List<String> notebookNames;
   late MemoryTagStore tagStore;
@@ -95,6 +97,9 @@ void main() {
               tags: () async => tagStore,
               handwritingOf: (id) async => '',
               restoreNotebooks: (ids) async => restored.add([...ids]),
+              quickNotesId: () async => quickId,
+              saveQuickNotesId: (id) async => quickId = id,
+              pageHasInk: (id, key) async => quickInk,
               newNotebookFile: (name) async {
                 notebookNames.add(name);
                 final id = '1_2_$name.pdf';
@@ -187,6 +192,39 @@ void main() {
     // is read.
     expect(restored.last, [id]);
     expect(find.byType(PdfViewerScreen), findsOneWidget);
+  });
+
+  testWidgets('quick note: a notebook the first time, then a new page', (
+    tester,
+  ) async {
+    quickId = null;
+    quickInk = false;
+    await pumpHome(tester);
+    await tester.tap(find.text('Quick note'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(notebookNames, ['Quick notes']);
+    final id = quickId!;
+    expect(PageLayout.fromJson(await layouts.load(id))!.title, 'Quick notes');
+    expect(find.byType(PdfViewerScreen), findsOneWidget);
+    await tester.pageBack();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    // The page is still empty: used again, not another page.
+    await tester.tap(find.text('Quick note'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(PageLayout.fromJson(await layouts.load(id))!.length, 1);
+    await tester.pageBack();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    // Written on: the next one is a new page.
+    quickInk = true;
+    await tester.tap(find.text('Quick note'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(PageLayout.fromJson(await layouts.load(id))!.length, 2);
+    expect(notebookNames, hasLength(1));
   });
 
   testWidgets('a notebook in A5, then renamed', (tester) async {

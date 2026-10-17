@@ -13,6 +13,7 @@ import '../core/document_state.dart';
 import '../core/battery_saver.dart';
 import '../core/page_layout.dart';
 import '../core/page_templates.dart';
+import '../core/quick_note.dart';
 import '../core/paper.dart' show NotebookSize, ruledGap;
 import '../core/page_ink.dart';
 import '../core/recent_pdfs.dart';
@@ -73,6 +74,9 @@ class LibraryServices {
     this.handwritingOf = _loadHandwriting,
     this.librarySearch = LibrarySearchService.open,
     this.restoreProblem = _restoreProblem,
+    this.pageHasInk = _pageHasInk,
+    this.quickNotesId = _loadQuickNotesId,
+    this.saveQuickNotesId = _saveQuickNotesId,
     this.backupReminder = BackupReminder.load,
     this.snoozeBackupReminder = BackupReminder.snooze,
   });
@@ -83,6 +87,21 @@ class LibraryServices {
 
   /// Why the last restore couldn't be put in place, or null.
   final Future<String?> Function() restoreProblem;
+
+  /// Whether a document's page (by its lasting key) has ink.
+  final Future<bool> Function(String id, int key) pageHasInk;
+
+  /// Which notebook is "Quick notes" (kept, so renaming it doesn't lose it).
+  final Future<String?> Function() quickNotesId;
+  final Future<void> Function(String id) saveQuickNotesId;
+
+  static Future<String?> _loadQuickNotesId() =>
+      SharedPreferencesAsync().getString('quickNotes.id');
+  static Future<void> _saveQuickNotesId(String id) =>
+      SharedPreferencesAsync().setString('quickNotes.id', id);
+
+  static Future<bool> _pageHasInk(String id, int key) async =>
+      (await (await SqliteInkStore.open()).load(id)).strokesOn(key).isNotEmpty;
 
   static Future<String?> _restoreProblem() =>
       const AndroidBackupService().restoreProblem();
@@ -746,6 +765,90 @@ class _HomeScreenState extends State<HomeScreen> {
     await _refreshThumbnail(file.id);
   }
 
+  /// Quick note (owner, 2026-10-17): a new page at the end of the "Quick
+  /// notes" notebook (made the first time), opened straight away.
+  Future<void> _quickNote() async {
+    final tapped = DateTime.now();
+    SharedPreferencesAsync? prefs;
+    try {
+      prefs = SharedPreferencesAsync();
+    } catch (_) {}
+    String? id;
+    try {
+      id = await _s.quickNotesId();
+    } catch (_) {}
+    try {
+      final layouts = await _s.pageLayouts();
+      final existing = id == null || !_notebooks.contains(id)
+          ? null
+          : PageLayout.fromJson(await layouts.load(id));
+      String path;
+      PageLayout? before = existing;
+      if (before == null) {
+        var paper = Paper.lined;
+        try {
+          final name = await prefs?.getString('paper.last');
+          paper = Paper.values.firstWhere(
+            (p) => p.name == name,
+            orElse: () => Paper.lined,
+          );
+        } catch (_) {}
+        final file = await _s.newNotebookFile(quickNotesTitle);
+        id = file.id;
+        path = file.path;
+        final q = addQuickNote(null, paper: paper);
+        await layouts.save(file.id, q.layout);
+        try {
+          await _s.saveQuickNotesId(file.id);
+        } catch (_) {}
+        await _reload();
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          _viewerRoute('$quickNotesTitle.pdf', file.id, path, null, tapped),
+        );
+      } else {
+        final notebookId = id!;
+        StoredCopy? copyOf() => _copies
+            .where((c) => c.id == notebookId && c.path.isNotEmpty)
+            .firstOrNull;
+        var copy = copyOf();
+        if (copy == null) {
+          // Its file is put back by a reload.
+          await _reload();
+          if (!mounted) return;
+          copy = copyOf();
+          if (copy == null) {
+            _message("Couldn't find the Quick notes notebook's file.");
+            return;
+          }
+        }
+        final empty = !await _s
+            .pageHasInk(notebookId, before.keyAt(before.length))
+            .catchError((_) => true);
+        final q = addQuickNote(before, lastPageEmpty: empty);
+        if (!identical(q.layout, before)) {
+          await layouts.save(notebookId, q.layout);
+        }
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          _viewerRoute(
+            '${_titles[notebookId] ?? quickNotesTitle}.pdf',
+            notebookId,
+            copy.path,
+            null,
+            tapped,
+            page: q.page,
+          ),
+        );
+      }
+    } catch (e) {
+      _message("Couldn't open a quick note: $e");
+      return;
+    }
+    await _reload();
+    await _refreshThumbnail(id);
+  }
+
   /// Gives a notebook another name (kept with its pages; its file keeps
   /// its own name, so nothing written in it moves).
   Future<void> _rename(_Item item) async {
@@ -1007,6 +1110,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           icon: const Icon(Icons.edit_note),
                           label: const Text('New notebook'),
                           onPressed: _newNotebook,
+                        ),
+                        const SizedBox(height: 12),
+                        FilledButton.tonalIcon(
+                          icon: const Icon(Icons.bolt),
+                          label: const Text('Quick note'),
+                          onPressed: _quickNote,
                         ),
                         const SizedBox(height: 12),
                         OutlinedButton.icon(
