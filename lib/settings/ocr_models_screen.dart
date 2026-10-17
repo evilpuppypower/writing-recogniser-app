@@ -60,11 +60,20 @@ class _OcrModelsScreenState extends State<OcrModelsScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    // Leaving the screen stops a download (it can be started again), so
+    // none runs on unseen.
+    if (_downloading != null) widget.reader.cancel().catchError((_) {});
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final models = await widget.catalogue().catchError((_) => <OcrModel>[]);
-    final installed = await widget.reader.installed().catchError(
+    final known = {for (final m in models) m.id};
+    final installed = (await widget.reader.installed().catchError(
       (_) => <String>{},
-    );
+    )).where(known.contains).toSet();
     final chosen = await widget.loadChoice().catchError((_) => null);
     if (!mounted) return;
     setState(() {

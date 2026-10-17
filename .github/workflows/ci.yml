@@ -73,19 +73,25 @@ jobs:
       # Pinned files aren't downloaded here (nothing goes into the APK).
       - name: Fingerprint text-reading models not pinned yet
         run: |
+          trim() { local v="${1#"${1%%[![:space:]]*}"}"; printf '%s' "${v%"${v##*[![:space:]]}"}"; }
           declare -A seen=()
           while IFS='|' read -r model name file url sha; do
+            model=$(trim "$model"); file=$(trim "$file"); url=$(trim "$url"); sha=$(trim "$sha")
             case "$model" in ''|'#'*) continue ;; esac
-            url=$(echo "$url" | xargs); sha=$(echo "$sha" | xargs)
             [ -n "$sha" ] && continue
-            [ -n "${seen[$url]:-}" ] && { echo "$model $file: ${seen[$url]}"; continue; }
-            if curl -fsSL --retry 3 -o model.bin "$url"; then
+            # Only plain names and Hugging Face https addresses are used.
+            if ! [[ $model =~ ^[A-Za-z0-9._-]+$ && $file =~ ^[A-Za-z0-9._-]+$ && $url =~ ^https://huggingface\.co/[A-Za-z0-9._/-]+$ ]]; then
+              echo "::warning::A line in assets/ocr_models.txt isn't in the expected form"
+              continue
+            fi
+            [ -n "${seen[$url]:-}" ] && { echo "::warning::Text-reading model $model $file is not pinned yet. SHA-256: ${seen[$url]}"; continue; }
+            if curl -fsSL --retry 3 --proto '=https' --proto-redir '=https' --max-filesize 400000000 -o model.bin -- "$url"; then
               got=$(sha256sum model.bin | cut -c1-64)
               size=$(stat -c %s model.bin)
               seen[$url]="$got ($size bytes)"
               echo "::warning::Text-reading model $model $file is not pinned yet. SHA-256: $got ($size bytes)"
             else
-              echo "::warning::Text-reading model $model $file couldn't be downloaded from $url"
+              echo "::warning::Text-reading model $model $file couldn't be downloaded"
             fi
             rm -f model.bin
           done < assets/ocr_models.txt

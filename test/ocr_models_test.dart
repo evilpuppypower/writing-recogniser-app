@@ -163,6 +163,24 @@ c|C|det.onnx|https://x/det|not-a-hash
       expect(saved, isNull);
     });
 
+    testWidgets('leaving the screen stops a download', (tester) async {
+      await tester.pumpWidget(screen([ready]));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Download Small'));
+      await tester.pump();
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await tester.pumpAndSettle();
+      expect(reader.cancelled, isTrue);
+    });
+
+    testWidgets('only models in the list count as downloaded', (tester) async {
+      reader.installedIds.add('something-else');
+      await tester.pumpWidget(screen([ready]));
+      await tester.pumpAndSettle();
+      expect(find.text('Not downloaded'), findsOneWidget);
+      expect(find.text('Download Small'), findsOneWidget);
+    });
+
     testWidgets('removing the model in use clears the choice', (tester) async {
       reader.installedIds.add(recommendedOcrModel);
       await tester.pumpWidget(screen([ready], choice: recommendedOcrModel));

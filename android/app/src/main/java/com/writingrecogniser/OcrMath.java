@@ -67,7 +67,8 @@ public final class OcrMath {
     /**
      * The page image ([argb], [w] x [h]) for the text finder: scaled so its
      * longer side is at most [maxSide] and both sides are multiples of 32,
-     * in blue, green, red order, normalised as PaddleOCR does.
+     * in blue, green, red order, normalised as PaddleOCR does. Made smaller
+     * by averaging each pixel's patch, so thin print isn't lost.
      */
     public static Input detectionInput(int[] argb, int w, int h, int maxSide) {
         float scale = Math.min(1f, (float) maxSide / Math.max(w, h));
@@ -75,12 +76,29 @@ public final class OcrMath {
         int dh = Math.max(32, Math.round(h * scale / 32f) * 32);
         float[] out = new float[3 * dw * dh];
         float sx = (float) w / dw, sy = (float) h / dh;
+        boolean average = sx > 1.5f || sy > 1.5f;
         for (int y = 0; y < dh; y++) {
+            int y0 = (int) (y * sy), y1 = Math.max(y0 + 1, Math.min(h, (int) ((y + 1) * sy)));
             for (int x = 0; x < dw; x++) {
-                float px = (x + 0.5f) * sx - 0.5f, py = (y + 0.5f) * sy - 0.5f;
+                float[] bgr = new float[3];
+                if (average) {
+                    int x0 = (int) (x * sx), x1 = Math.max(x0 + 1, Math.min(w, (int) ((x + 1) * sx)));
+                    for (int yy = y0; yy < y1; yy++) {
+                        for (int xx = x0; xx < x1; xx++) {
+                            int p = argb[yy * w + xx];
+                            bgr[0] += p & 0xff;
+                            bgr[1] += (p >> 8) & 0xff;
+                            bgr[2] += (p >> 16) & 0xff;
+                        }
+                    }
+                    int n = (y1 - y0) * (x1 - x0);
+                    for (int c = 0; c < 3; c++) bgr[c] /= n;
+                } else {
+                    float px = (x + 0.5f) * sx - 0.5f, py = (y + 0.5f) * sy - 0.5f;
+                    for (int c = 0; c < 3; c++) bgr[c] = sample(argb, w, h, px, py, c);
+                }
                 for (int c = 0; c < 3; c++) {
-                    float v = sample(argb, w, h, px, py, c) / 255f;
-                    out[c * dw * dh + y * dw + x] = (v - DET_MEAN[c]) / DET_STD[c];
+                    out[c * dw * dh + y * dw + x] = (bgr[c] / 255f - DET_MEAN[c]) / DET_STD[c];
                 }
             }
         }
@@ -131,7 +149,7 @@ public final class OcrMath {
                 }
             }
             int bw = maxX - minX + 1, bh = maxY - minY + 1;
-            if (count < 4 || Math.min(bw, bh) < 2) continue;
+            if (count < 4 || Math.min(bw, bh) < 3) continue; // PaddleOCR's min_size
             // The box's own score: the average of the finder's values in it.
             double sum = 0;
             for (int y = minY; y <= maxY; y++) {
@@ -144,31 +162,49 @@ public final class OcrMath {
             int top = (int) Math.floor((minY - grow) * sy);
             int right = (int) Math.ceil((maxX + 1 + grow) * sx);
             int bottom = (int) Math.ceil((maxY + 1 + grow) * sy);
+            if (Math.min(bw + 2 * grow, bh + 2 * grow) < 5) continue;
             lines.add(new Line(Math.max(0, left), Math.max(0, top), Math.min(w, right), Math.min(h, bottom)));
         }
-        lines.sort(readingOrder());
+        sortReading(lines);
         return lines;
     }
 
-    /** Top first; lines at about the same height left to right. */
-    public static Comparator<Line> readingOrder() {
-        return (a, b) -> {
-            int ah = a.bottom - a.top, bh = b.bottom - b.top;
-            int ac = (a.top + a.bottom) / 2, bc = (b.top + b.bottom) / 2;
-            if (Math.abs(ac - bc) < Math.min(ah, bh) / 2) return Integer.compare(a.left, b.left);
-            return Integer.compare(ac, bc);
-        };
+    /**
+     * Top first; lines at about the same height left to right. As
+     * PaddleOCR does it: sorted by top then left, then neighbours on the
+     * same row swapped into left-to-right order. (A single comparison for
+     * "same row" isn't consistent, and Java's sort may refuse it.)
+     */
+    public static void sortReading(List<Line> lines) {
+        lines.sort(Comparator.<Line>comparingInt(l -> l.top).thenComparingInt(l -> l.left));
+        for (int i = 0; i < lines.size() - 1; i++) {
+            for (int j = i; j >= 0; j--) {
+                Line a = lines.get(j), b = lines.get(j + 1);
+                int rowGap = Math.max(4, Math.min(a.bottom - a.top, b.bottom - b.top) / 2);
+                if (Math.abs(b.top - a.top) < rowGap && b.left < a.left) {
+                    lines.set(j, b);
+                    lines.set(j + 1, a);
+                } else {
+                    break;
+                }
+            }
+        }
     }
+
+    /** The narrowest image the reader is given (PaddleOCR's 48 x 320). */
+    public static final int REC_MIN_WIDTH = 320;
 
     /**
      * [line]'s part of the page image for the reader: [height] pixels high,
      * as wide as its shape needs (at most [maxWidth]), normalised to
-     * -1..1, blue, green, red order.
+     * -1..1, blue, green, red order. Short words are padded on the right
+     * (with 0, as PaddleOCR does) to [REC_MIN_WIDTH].
      */
     public static Input recognitionInput(int[] argb, int w, int h, Line line, int height, int maxWidth) {
         int lw = Math.max(1, line.right - line.left), lh = Math.max(1, line.bottom - line.top);
-        int rw = Math.max(height / 4, Math.min(maxWidth, (int) Math.ceil((float) lw * height / lh)));
-        float[] out = new float[3 * height * rw];
+        int rw = Math.max(1, Math.min(maxWidth, (int) Math.ceil((float) lw * height / lh)));
+        int padded = Math.max(rw, Math.min(maxWidth, REC_MIN_WIDTH));
+        float[] out = new float[3 * height * padded];
         float sx = (float) lw / rw, sy = (float) lh / height;
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < rw; x++) {
@@ -176,11 +212,11 @@ public final class OcrMath {
                 float py = line.top + (y + 0.5f) * sy - 0.5f;
                 for (int c = 0; c < 3; c++) {
                     float v = sample(argb, w, h, px, py, c) / 255f;
-                    out[c * height * rw + y * rw + x] = (v - 0.5f) / 0.5f;
+                    out[c * height * padded + y * padded + x] = (v - 0.5f) / 0.5f;
                 }
             }
         }
-        return new Input(out, rw, height);
+        return new Input(out, padded, height);
     }
 
     /**
@@ -193,6 +229,9 @@ public final class OcrMath {
      */
     public static void decode(float[] probs, int steps, int classes, List<String> alphabet, Line line) {
         boolean space = classes == alphabet.size() + 2;
+        if (!space && classes != alphabet.size() + 1) {
+            throw new IllegalStateException("The model's alphabet file doesn't match it");
+        }
         StringBuilder text = new StringBuilder();
         double sure = 0;
         int kept = 0, last = -1;

@@ -42,6 +42,9 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
     private val main = Handler(Looper.getMainLooper())
     private val stop = AtomicBoolean(false)
 
+    /** The download's open connection, closed by "cancel" so Stop is at once. */
+    @Volatile private var connection: HttpURLConnection? = null
+
     // Kept while the app runs once loaded (loading a model takes a moment).
     private var loaded: String? = null
     private var det: OrtSession? = null
@@ -49,6 +52,11 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
     private var alphabet: List<String> = emptyList()
 
     init {
+        // Left over if the app was closed mid-download.
+        worker.execute {
+            root().listFiles()?.filter { it.name.endsWith(PARTIAL) || it.name.endsWith(OLD) }
+                ?.forEach { it.deleteRecursively() }
+        }
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "installed" -> work(result) { installed() }
@@ -60,6 +68,7 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
                 }
                 "cancel" -> {
                     stop.set(true)
+                    connection?.let { c -> Thread { c.disconnect() }.start() }
                     result.success(null)
                 }
                 "remove" -> {
@@ -104,12 +113,19 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
     private fun modelDir(id: String) = File(root(), safe(id))
 
     private fun installed(): List<String> =
-        root().listFiles()?.filter { File(it, READY).isFile }?.map { it.name }?.sorted() ?: emptyList()
+        root().listFiles()
+            ?.filter { !it.name.endsWith(PARTIAL) && !it.name.endsWith(OLD) && File(it, READY).isFile }
+            ?.map { it.name }?.sorted() ?: emptyList()
 
     private fun download(id: String, files: List<Map<String, String?>>): Map<String, String> {
         val dir = modelDir(id)
-        val partial = File(root(), "$id.partial").apply { deleteRecursively(); mkdirs() }
+        val partial = File(root(), "$id$PARTIAL").apply { deleteRecursively(); mkdirs() }
         val sums = mutableMapOf<String, String>()
+        // Only files whose fingerprint is pinned (the app's list says it).
+        for (f in files) {
+            require(f["sha256"]?.matches(Regex("[0-9a-fA-F]{64}")) == true) { "That model's files aren't checked yet" }
+            require(URL(f["url"]!!).protocol == "https") { "Downloads only over https" }
+        }
         try {
             // Total size first, for the progress bar (when servers say).
             val sizes = files.map { f -> head(f["url"]!!) }
@@ -122,11 +138,15 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
                 require(url.protocol == "https") { "Downloads only over https" }
                 val target = File(partial, name)
                 val sha = MessageDigest.getInstance("SHA-256")
+                if (stop.get()) throw java.io.IOException("stopped")
                 val conn = (url.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 20_000
                     readTimeout = 60_000
                     instanceFollowRedirects = true
+                    // The real size, for the progress bar.
+                    setRequestProperty("Accept-Encoding", "identity")
                 }
+                connection = conn
                 try {
                     if (conn.responseCode !in 200..299) throw java.io.IOException("The server said ${conn.responseCode}")
                     conn.inputStream.use { input ->
@@ -139,6 +159,8 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
                                 out.write(buf, 0, n)
                                 sha.update(buf, 0, n)
                                 done += n
+                                // Far more than any model: not filling the tablet.
+                                if (done > MAX_DOWNLOAD) throw java.io.IOException("The download is much larger than expected")
                                 val now = System.currentTimeMillis()
                                 if (now - lastSent > 200) {
                                     lastSent = now
@@ -148,20 +170,30 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
                             }
                         }
                     }
+                } catch (e: java.io.IOException) {
+                    if (stop.get()) throw java.io.IOException("stopped")
+                    throw e
                 } finally {
+                    connection = null
                     conn.disconnect()
                 }
                 val got = BackupCrypto.toHex(sha.digest())
-                val want = f["sha256"]
-                if (!want.isNullOrBlank() && !want.equals(got, ignoreCase = true)) {
+                val want = f["sha256"]!!
+                if (!want.equals(got, ignoreCase = true)) {
                     throw java.io.IOException("$name isn't the file expected (its fingerprint is different), so it wasn't kept")
                 }
                 sums[name] = got
             }
             File(partial, READY).writeText(sums.entries.joinToString("\n") { "${it.key}=${it.value}" })
             if (loaded == id) unload()
-            dir.deleteRecursively()
-            if (!partial.renameTo(dir)) throw java.io.IOException("Couldn't keep the model")
+            // The old copy is kept until the new one is in place.
+            val old = File(root(), "$id$OLD").apply { deleteRecursively() }
+            if (dir.exists() && !dir.renameTo(old)) throw java.io.IOException("Couldn't replace the model")
+            if (!partial.renameTo(dir)) {
+                old.renameTo(dir)
+                throw java.io.IOException("Couldn't keep the model")
+            }
+            old.deleteRecursively()
             return sums
         } finally {
             partial.deleteRecursively()
@@ -170,10 +202,13 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
 
     /** The size the server gives for [url], or -1. */
     private fun head(url: String): Long = try {
+        if (stop.get()) throw java.io.IOException("stopped")
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "HEAD"
             connectTimeout = 15_000
+            readTimeout = 15_000
             instanceFollowRedirects = true
+            setRequestProperty("Accept-Encoding", "identity")
         }
         try {
             conn.contentLengthLong
@@ -198,17 +233,19 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
         val dir = modelDir(id)
         require(File(dir, READY).isFile) { "That model isn't downloaded" }
         val env = OrtEnvironment.getEnvironment()
-        val options = OrtSession.SessionOptions().apply {
+        OrtSession.SessionOptions().use { options ->
             // Half the cores at most, so the screen stays smooth.
-            setIntraOpNumThreads(maxOf(1, Runtime.getRuntime().availableProcessors() / 2))
+            options.setIntraOpNumThreads(maxOf(1, Runtime.getRuntime().availableProcessors() / 2))
+            det = env.createSession(File(dir, "det.onnx").path, options)
+            rec = env.createSession(File(dir, "rec.onnx").path, options)
         }
-        det = env.createSession(File(dir, "det.onnx").path, options)
-        rec = env.createSession(File(dir, "rec.onnx").path, options)
         alphabet = OcrMath.alphabet(File(dir, "dict.txt").readText())
         loaded = id
     }
 
     private fun read(id: String, w: Int, h: Int, rgba: ByteArray): List<Map<String, Any>> {
+        require(w > 0 && h > 0 && w.toLong() * h <= MAX_PIXELS) { "The page image is too large to read" }
+        require(rgba.size.toLong() == w.toLong() * h * 4) { "The page image is the wrong size" }
         load(id)
         val env = OrtEnvironment.getEnvironment()
         val argb = IntArray(w * h)
@@ -257,7 +294,14 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
 
     private companion object {
         const val READY = "ready"
-        const val DET_MAX_SIDE = 960
+        const val PARTIAL = ".partial"
+        const val OLD = ".old"
+        const val MAX_DOWNLOAD = 400L * 1024 * 1024
+        /** About an A4 page at 300 dpi, with room to spare. */
+        const val MAX_PIXELS = 12_000_000L
+        // Large enough for ordinary print on a whole page (at 960, 10 pt
+        // text on A4 is only about 11 pixels high).
+        const val DET_MAX_SIDE = 1600
         const val REC_HEIGHT = 48
         const val REC_MAX_WIDTH = 960
     }
