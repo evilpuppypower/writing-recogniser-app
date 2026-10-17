@@ -25,6 +25,7 @@ import '../import/import_progress_screen.dart';
 import '../import/pdf_import_channel.dart';
 import '../platform/diagnostics.dart';
 import '../settings/settings_controller.dart';
+import '../settings/backup_screen.dart';
 import '../settings/settings_screen.dart';
 import '../storage/sqlite_document_colours_store.dart';
 import '../storage/sqlite_document_store.dart';
@@ -68,7 +69,13 @@ class LibraryServices {
     this.handwritingOf = _loadHandwriting,
     this.librarySearch = LibrarySearchService.open,
     this.restoreProblem = _restoreProblem,
+    this.backupReminder = BackupReminder.load,
+    this.snoozeBackupReminder = BackupReminder.snooze,
   });
+
+  /// Whether to remind about backups now (owner: a reminder after 7 days).
+  final Future<bool> Function() backupReminder;
+  final Future<void> Function() snoozeBackupReminder;
 
   /// Why the last restore couldn't be put in place, or null.
   final Future<String?> Function() restoreProblem;
@@ -200,6 +207,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// The library has been read at least once.
   bool _loadedOnce = false;
+
+  /// No backup for a week (and there's writing to lose).
+  bool _remindBackup = false;
   List<StoredCopy> _copies = [];
   Map<String, DocumentState> _positions = {};
 
@@ -316,6 +326,16 @@ class _HomeScreenState extends State<HomeScreen> {
       copies2 = await _s.listCopies().catchError((_) => copies);
     }
     if (!mounted) return;
+    // Checked after, so it never holds up the list.
+    if (withInk.isNotEmpty) {
+      unawaited(
+        _s.backupReminder().catchError((_) => false).then((remind) {
+          if (mounted && remind != _remindBackup) {
+            setState(() => _remindBackup = remind);
+          }
+        }),
+      );
+    }
     setState(() {
       _loadedOnce = true;
       _recents = recents;
@@ -964,6 +984,47 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+            if (_remindBackup)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.backup_outlined),
+                      title: const Text('No backup for over a week'),
+                      subtitle: const Text(
+                        'A backup keeps your PDFs and writing safe if the '
+                        'tablet is lost or breaks.',
+                      ),
+                      trailing: Wrap(
+                        spacing: 4,
+                        children: [
+                          TextButton(
+                            onPressed: () async {
+                              setState(() => _remindBackup = false);
+                              await _s.snoozeBackupReminder().catchError(
+                                (_) {},
+                              );
+                            },
+                            child: const Text('Not now'),
+                          ),
+                          FilledButton(
+                            onPressed: () async {
+                              await Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const BackupScreen(),
+                                ),
+                              );
+                              await _reload();
+                            },
+                            child: const Text('Back up'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (_tagList.isNotEmpty)
               SliverToBoxAdapter(
                 child: TagFilterRow(

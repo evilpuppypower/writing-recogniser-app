@@ -60,6 +60,37 @@ class FakeBackups implements BackupService {
 
   @override
   Future<String?> restoreProblem() async => null;
+
+  String? folder;
+  int every = 0, keep = 5;
+  DateTime? lastAt;
+
+  @override
+  Future<String?> chooseFolder() async => folder = 'Backups';
+
+  @override
+  Future<void> setAuto({required int everyDays, required int keep}) async {
+    every = everyDays;
+    this.keep = keep;
+  }
+
+  @override
+  Future<AutoBackupStatus> autoStatus() async => (
+    folder: folder,
+    everyDays: every,
+    keep: keep,
+    lastAt: lastAt,
+    bytes: lastAt == null ? 0 : 2048,
+    failedAt: null,
+    error: null,
+  );
+
+  @override
+  Future<bool> backUpToFolder({void Function(BackupProgress)? progress}) async {
+    calls.add('toFolder');
+    lastAt = DateTime.now();
+    return true;
+  }
 }
 
 void main() {
@@ -139,6 +170,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Restore from a backup'), 200);
     await tester.tap(find.text('Restore from a backup'));
     await tester.pumpAndSettle();
     expect(find.textContaining('replaced'), findsWidgets);
@@ -177,6 +209,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Restore from a backup'), 200);
     await tester.tap(find.text('Restore from a backup'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('restore-key')), 'right one');
@@ -190,6 +223,76 @@ void main() {
     expect(
       backupFileName(DateTime(2026, 3, 4, 5, 6)),
       'writing-recogniser-backup-20260304-0506.wrbackup',
+    );
+  });
+
+  testWidgets('automatic backups: folder, how often, back up now', (
+    tester,
+  ) async {
+    final f = FakeBackups()..setUpDone = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BackupScreen(
+          service: f,
+          loadRecord: () async => const BackupRecord(),
+          saveRecord: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Choose a folder'), 200);
+    expect(find.text('No folder chosen'), findsOneWidget);
+    await tester.tap(find.text('Choose a folder'));
+    await tester.pumpAndSettle();
+    expect(find.text('Backups'), findsWidgets);
+    await tester.scrollUntilVisible(find.text('Off'), 200);
+    await tester.tap(find.text('Off'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Every week').last);
+    await tester.pumpAndSettle();
+    expect(f.every, 7);
+    await tester.scrollUntilVisible(
+      find.text('Back up to the folder now'),
+      200,
+    );
+    await tester.tap(find.text('Back up to the folder now'));
+    await tester.pumpAndSettle();
+    expect(f.calls.last, 'toFolder');
+    expect(find.textContaining('Last automatic backup:'), findsOneWidget);
+    expect(find.textContaining('Backup saved in Backups'), findsOneWidget);
+  });
+
+  test('the reminder: after a week without a backup, unless put off', () {
+    final now = DateTime(2026, 10, 17, 12);
+    expect(BackupReminder.due(now: now), isTrue);
+    expect(
+      BackupReminder.due(
+        now: now,
+        lastManual: now.subtract(const Duration(days: 3)),
+      ),
+      isFalse,
+    );
+    expect(
+      BackupReminder.due(
+        now: now,
+        lastManual: now.subtract(const Duration(days: 30)),
+        lastAuto: now.subtract(const Duration(days: 1)),
+      ),
+      isFalse,
+    );
+    expect(
+      BackupReminder.due(
+        now: now,
+        lastAuto: now.subtract(const Duration(days: 8)),
+      ),
+      isTrue,
+    );
+    expect(
+      BackupReminder.due(
+        now: now,
+        snoozedUntil: now.add(const Duration(days: 2)),
+      ),
+      isFalse,
     );
   });
 }

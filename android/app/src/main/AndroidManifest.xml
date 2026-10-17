@@ -4,6 +4,9 @@
          model download, and MyScript Cloud recognition (pen strokes only).
          See docs/DECISIONS.md. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Automatic backups (owner, 2026-10-16) keep their schedule after the
+         tablet restarts. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <application
         android:label="Writing Recogniser"
         android:name=".App"
@@ -46,6 +49,12 @@
               android:resource="@style/NormalTheme"
               />
         </activity>
+        <!-- Automatic backups, run by Android's job scheduler (AutoBackup.kt).
+             Only the system can start it. -->
+        <service
+            android:name=".AutoBackupJob"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
         <!-- ML Kit normally starts itself at launch; if that fails the whole
              app closes. App.kt starts it instead, inside a safety net. -->
         <provider

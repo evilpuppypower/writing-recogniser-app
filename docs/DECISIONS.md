@@ -783,3 +783,12 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - **The MyScript keys** are in the settings, sealed by this tablet's key store, so they only work again on the same tablet. On a new tablet they need entering again after a restore (the restore box says so).
 - **Not in a backup:** thumbnails (made again), and the temporary copy of the database made for the backup.
 - **Part 2 (next):** automatic backups every few days into a chosen folder, and a reminder.
+
+## 2026-10-17 — Backups, part 2: automatic backups and a reminder (owner: answer 11)
+
+- **Automatic backups** go every 1, 3, 7 or 14 days into a folder the user picks with Android's folder picker. That can be a folder on the tablet, or a cloud app's folder (Google Drive and others offer theirs there). The cloud app moves the file; this app makes no network calls.
+- **Android's own job scheduler** runs them (no new library), when the battery and storage aren't low, and keeps the schedule after the tablet restarts (hence the "run at start-up" permission). I planned WorkManager, but it's a new dependency and does the same here.
+- **Each automatic backup** is saved and checked like a manual one. Then the oldest of the app's own backups in that folder are removed, keeping the newest 3, 5 or 10 (5 by default). Only files named `writing-recogniser-backup-….wrbackup` are ever removed.
+- **Status:** Settings → Backups shows the folder, the last automatic backup, and why the last try failed if it did (for example, the folder was removed or can't be written to). "Back up to the folder now" makes one straight away, with a progress bar.
+- **Limit:** Android gives a scheduled job about 10 minutes. A very large library, or a slow cloud folder, may not finish in time. It's then recorded as stopped and tried again later.
+- **Reminder:** when there's writing in the app and no backup, by hand or automatic, for 7 days, the home screen shows "No backup for over a week" with "Back up" and "Not now". "Not now" waits another 7 days.

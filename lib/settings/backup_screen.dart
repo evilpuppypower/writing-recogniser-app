@@ -38,6 +38,59 @@ class BackupRecord {
   }
 }
 
+/// The reminder on the home screen (owner: after 7 days without a backup,
+/// made by hand or automatically). "Not now" waits another 7 days.
+class BackupReminder {
+  static const after = Duration(days: 7);
+  static const _snoozeKey = 'backup.remindAfter';
+
+  /// Whether it's time: no backup for [after], and not put off.
+  static bool due({
+    required DateTime now,
+    DateTime? lastManual,
+    DateTime? lastAuto,
+    DateTime? snoozedUntil,
+  }) {
+    if (snoozedUntil != null && now.isBefore(snoozedUntil)) return false;
+    final last = [lastManual, lastAuto].whereType<DateTime>().fold<DateTime?>(
+      null,
+      (a, b) => a == null || b.isAfter(a) ? b : a,
+    );
+    return last == null || now.difference(last) >= after;
+  }
+
+  static Future<bool> load({
+    BackupService service = const AndroidBackupService(),
+  }) async {
+    final manual = await BackupRecord.load();
+    DateTime? auto;
+    try {
+      auto = (await service.autoStatus()).lastAt;
+    } catch (_) {}
+    DateTime? snoozed;
+    try {
+      snoozed = DateTime.tryParse(
+        await SharedPreferencesAsync().getString(_snoozeKey) ?? '',
+      );
+    } catch (_) {}
+    return due(
+      now: DateTime.now(),
+      lastManual: manual.at,
+      lastAuto: auto,
+      snoozedUntil: snoozed?.toLocal(),
+    );
+  }
+
+  static Future<void> snooze() async {
+    try {
+      await SharedPreferencesAsync().setString(
+        _snoozeKey,
+        DateTime.now().add(after).toUtc().toIso8601String(),
+      );
+    } catch (_) {}
+  }
+}
+
 /// A backup's file name, by the local date and time it was made.
 String backupFileName(DateTime now) {
   String two(int v) => v.toString().padLeft(2, '0');
@@ -91,11 +144,69 @@ class _BackupScreenState extends State<BackupScreen> {
   Future<void> _load() async {
     final setUp = await _s.isSetUp().catchError((_) => false);
     final record = await widget.loadRecord();
+    final auto = await _s
+        .autoStatus()
+        .then<AutoBackupStatus?>((a) => a)
+        .catchError((_) => null);
     if (!mounted) return;
     setState(() {
       _setUp = setUp;
       _record = record;
+      _auto = auto;
     });
+  }
+
+  /// Automatic backups, as last read.
+  AutoBackupStatus? _auto;
+
+  Future<void> _refreshAuto() async {
+    final auto = await _s
+        .autoStatus()
+        .then<AutoBackupStatus?>((a) => a)
+        .catchError((_) => null);
+    if (mounted) setState(() => _auto = auto);
+  }
+
+  Future<void> _chooseFolder() async {
+    try {
+      await _s.chooseFolder();
+    } catch (e) {
+      _message("Couldn't use that folder: $e");
+    }
+    await _refreshAuto();
+  }
+
+  Future<void> _setAuto({int? everyDays, int? keep}) async {
+    final a = _auto;
+    try {
+      await _s.setAuto(
+        everyDays: everyDays ?? a?.everyDays ?? 0,
+        keep: keep ?? a?.keep ?? 5,
+      );
+    } catch (e) {
+      _message("Couldn't change automatic backups: $e");
+    }
+    await _refreshAuto();
+  }
+
+  Future<void> _backUpToFolder() async {
+    _start('Backing up…', cancellable: true);
+    try {
+      await _s.backUpToFolder(progress: _onProgress);
+    } catch (e) {
+      _message("The backup couldn't be made: $e");
+    }
+    if (!mounted) return;
+    _done();
+    await _refreshAuto();
+    final a = _auto;
+    if (a?.lastAt != null &&
+        DateTime.now().difference(a!.lastAt!).inMinutes < 2) {
+      _message(
+        'Backup saved in ${a.folder ?? 'the folder'} and checked'
+        '${a.bytes > 0 ? ' (${formatBytes(a.bytes)})' : ''}.',
+      );
+    }
   }
 
   void _message(String text) {
@@ -376,6 +487,16 @@ class _BackupScreenState extends State<BackupScreen> {
                     label: const Text('Change the password'),
                     onPressed: () => _setUpPassword(change: true),
                   ),
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  _AutoBackups(
+                    status: _auto,
+                    onChooseFolder: _chooseFolder,
+                    onEvery: (d) => _setAuto(everyDays: d),
+                    onKeep: (k) => _setAuto(keep: k),
+                    onNow: _backUpToFolder,
+                  ),
                 ],
                 if (busy == null && !_restoreReady) ...[
                   const SizedBox(height: 24),
@@ -396,6 +517,118 @@ class _BackupScreenState extends State<BackupScreen> {
                 ],
               ],
             ),
+    );
+  }
+}
+
+/// Automatic backups: the folder, how often, how many are kept, and how
+/// the last one went.
+class _AutoBackups extends StatelessWidget {
+  const _AutoBackups({
+    required this.status,
+    required this.onChooseFolder,
+    required this.onEvery,
+    required this.onKeep,
+    required this.onNow,
+  });
+
+  final AutoBackupStatus? status;
+  final VoidCallback onChooseFolder;
+  final ValueChanged<int> onEvery;
+  final ValueChanged<int> onKeep;
+  final VoidCallback onNow;
+
+  static const everyChoices = {
+    0: 'Off',
+    1: 'Every day',
+    3: 'Every 3 days',
+    7: 'Every week',
+    14: 'Every 2 weeks',
+  };
+  static const keepChoices = [3, 5, 10];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = status;
+    final folder = s?.folder;
+    final every = everyChoices.containsKey(s?.everyDays) ? s!.everyDays : 0;
+    final keep = keepChoices.contains(s?.keep) ? s!.keep : 5;
+    final failedAt = s?.failedAt;
+    final lastAt = s?.lastAt;
+    final failedLast =
+        failedAt != null && (lastAt == null || failedAt.isAfter(lastAt));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Automatic backups', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 4),
+        const Text(
+          'Made by themselves every few days, when the battery isn\'t low, '
+          'into a folder you choose. It can be a cloud app\'s folder (such '
+          'as Google Drive): that app then moves the file. The newest are '
+          'kept and older ones removed.',
+        ),
+        const SizedBox(height: 8),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.folder_outlined),
+          title: Text(folder ?? 'No folder chosen'),
+          trailing: TextButton(
+            onPressed: onChooseFolder,
+            child: Text(folder == null ? 'Choose a folder' : 'Change'),
+          ),
+        ),
+        Row(
+          children: [
+            const Expanded(child: Text('How often')),
+            DropdownButton<int>(
+              value: every,
+              items: [
+                for (final e in everyChoices.entries)
+                  DropdownMenuItem(value: e.key, child: Text(e.value)),
+              ],
+              onChanged: folder == null
+                  ? null
+                  : (v) {
+                      if (v != null) onEvery(v);
+                    },
+            ),
+          ],
+        ),
+        Row(
+          children: [
+            const Expanded(child: Text('Backups kept in the folder')),
+            DropdownButton<int>(
+              value: keep,
+              items: [
+                for (final k in keepChoices)
+                  DropdownMenuItem(value: k, child: Text('The newest $k')),
+              ],
+              onChanged: (v) {
+                if (v != null) onKeep(v);
+              },
+            ),
+          ],
+        ),
+        if (lastAt != null)
+          Text(
+            'Last automatic backup: ${formatDateTime(lastAt)}'
+            '${(s?.bytes ?? 0) > 0 ? ' (${formatBytes(s!.bytes)})' : ''}',
+          ),
+        if (failedLast)
+          Text(
+            'The last try didn\'t work (${formatDateTime(failedAt)}): '
+            '${s?.error ?? 'unknown reason'}',
+            style: TextStyle(color: theme.colorScheme.error),
+          ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.drive_folder_upload_outlined),
+          label: const Text('Back up to the folder now'),
+          onPressed: folder == null ? null : onNow,
+        ),
+      ],
     );
   }
 }
