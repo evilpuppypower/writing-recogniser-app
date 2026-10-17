@@ -25,6 +25,12 @@ void main() {
     expect(back.twoPages, isTrue);
     expect(back.textLabels, 'off');
     expect(back.showTyped, isFalse);
+    expect(back.readLater, isNull);
+    expect(
+      DocumentView.fromJson(const DocumentView(readLater: true).toJson())
+          .readLater,
+      isTrue,
+    );
     // Nothing saved, or unreadable: Settings decides.
     expect(DocumentView.fromJson(null).twoPages, isNull);
     expect(DocumentView.fromJson('nonsense').page, isNull);

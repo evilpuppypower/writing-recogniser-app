@@ -839,3 +839,12 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - **The first time**, it makes that notebook, on the paper last chosen (lined if none). After that, each new page has the same paper and size as the last one.
 - **If the last page is still empty**, it's used again, so tapping twice doesn't leave empty pages behind. ("Empty" means nothing on it: no ink and no text box.)
 - The notebook is remembered by its id, so it can be renamed, tagged and searched like any other. If it's deleted, the next quick note makes a new one.
+
+## 2026-10-17 — Read later (owner: "1c", a default in Settings, and each document can change it)
+
+- **Settings → "Read my writing later"** (off by default) is the default for documents.
+- **Each document can change it** with a toolbar button: "Read my writing later, not as I write" turns it on for that document. While it's on, the button shows how many pages are waiting and offers "Read all now" or "Read as I write again". The choice is kept with the document.
+- **While it's on**, handwriting isn't sent to the reading engine as you write. "Read all now" reads every waiting page, with a progress box and Stop when there are several. Until a page is read, its writing isn't labelled, turned into typed text, found by search, or learned from.
+- **Things that need the words read them anyway**, as before: exporting with searchable text, and converting handwriting to typed text. A word can only be corrected once it's been read.
+- Pages written before, and not changed, keep their saved reading. Only new or changed writing waits.
+- **"Read as I write again"** reads whatever was waiting, in the background.

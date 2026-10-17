@@ -29,10 +29,15 @@ void main() {
   });
 
   test('kept in the settings', () {
-    const s = AppSettings(batterySaver: true, batterySaverWithSystem: false);
+    const s = AppSettings(
+      batterySaver: true,
+      batterySaverWithSystem: false,
+      readLater: true,
+    );
     final back = AppSettings.fromMap(s.toMap());
     expect(back.batterySaver, isTrue);
     expect(back.batterySaverWithSystem, isFalse);
+    expect(back.readLater, isTrue);
     expect(back, s);
     expect(const AppSettings().batterySaverWithSystem, isTrue);
   });

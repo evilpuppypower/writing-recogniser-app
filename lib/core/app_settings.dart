@@ -136,6 +136,7 @@ class AppSettings {
     this.highlightsSummary = true,
     this.batterySaver = false,
     this.batterySaverWithSystem = true,
+    this.readLater = false,
     this.suggestTagsFromContents = true,
     this.textLabels = TextLabelPlace.above,
     this.textPanel = TextPanelPlace.off,
@@ -255,6 +256,10 @@ class AppSettings {
   /// Battery saver also while Android's own battery saver is on.
   final bool batterySaverWithSystem;
 
+  /// Handwriting isn't read while writing, only on "Read all now"
+  /// (owner, 2026-10-17); each document can change it.
+  final bool readLater;
+
   /// Tags are also suggested from what's written in a document, not only
   /// its name (read on the tablet only).
   final bool suggestTagsFromContents;
@@ -314,6 +319,7 @@ class AppSettings {
     bool? highlightsSummary,
     bool? batterySaver,
     bool? batterySaverWithSystem,
+    bool? readLater,
     bool? suggestTagsFromContents,
     TextLabelPlace? textLabels,
     TextPanelPlace? textPanel,
@@ -360,6 +366,7 @@ class AppSettings {
     batterySaver: batterySaver ?? this.batterySaver,
     batterySaverWithSystem:
         batterySaverWithSystem ?? this.batterySaverWithSystem,
+    readLater: readLater ?? this.readLater,
     suggestTagsFromContents:
         suggestTagsFromContents ?? this.suggestTagsFromContents,
     textLabels: textLabels ?? this.textLabels,
@@ -394,6 +401,7 @@ class AppSettings {
     'highlightsSummary': highlightsSummary,
     'batterySaver': batterySaver,
     'batterySaverWithSystem': batterySaverWithSystem,
+    'readLater': readLater,
     'suggestTagsFromContents': suggestTagsFromContents,
     'textLabels': textLabels.name,
     'textPanel': textPanel.name,
@@ -435,6 +443,7 @@ class AppSettings {
     final highlightsSummary = m['highlightsSummary'];
     final batterySaver = m['batterySaver'];
     final batterySaverWithSystem = m['batterySaverWithSystem'];
+    final readLater = m['readLater'];
     final suggestTags = m['suggestTagsFromContents'];
     final askPageColours = m['askPageColours'];
     final askWhenUnsure = m['askWhenUnsure'];
@@ -495,6 +504,7 @@ class AppSettings {
       batterySaverWithSystem: batterySaverWithSystem is bool
           ? batterySaverWithSystem
           : d.batterySaverWithSystem,
+      readLater: readLater is bool ? readLater : d.readLater,
       suggestTagsFromContents: suggestTags is bool
           ? suggestTags
           : d.suggestTagsFromContents,
@@ -545,6 +555,7 @@ class AppSettings {
       other.highlightsSummary == highlightsSummary &&
       other.batterySaver == batterySaver &&
       other.batterySaverWithSystem == batterySaverWithSystem &&
+      other.readLater == readLater &&
       other.suggestTagsFromContents == suggestTagsFromContents &&
       other.textLabels == textLabels &&
       other.textPanel == textPanel &&
@@ -578,6 +589,7 @@ class AppSettings {
     highlightsSummary,
     batterySaver,
     batterySaverWithSystem,
+    readLater,
     suggestTagsFromContents,
     textLabels,
     textPanel,
