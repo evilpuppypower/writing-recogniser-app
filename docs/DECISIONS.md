@@ -857,5 +857,5 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - **Fingerprints:** each file's SHA-256 is pinned in `assets/ocr_models.txt`. The app deletes a file that doesn't match, and won't offer a model until all its files are pinned. CI prints the fingerprints of files not pinned yet; they are checked and pinned in a follow-up commit.
 - **Where the models come from (two steps, owner agreed 2026-10-17):**
   1. Now: the community's ONNX conversion of PaddleOCR's models (Hugging Face `monkt/paddleocr-onnx`, Apache 2.0), fixed to one commit so the files can't change under us.
-  2. Later: our own conversion from PaddleOCR's official files, published as a release of this repo, so we depend on no one else's copy. That needs a hand-run workflow, which will be asked about first.
+  2. Later (owner: not before Thursday 2026-10-22): our own conversion from PaddleOCR's official files, published as a release of this repo, so we depend on no one else's copy. That needs a hand-run workflow, which will be asked about first.
 - **English only for now** (other languages are out of scope for the MVP).
