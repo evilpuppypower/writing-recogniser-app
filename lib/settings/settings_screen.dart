@@ -24,6 +24,7 @@ import 'replay_screen.dart';
 import 'stored_copies_screen.dart';
 import 'your_writing_screen.dart';
 import 'backup_screen.dart';
+import 'storage_screen.dart';
 import 'dictionary_screen.dart';
 import '../storage/sqlite_page_layout_store.dart';
 
@@ -850,6 +851,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ],
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.pie_chart_outline),
+            title: const Text('Storage used'),
+            subtitle: const Text(
+              'How much space PDFs, your writing, what the app has learned '
+              'and the search index take.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const StorageScreen()),
             ),
           ),
           SwitchListTile(

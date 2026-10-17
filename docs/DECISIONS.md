@@ -793,3 +793,10 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - **Status:** Settings → Backups shows the folder, the last automatic backup, and why the last try failed if it did (for example, the folder was removed or can't be written to). "Back up to the folder now" makes one straight away, with a progress bar.
 - **Limit:** Android gives a scheduled job about 10 minutes. A very large library, or a slow cloud folder, may not finish in time. It's then recorded as stopped and tried again later.
 - **Reminder:** when there's writing in the app and no backup, by hand or automatic, for 7 days, the home screen shows "No backup for over a week" with "Back up" and "Not now". "Not now" waits another 7 days.
+
+## 2026-10-17 — Storage overview (owner: "the app may grow, but give a storage overview")
+
+- **Where:** Settings → "Storage used". It shows the total, then each part, biggest first, with its size, a bar for its share, and a plain line on what it is.
+- **The parts:** stored PDFs, notebooks, your writing (ink and the words read), what the app has learned (corrections and samples), the search index, the diagnostic log, first-page pictures, and "other" (settings, tags, bookmarks and the database's own bookkeeping). The database's parts are measured by the bytes of what they hold; whatever's left of the database file counts as "other".
+- **Actions:** "Manage stored PDFs" (the screen that already existed) and "Clear the search index" (asks first; it's read again the next time you search everything). Nothing else can be deleted from here, so nothing is lost by accident.
+- Backups aren't counted: they're saved where the user chooses, outside the app.
