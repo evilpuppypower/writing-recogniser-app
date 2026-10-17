@@ -579,6 +579,12 @@ class _AutoBackups extends StatelessWidget {
             child: Text(folder == null ? 'Choose a folder' : 'Change'),
           ),
         ),
+        if (folder == null && every > 0)
+          Text(
+            'The folder can\'t be used any more (it may have been removed). '
+            'Choose a folder again, or turn automatic backups off.',
+            style: TextStyle(color: theme.colorScheme.error),
+          ),
         Row(
           children: [
             const Expanded(child: Text('How often')),
@@ -588,7 +594,8 @@ class _AutoBackups extends StatelessWidget {
                 for (final e in everyChoices.entries)
                   DropdownMenuItem(value: e.key, child: Text(e.value)),
               ],
-              onChanged: folder == null
+              // Can always be turned off, even if the folder's gone.
+              onChanged: folder == null && every == 0
                   ? null
                   : (v) {
                       if (v != null) onEvery(v);

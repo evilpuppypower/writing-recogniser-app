@@ -40,6 +40,9 @@ class App : Application() {
                 crashFile(this).writeText("Restoring a backup failed at ${now()}\n\n$t")
             } catch (_: Throwable) {}
         }
+        try {
+            AutoBackup.ensureScheduled(this)
+        } catch (_: Throwable) {}
         mlKitStartError = try {
             Class.forName("com.google.mlkit.common.sdkinternal.MlKitContext")
                 .getMethod("initializeIfNeeded", Context::class.java)

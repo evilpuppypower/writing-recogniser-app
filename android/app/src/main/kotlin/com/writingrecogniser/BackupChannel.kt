@@ -380,6 +380,7 @@ class BackupChannel(private val activity: Activity, messenger: BinaryMessenger) 
         private const val READY = "ready"
         private const val DB_NAME = "writing_recogniser.db"
         private const val PREFS = "FlutterSharedPreferences"
+        private val writing = Any()
 
         private fun dir(context: Context) = File(context.filesDir, "backup").apply { mkdirs() }
         private fun lockFile(context: Context) = File(dir(context), "lock.txt")
@@ -480,13 +481,17 @@ class BackupChannel(private val activity: Activity, messenger: BinaryMessenger) 
         ): Long {
             val key = backupKey(context) ?: throw IllegalStateException("Backups aren't set up")
             val lock = lock(context)
-            val tmp = File(context.cacheDir, "backup-tmp").apply { deleteRecursively(); mkdirs() }
-            try {
-                val items = items(context, tmp)
-                open { out -> BackupFile.write(out, items, key, lock, created, appBuild, progress) }
-                return items.sumOf { it.file.length() }
-            } finally {
-                tmp.deleteRecursively()
+            // One backup at a time (one by hand and a scheduled one could
+            // otherwise meet), each with its own temporary folder.
+            synchronized(writing) {
+                val tmp = File(context.cacheDir, "backup-tmp").apply { deleteRecursively(); mkdirs() }
+                try {
+                    val items = items(context, tmp)
+                    open { out -> BackupFile.write(out, items, key, lock, created, appBuild, progress) }
+                    return items.sumOf { it.file.length() }
+                } finally {
+                    tmp.deleteRecursively()
+                }
             }
         }
 

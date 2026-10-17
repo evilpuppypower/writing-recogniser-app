@@ -26,7 +26,10 @@ import java.util.TimeZone
  */
 object AutoBackup {
     private const val JOB_ID = 7310
-    const val PREFIX = "writing-recogniser-backup-"
+    /** Automatic backups have their own name, so only they are ever removed
+     * (never a backup the user saved there by hand); the time is in UTC,
+     * so the names sort by age even if the clock's zone changes. */
+    const val PREFIX = "writing-recogniser-auto-"
     const val SUFFIX = ".wrbackup"
 
     data class Settings(val folder: Uri?, val everyDays: Int, val keep: Int)
@@ -45,7 +48,8 @@ object AutoBackup {
     }
 
     fun save(context: Context, s: Settings) {
-        settingsFile(context).writeBytes(
+        val before = settings(context)
+        writeAtomically(settingsFile(context),
             BackupFile.lines(
                 linkedMapOf(
                     "folder" to (s.folder?.toString() ?: ""),
@@ -54,15 +58,42 @@ object AutoBackup {
                 ),
             ),
         )
-        schedule(context, s)
+        // Changing only how many are kept doesn't put the next one off.
+        if (before.folder != s.folder || before.everyDays != s.everyDays) schedule(context, s)
+        else ensureScheduled(context)
+    }
+
+    /** Scheduled again if Android dropped it (e.g. after the app was force
+     * stopped); called when the app opens. */
+    fun ensureScheduled(context: Context) {
+        val s = settings(context)
+        val scheduler = context.getSystemService(JobScheduler::class.java)
+        if (s.folder != null && s.everyDays > 0 && scheduler.getPendingJob(JOB_ID) == null) schedule(context, s)
+    }
+
+    /** Whether the app may still write to the chosen folder (it may have
+     * been removed, or its permission taken back). */
+    fun canWrite(context: Context): Boolean {
+        val folder = settings(context).folder ?: return false
+        return context.contentResolver.persistedUriPermissions.any { it.uri == folder && it.isWritePermission }
+    }
+
+    private fun writeAtomically(file: File, bytes: ByteArray) {
+        val tmp = File(file.path + ".tmp")
+        tmp.writeBytes(bytes)
+        if (!tmp.renameTo(file)) {
+            file.writeBytes(bytes)
+            tmp.delete()
+        }
     }
 
     /** The last automatic backup: when (UTC), its size, or why it failed. */
     fun status(context: Context): Map<String, String> =
         if (statusFile(context).isFile) BackupFile.parseLines(statusFile(context).readBytes()) else emptyMap()
 
+    @Synchronized
     private fun record(context: Context, status: Map<String, String>) {
-        statusFile(context).writeBytes(BackupFile.lines(status.mapValues { it.value.replace("\n", " ") }))
+        writeAtomically(statusFile(context), BackupFile.lines(status.mapValues { it.value.replace("\n", " ") }))
     }
 
     private fun schedule(context: Context, s: Settings) {
@@ -88,10 +119,11 @@ object AutoBackup {
             .apply { timeZone = TimeZone.getTimeZone("UTC") }
             .format(Date())
 
-    /** The backup's file name, by the tablet's own clock (the name stays on
-     * the tablet or in the user's own folder), as a manual backup's is. */
+    /** The backup's file name, by the time in UTC. */
     private fun fileName(): String =
-        PREFIX + SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date()) + SUFFIX
+        PREFIX + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US)
+            .apply { timeZone = TimeZone.getTimeZone("UTC") }
+            .format(Date()) + SUFFIX
 
     /**
      * Makes one backup into the chosen folder now. True if it was saved and
@@ -103,6 +135,14 @@ object AutoBackup {
         val tree = s.folder
         if (tree == null || !BackupChannel.isSetUp(context)) {
             record(context, mapOf("failedAt" to utcNow(), "error" to "Backups aren't set up"))
+            return false
+        }
+        if (!canWrite(context)) {
+            record(
+                context,
+                status(context).filterKeys { it == "at" || it == "bytes" } +
+                    mapOf("failedAt" to utcNow(), "error" to "The folder can't be written to any more: choose it again"),
+            )
             return false
         }
         val resolver = context.contentResolver
@@ -178,10 +218,18 @@ class AutoBackupJob : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
         stopped = false
         Thread {
-            val ok = AutoBackup.run(applicationContext, null) { stopped }
-            // Failed for a reason other than being stopped: tried again
-            // with Android's back-off, as well as at the next period.
-            jobFinished(params, !ok && !stopped)
+            var retry = false
+            try {
+                val ok = AutoBackup.run(applicationContext, null) { stopped }
+                // Failed for a reason other than being stopped, and the
+                // folder is still there: tried again with Android's
+                // back-off, as well as at the next period.
+                retry = !ok && !stopped && AutoBackup.canWrite(applicationContext)
+            } catch (t: Throwable) {
+                // Never crash the app from here.
+            } finally {
+                jobFinished(params, retry)
+            }
         }.start()
         return true
     }

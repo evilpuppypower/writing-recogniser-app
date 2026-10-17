@@ -327,7 +327,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (!mounted) return;
     // Checked after, so it never holds up the list.
-    if (withInk.isNotEmpty) {
+    if (withInk.isEmpty) {
+      _remindBackup = false;
+    } else {
       unawaited(
         _s.backupReminder().catchError((_) => false).then((remind) {
           if (mounted && remind != _remindBackup) {
