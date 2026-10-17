@@ -16,6 +16,8 @@ import '../core/recent_pdfs.dart';
 import '../core/stored_copy.dart';
 import '../core/tags.dart';
 import '../storage/sqlite_tag_store.dart';
+import 'library_search_screen.dart';
+import 'library_search_service.dart';
 import 'tags_sheet.dart';
 import '../handwriting/handwriting_test_screen.dart';
 import '../import/import_progress_screen.dart';
@@ -63,7 +65,11 @@ class LibraryServices {
     this.restoreNotebooks = restoreNotebookFiles,
     this.tags = SqliteTagStore.open,
     this.handwritingOf = _loadHandwriting,
+    this.librarySearch = LibrarySearchService.open,
   });
+
+  /// What the search of every document looks through.
+  final Future<LibrarySearchService> Function() librarySearch;
 
   /// Tags, and which documents have them (owner: several per document,
   /// colour-coded).
@@ -183,6 +189,9 @@ class _HomeScreenState extends State<HomeScreen> {
   LibraryServices get _s => widget.services;
 
   List<RecentPdf> _recents = [];
+
+  /// The library has been read at least once.
+  bool _loadedOnce = false;
   List<StoredCopy> _copies = [];
   Map<String, DocumentState> _positions = {};
 
@@ -277,6 +286,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (!mounted) return;
     setState(() {
+      _loadedOnce = true;
       _recents = recents;
       _copies = copies2;
       _positions = positions;
@@ -290,6 +300,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   ({List<_Item> pinned, List<_Item> recent}) get _items {
+    final all = _itemsUnfiltered;
+    // Narrowed to one tag (owner: the home screen filters by tag).
+    final f = _filter;
+    if (f == null) return all;
+    bool has(_Item i) => _docTags[i.cacheId]?.contains(f) ?? false;
+    return (
+      pinned: all.pinned.where(has).toList(),
+      recent: all.recent.where(has).toList(),
+    );
+  }
+
+  ({List<_Item> pinned, List<_Item> recent}) get _itemsUnfiltered {
     final copiesById = {for (final c in _copies) c.id: c};
     final recentById = {for (final r in _recents) r.cacheId: r};
     final pinned = [
@@ -311,14 +333,7 @@ class _HomeScreenState extends State<HomeScreen> {
             copy: copiesById[r.cacheId],
           ),
     ];
-    // Narrowed to one tag (owner: the home screen filters by tag).
-    final f = _filter;
-    if (f == null) return (pinned: pinned, recent: recent);
-    bool has(_Item i) => _docTags[i.cacheId]?.contains(f) ?? false;
-    return (
-      pinned: pinned.where(has).toList(),
-      recent: recent.where(has).toList(),
-    );
+    return (pinned: pinned, recent: recent);
   }
 
   /// Chooses [item]'s tags (owner: suggested from its name, and from what's
@@ -392,6 +407,57 @@ class _HomeScreenState extends State<HomeScreen> {
     await _reload();
   }
 
+  // ---- Searching everything ----------------------------------------------
+
+  /// Searches every document (owner, 2026-10-16), whatever the tag filter.
+  Future<void> _searchAll() async {
+    // Every stored copy and every recent PDF (also unpinned copies no
+    // longer in Recent).
+    final all = _itemsUnfiltered;
+    final items = [...all.pinned, ...all.recent];
+    final listed = {for (final i in items) i.cacheId};
+    final recentById = {for (final r in _recents) r.cacheId: r};
+    for (final c in _copies) {
+      if (listed.add(c.id)) {
+        items.add(
+          _Item(
+            name: _titles[c.id] ?? recentById[c.id]?.name ?? c.displayName,
+            cacheId: c.id,
+            recent: recentById[c.id],
+            copy: c,
+          ),
+        );
+      }
+    }
+    final byId = {for (final i in items) i.cacheId: i};
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LibrarySearchScreen(
+          service: _s.librarySearch,
+          // Until the library has loaded, what isn't listed isn't gone.
+          complete: _loadedOnce,
+          entries: [
+            for (final i in items)
+              SearchEntry(
+                id: i.cacheId,
+                name: i.name,
+                tags: (_docTags[i.cacheId] ?? const <String>{}).toList(),
+                path: (i.copy?.path.isNotEmpty ?? false) ? i.copy!.path : null,
+                size: i.copy?.size ?? 0,
+                notebook: _notebooks.contains(i.cacheId),
+              ),
+          ],
+          onOpen: (id, page, query) async {
+            final item = byId[id];
+            if (item == null) return;
+            await _openItem(item, page: page, search: query);
+          },
+        ),
+      ),
+    );
+    await _reload();
+  }
+
   // ---- Opening -----------------------------------------------------------
 
   Route<void> _viewerRoute(
@@ -399,13 +465,17 @@ class _HomeScreenState extends State<HomeScreen> {
     String id,
     String path,
     Duration? importTook,
-    DateTime tappedAt,
-  ) => MaterialPageRoute<void>(
+    DateTime tappedAt, {
+    int? page,
+    String? search,
+  }) => MaterialPageRoute<void>(
     builder: (_) => PdfViewerScreen(
       title: name,
       documentId: id,
       importTook: importTook,
       tappedAt: tappedAt,
+      openAtPage: page,
+      openWithSearch: search,
       sourcePath: path,
       locateSource: () => locateStoredCopy(
         id: id,
@@ -438,14 +508,28 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Opens [pdf]: straight away if a copy is stored, otherwise imports it.
-  Future<void> _openPicked(PickedPdf pdf, {DateTime? tappedAt}) async {
+  Future<void> _openPicked(
+    PickedPdf pdf, {
+    DateTime? tappedAt,
+    int? page,
+    String? search,
+  }) async {
     final tapped = tappedAt ?? DateTime.now();
     final cached = pdf.cachedPath;
     if (cached != null) {
       await _remember(pdf, cached);
       if (!mounted) return;
-      await Navigator.of(context)
-          .push(_viewerRoute(pdf.name, pdf.cacheId, cached, null, tapped));
+      await Navigator.of(context).push(
+        _viewerRoute(
+          pdf.name,
+          pdf.cacheId,
+          cached,
+          null,
+          tapped,
+          page: page,
+          search: search,
+        ),
+      );
     } else {
       // The import screen hands over to the viewer, which ends this push
       // straight away; wait for the viewer itself to close before reloading,
@@ -464,6 +548,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 path,
                 took,
                 tapped,
+                page: page,
+                search: search,
               );
               viewerClosed = route.popped;
               Navigator.of(context).pushReplacement(route);
@@ -590,19 +676,30 @@ class _HomeScreenState extends State<HomeScreen> {
     await _reload();
   }
 
-  Future<void> _openItem(_Item item) async {
+  Future<void> _openItem(_Item item, {int? page, String? search}) async {
     final tapped = DateTime.now();
     final recent = item.recent;
     if (recent != null) {
       // Looking it up also marks its stored copy as just used.
       final pdf = await _s.inspect(recent.uri);
       if (!mounted) return;
-      if (pdf != null) return _openPicked(pdf, tappedAt: tapped);
+      if (pdf != null) {
+        return _openPicked(pdf, tappedAt: tapped, page: page, search: search);
+      }
     }
     final copy = item.copy;
     if (copy != null && copy.path.isNotEmpty) {
-      await Navigator.of(context)
-          .push(_viewerRoute(item.name, item.cacheId, copy.path, null, tapped));
+      await Navigator.of(context).push(
+        _viewerRoute(
+          item.name,
+          item.cacheId,
+          copy.path,
+          null,
+          tapped,
+          page: page,
+          search: search,
+        ),
+      );
       await _reload();
       await _refreshThumbnail(item.cacheId);
       return;
@@ -779,6 +876,11 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Writing Recogniser'),
         actions: [
+          IconButton(
+            tooltip: 'Search all documents',
+            icon: const Icon(Icons.search),
+            onPressed: _searchAll,
+          ),
           IconButton(
             tooltip: 'Settings',
             icon: const Icon(Icons.settings_outlined),

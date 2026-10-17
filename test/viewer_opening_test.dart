@@ -124,6 +124,40 @@ void main() {
     await tester.pump(const Duration(seconds: 6));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('opened from search: at the page found', (tester) async {
+    final store = _MemoryStore();
+    final inkNever = Completer<Never>();
+    int? openedAt;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PdfViewerScreen(
+          title: 'Big.pdf',
+          documentId: 'big',
+          openStore: () async => store,
+          openInkStore: () => inkNever.future as Future<InkStore>,
+          openAtPage: 12,
+          openWithSearch: 'osmosis',
+          viewerBuilder: (controller, params, page) {
+            openedAt = page;
+            return PdfViewer(
+              _neverLoads(),
+              controller: controller,
+              params: params,
+              initialPageNumber: page,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(openedAt, 12);
+    expect(tester.takeException(), isNull);
+    // Closed, so its timers go with it.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 6));
+  });
 }
 
 class _MemoryStore implements DocumentStateStore {

@@ -7,7 +7,7 @@ class AppDatabase {
   AppDatabase._();
 
   static const fileName = 'writing_recogniser.db';
-  static const version = 12;
+  static const version = 13;
 
   /// Opens (and creates or upgrades) the database. [factory] and [path] can
   /// be overridden for tests.
@@ -163,6 +163,24 @@ class AppDatabase {
           document_id TEXT NOT NULL,    -- library id (as in page_ink)
           tag TEXT NOT NULL,
           PRIMARY KEY (document_id, tag)
+        )
+      ''');
+    }
+    if (from < 13) {
+      // Each PDF's printed text, read once, for searching every document
+      // (owner, 2026-10-16).
+      await db.execute('''
+        CREATE TABLE printed_text (
+          document_id TEXT NOT NULL,    -- library id (as in page_ink)
+          page INTEGER NOT NULL,        -- the PDF's own page number
+          text TEXT NOT NULL,
+          PRIMARY KEY (document_id, page)
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE printed_documents (
+          document_id TEXT PRIMARY KEY, -- read (even if it has no text)
+          pages INTEGER NOT NULL        -- the PDF's page count
         )
       ''');
     }
