@@ -109,6 +109,8 @@ Future<void> _clearSearchIndex() async {
     await t.delete('printed_text');
     await t.delete('printed_documents');
   });
+  // Gives the space back to the tablet (the database file shrinks).
+  await db.execute('VACUUM');
 }
 
 /// Settings → Storage used: what the app keeps, biggest first, as a share
@@ -156,14 +158,35 @@ class _StorageScreenState extends State<StorageScreen> {
         ],
       ),
     );
-    if (sure != true) return;
+    if (sure != true || !mounted) return;
+    // Giving the space back can take a few seconds on a big database.
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Expanded(child: Text('Clearing the search index…')),
+            ],
+          ),
+        ),
+      ),
+    );
+    Object? error;
     try {
       await widget.clearSearchIndex();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text("Couldn't clear it: $e")));
-      }
+      error = e;
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    if (error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text("Couldn't clear it: $error")));
     }
     _again();
   }
@@ -238,7 +261,7 @@ class _StorageScreenState extends State<StorageScreen> {
                       builder: (_) => const StoredCopiesScreen(),
                     ),
                   );
-                  _again();
+                  if (mounted) _again();
                 },
               ),
               const SizedBox(height: 8),
