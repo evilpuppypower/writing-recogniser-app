@@ -100,6 +100,16 @@ class SqliteInkStore implements InkStore {
     );
   }
 
+  /// Whether [page] of [documentId] has any ink (one row, not the whole
+  /// document's).
+  Future<bool> hasInkOn(String documentId, int page) async => (await _db.query(
+    'page_ink',
+    columns: ['page'],
+    where: 'document_id = ? AND page = ?',
+    whereArgs: [documentId, page],
+    limit: 1,
+  )).isNotEmpty;
+
   @override
   Future<Map<int, String>> loadText(String documentId) async => {
     for (final r in await _db.query(

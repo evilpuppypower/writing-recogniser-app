@@ -832,3 +832,10 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - **In the PDF**, a battery icon (tooltip "Battery saver is on") shows while it's on; tapping it says what it does.
 - **Not changed:** drawing, the pens and anything you ask for straight away (converting, exporting, the highlights summary) work as usual.
 - **Already using other cores:** handwriting is read by MyScript in its own worker, PDFs are drawn and read by PDFium in its own worker, and exports and backups run apart from the screen. The heavier new work (search's printed text, backups) never runs on the core that draws the screen.
+
+## 2026-10-17 — Quick note (owner: "yes to quicknote button")
+
+- **A "Quick note" button on the home screen**, under "New notebook". One tap opens a new page at the end of the "Quick notes" notebook, ready to write.
+- **The first time**, it makes that notebook, on the paper last chosen (lined if none). After that, each new page has the same paper and size as the last one.
+- **If the last page is still empty**, it's used again, so tapping twice doesn't leave empty pages behind. ("Empty" means nothing on it: no ink and no text box.)
+- The notebook is remembered by its id, so it can be renamed, tagged and searched like any other. If it's deleted, the next quick note makes a new one.
