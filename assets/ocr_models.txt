@@ -1,0 +1,14 @@
+# Text-reading models for scanned PDFs (owner, 2026-10-17), downloaded by
+# the app only when the user taps. PaddleOCR's models converted to ONNX by
+# the community (Hugging Face monkt/paddleocr-onnx, Apache 2.0), at one
+# fixed version (the commit in each address). Each file's SHA-256 is
+# pinned: the app refuses a file that doesn't match. An empty fingerprint
+# isn't pinned yet: CI prints it, and the app won't download that model.
+#
+# model | name in the app | file | address | SHA-256
+en-small|English (smaller, quicker)|det.onnx|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/detection/v3/det.onnx|
+en-small|English (smaller, quicker)|rec.onnx|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/languages/english/rec.onnx|
+en-small|English (smaller, quicker)|dict.txt|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/languages/english/dict.txt|
+en-best|English (finds text better, larger)|det.onnx|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/detection/v5/det.onnx|
+en-best|English (finds text better, larger)|rec.onnx|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/languages/english/rec.onnx|
+en-best|English (finds text better, larger)|dict.txt|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/languages/english/dict.txt|

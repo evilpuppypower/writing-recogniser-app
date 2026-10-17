@@ -1,8 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <!-- Owner-approved network use only: the one-time ML Kit handwriting
-         model download, and MyScript Cloud recognition (pen strokes only).
-         See docs/DECISIONS.md. -->
+         model download, MyScript Cloud recognition (pen strokes only), and
+         downloading a text-reading model when the user taps (owner,
+         2026-10-17; nothing of the user's is sent). See docs/DECISIONS.md. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Automatic backups (owner, 2026-10-16) keep their schedule after the
          tablet restarts. -->

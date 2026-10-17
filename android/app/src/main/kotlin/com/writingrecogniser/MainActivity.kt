@@ -23,6 +23,7 @@ class MainActivity : FlutterActivity() {
         fileTransfer = FileTransfer(this, messenger)
         SecretBox(messenger)
         backup = BackupChannel(this, messenger)
+        OcrEngine(applicationContext, messenger)
         // Android's battery saver, for the app's own (owner, 2026-10-17).
         val power = MethodChannel(messenger, "writing_recogniser/power")
         val pm = getSystemService(PowerManager::class.java)
