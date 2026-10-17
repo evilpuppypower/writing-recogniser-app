@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *    fingerprint doesn't match is deleted and the download fails.
  *  - cancel: stops a download
  *  - remove {id}
- *  - read {id, width, height, pixels (RGBA bytes)} -> list of
+ *  - read {id, width, height, pixels (BGRA bytes, as PDFium draws a page)} -> list of
  *    {left, top, right, bottom, text, confidence}, in the image's pixels
  */
 class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
@@ -83,8 +83,8 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
                     val id = call.argument<String>("id")!!
                     val w = call.argument<Int>("width")!!
                     val h = call.argument<Int>("height")!!
-                    val rgba = call.argument<ByteArray>("pixels")!!
-                    work(result) { read(id, w, h, rgba) }
+                    val bgra = call.argument<ByteArray>("pixels")!!
+                    work(result) { read(id, w, h, bgra) }
                 }
                 else -> result.notImplemented()
             }
@@ -243,16 +243,16 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
         loaded = id
     }
 
-    private fun read(id: String, w: Int, h: Int, rgba: ByteArray): List<Map<String, Any>> {
+    private fun read(id: String, w: Int, h: Int, bgra: ByteArray): List<Map<String, Any>> {
         require(w > 0 && h > 0 && w.toLong() * h <= MAX_PIXELS) { "The page image is too large to read" }
-        require(rgba.size.toLong() == w.toLong() * h * 4) { "The page image is the wrong size" }
+        require(bgra.size.toLong() == w.toLong() * h * 4) { "The page image is the wrong size" }
         load(id)
         val env = OrtEnvironment.getEnvironment()
         val argb = IntArray(w * h)
         for (i in 0 until w * h) {
-            val r = rgba[i * 4].toInt() and 0xff
-            val g = rgba[i * 4 + 1].toInt() and 0xff
-            val b = rgba[i * 4 + 2].toInt() and 0xff
+            val b = bgra[i * 4].toInt() and 0xff
+            val g = bgra[i * 4 + 1].toInt() and 0xff
+            val r = bgra[i * 4 + 2].toInt() and 0xff
             argb[i] = (0xff shl 24) or (r shl 16) or (g shl 8) or b
         }
         // Finding the text.

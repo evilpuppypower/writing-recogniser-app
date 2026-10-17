@@ -3,6 +3,9 @@
 library;
 
 import 'pressure_response.dart';
+import 'scanned_text.dart';
+
+export 'scanned_text.dart' show ScannedChoice;
 
 /// The app's accent colour: buttons, bars, switches and the scroll tab.
 /// [system] follows the tablet's Material You colour; the others are fixed
@@ -137,6 +140,7 @@ class AppSettings {
     this.batterySaver = false,
     this.batterySaverWithSystem = true,
     this.readLater = false,
+    this.scannedPdfs = ScannedChoice.ask,
     this.suggestTagsFromContents = true,
     this.textLabels = TextLabelPlace.above,
     this.textPanel = TextPanelPlace.off,
@@ -260,6 +264,10 @@ class AppSettings {
   /// (owner, 2026-10-17); each document can change it.
   final bool readLater;
 
+  /// What to do when a PDF looks scanned (owner, 2026-10-17: asked once
+  /// per PDF, with "do the same for others").
+  final ScannedChoice scannedPdfs;
+
   /// Tags are also suggested from what's written in a document, not only
   /// its name (read on the tablet only).
   final bool suggestTagsFromContents;
@@ -320,6 +328,7 @@ class AppSettings {
     bool? batterySaver,
     bool? batterySaverWithSystem,
     bool? readLater,
+    ScannedChoice? scannedPdfs,
     bool? suggestTagsFromContents,
     TextLabelPlace? textLabels,
     TextPanelPlace? textPanel,
@@ -367,6 +376,7 @@ class AppSettings {
     batterySaverWithSystem:
         batterySaverWithSystem ?? this.batterySaverWithSystem,
     readLater: readLater ?? this.readLater,
+    scannedPdfs: scannedPdfs ?? this.scannedPdfs,
     suggestTagsFromContents:
         suggestTagsFromContents ?? this.suggestTagsFromContents,
     textLabels: textLabels ?? this.textLabels,
@@ -402,6 +412,7 @@ class AppSettings {
     'batterySaver': batterySaver,
     'batterySaverWithSystem': batterySaverWithSystem,
     'readLater': readLater,
+    'scannedPdfs': scannedPdfs.name,
     'suggestTagsFromContents': suggestTagsFromContents,
     'textLabels': textLabels.name,
     'textPanel': textPanel.name,
@@ -505,6 +516,11 @@ class AppSettings {
           ? batterySaverWithSystem
           : d.batterySaverWithSystem,
       readLater: readLater is bool ? readLater : d.readLater,
+      scannedPdfs: byName(
+        ScannedChoice.values,
+        m['scannedPdfs'],
+        d.scannedPdfs,
+      ),
       suggestTagsFromContents: suggestTags is bool
           ? suggestTags
           : d.suggestTagsFromContents,
@@ -556,6 +572,7 @@ class AppSettings {
       other.batterySaver == batterySaver &&
       other.batterySaverWithSystem == batterySaverWithSystem &&
       other.readLater == readLater &&
+      other.scannedPdfs == scannedPdfs &&
       other.suggestTagsFromContents == suggestTagsFromContents &&
       other.textLabels == textLabels &&
       other.textPanel == textPanel &&
@@ -590,6 +607,7 @@ class AppSettings {
     batterySaver,
     batterySaverWithSystem,
     readLater,
+    scannedPdfs,
     suggestTagsFromContents,
     textLabels,
     textPanel,

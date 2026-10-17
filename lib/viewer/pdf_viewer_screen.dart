@@ -81,6 +81,12 @@ import 'page_ink_layer.dart';
 import 'correct_word_sheet.dart';
 import '../platform/power.dart';
 import 'highlights_sheet.dart';
+import 'scanned_pages.dart';
+import 'scanned_reading.dart' show printedCharsOnFirstPages;
+import '../core/scanned_text.dart';
+import '../platform/ocr_channel.dart';
+import '../settings/ocr_models_screen.dart';
+import '../storage/sqlite_scanned_text_store.dart';
 import 'export_options_dialog.dart';
 import 'page_text_labels.dart';
 import 'page_typed_text.dart';
@@ -120,7 +126,20 @@ class PdfViewerScreen extends StatefulWidget {
     this.reopenedForPages = false,
     this.openAtPage,
     this.openWithSearch,
+    this.openScannedText = SqliteScannedTextStore.open,
+    this.textReader = const AndroidTextReader(),
+    this.chosenTextModel = chosenOcrModel,
   });
+
+  /// Where text read from scanned pages is kept (the app database by
+  /// default).
+  final Future<ScannedTextStore> Function() openScannedText;
+
+  /// Reads scanned pages (on the tablet, owner 2026-10-17).
+  final TextReaderService textReader;
+
+  /// The downloaded model to read them with, or null if none.
+  final Future<String?> Function(TextReaderService reader) chosenTextModel;
 
   /// Opened again after its pages changed: the opening-time message
   /// isn't shown.
@@ -267,6 +286,9 @@ class _PdfViewerHostState extends State<PdfViewerScreen> {
       // it stays where it is).
       openAtPage: _opened == 0 ? w.openAtPage : null,
       openWithSearch: _opened == 0 ? w.openWithSearch : null,
+      openScannedText: w.openScannedText,
+      textReader: w.textReader,
+      chosenTextModel: w.chosenTextModel,
       onPagesChanged: () {
         if (mounted) setState(() => _opened++);
       },
@@ -301,6 +323,9 @@ class _PdfViewerPages extends PdfViewerScreen {
     required super.reopenedForPages,
     super.openAtPage,
     super.openWithSearch,
+    required super.openScannedText,
+    required super.textReader,
+    required super.chosenTextModel,
     required this.onPagesChanged,
   });
 
@@ -576,6 +601,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               textPanel: panel?.name,
               showTyped: _view.showTyped,
               readLater: _view.readLater,
+              readScanned: _view.readScanned,
             );
             _saveView();
           },
@@ -698,6 +724,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       // saved pages (and their ink) are kept as they were.
       final source = await PdfDocument.openFile(_sourceFile!);
       _parts.add(source);
+      _savedNotebook = json.contains('"nb":true');
       final layout = PageLayout.fromJson(json, source.pages.length);
       if (layout == null) return;
       // Back to the PDF's own pages: shown as it is, but new pages still
@@ -715,6 +742,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// The PDF's file, when it's shown with pages of our own.
   String? _sourceFile;
+
+  /// Its saved pages say it's a notebook (even if they couldn't be used).
+  var _savedNotebook = false;
 
   /// Makes each put-together document's name new (pdfrx shares documents
   /// with the same name).
@@ -3057,6 +3087,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     PdfViewerController controller,
   ) async {
     final pages = document.pages.length;
+    _document = document;
     setState(() => _pageCount = pages);
     _readyMs ??= DateTime.now().difference(_tappedAt).inMilliseconds;
     final target = widget.openAtPage?.clamp(1, pages);
@@ -3125,7 +3156,210 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     } else {
       _showOpenMessage(timing);
     }
-    unawaited(_askColoursIfNew());
+    unawaited(_askColoursIfNew().then((_) => _checkScanned()));
+  }
+
+  // ---- Scanned PDFs (owner, 2026-10-17) -----------------------------------
+
+  PdfDocument? _document;
+  ScannedPagesReader? _scanned;
+
+  /// Documents whose reading was stopped, or whose "waiting for battery
+  /// saver" message was shown, while the app has been open: not started
+  /// or said again when the viewer opens again for changed pages.
+  static final _scanStopped = <String>{};
+  static final _scanWaitShown = <String>{};
+
+  /// When the user last turned a page or wrote: reading waits for a quiet
+  /// moment, so drawing the pages on screen isn't held up.
+  var _lastBusy = DateTime.now();
+
+  void _markBusy() => _lastBusy = DateTime.now();
+
+  Future<void> _quietMoment() async {
+    while (mounted &&
+        DateTime.now().difference(_lastBusy) <
+            const Duration(milliseconds: 1500)) {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+  }
+
+  /// Asks once whether to read a scanned PDF's pages (or follows Settings'
+  /// choice), and reads the pages not read yet while it's open.
+  Future<void> _checkScanned() async {
+    final shown = _document;
+    if (!mounted || shown == null) return;
+    await _layoutLoaded;
+    await _viewLoaded;
+    if (!mounted || (_layout?.notebook ?? false) || _savedNotebook) return;
+    if (_scanStopped.contains(widget.documentId)) return;
+    // The PDF's own pages (the shown ones may have pages of our own
+    // between them, or in another order).
+    final document = _layout != null && _parts.isNotEmpty
+        ? _parts.first
+        : shown;
+    var choice = _view.readScanned;
+    if (choice == false) return;
+    final ScannedTextStore store;
+    try {
+      store = await widget.openScannedText();
+    } catch (_) {
+      return; // Not kept: nothing is read this time.
+    }
+    final reader = ScannedPagesReader(
+      documentId: widget.documentId,
+      store: store,
+      reader: widget.textReader,
+    );
+    _scanned?.dispose();
+    setState(() => _scanned = reader);
+    final List<int> left;
+    try {
+      left = await reader.pagesLeft(document.pages.length);
+      if (choice == null &&
+          !looksScanned(await printedCharsOnFirstPages(document))) {
+        return;
+      }
+    } catch (_) {
+      return;
+    }
+    if (!mounted || left.isEmpty) return;
+    String? model = await widget.chosenTextModel(widget.textReader);
+    if (!mounted) return;
+    var asked = false;
+    if (choice == null) {
+      final settings = context
+          .getInheritedWidgetOfExactType<SettingsScope>()
+          ?.notifier;
+      final byDefault = settings?.value.scannedPdfs ?? ScannedChoice.ask;
+      if (byDefault == ScannedChoice.leave) return;
+      if (byDefault == ScannedChoice.ask) {
+        // Not over another screen or sheet opened meanwhile.
+        if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
+        final answer = await askReadScanned(context, haveReader: model != null);
+        if (answer == null || !mounted) return;
+        if (answer.same && settings != null) {
+          settings.update(
+            settings.value.copyWith(
+              scannedPdfs: answer.read
+                  ? ScannedChoice.read
+                  : ScannedChoice.leave,
+            ),
+          );
+        }
+        asked = true;
+        choice = answer.read;
+      } else {
+        choice = true;
+      }
+      setState(() => _view = _view.copyWith(readScanned: choice));
+      _saveView();
+      if (choice != true) return;
+    }
+    if (model == null) {
+      if (asked) {
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => OcrModelsScreen(reader: widget.textReader),
+          ),
+        );
+        if (!mounted) return;
+        model = await widget.chosenTextModel(widget.textReader);
+        if (!mounted) return;
+      }
+      if (model == null) {
+        _scannedMessage(
+          'Scanned pages are read once a text reader is downloaded '
+          '(Settings → Reading scanned PDFs).',
+        );
+        return;
+      }
+    }
+    final settingsNow = _docSettings?.value ?? SettingsScope.valueOf(context);
+    if (!asked && _savingBattery(settingsNow)) {
+      // Not by itself while saving battery; reading it now still works.
+      if (!_scanWaitShown.add(widget.documentId)) return;
+      final id = model;
+      _scannedMessage(
+        'Scanned pages wait while battery saver is on.',
+        action: SnackBarAction(
+          label: 'Read now',
+          onPressed: () => _readScanned(reader, left, id, document),
+        ),
+      );
+      return;
+    }
+    await _readScanned(reader, left, model, document);
+  }
+
+  Future<void> _readScanned(
+    ScannedPagesReader reader,
+    List<int> pages,
+    String model,
+    PdfDocument document,
+  ) async {
+    final took = <int>[];
+    final result = await reader.run(
+      pages,
+      model,
+      renderPagesOf(document),
+      onPageTook: (d) => took.add(d.inMilliseconds),
+      pause: _quietMoment,
+    );
+    if (reader.stopped && !result.finished && mounted) {
+      _scanStopped.add(widget.documentId);
+    }
+    // How long pages took, on the tablet only (no text).
+    if (took.isNotEmpty) {
+      unawaited(
+        widget
+            .openEventLog()
+            .then(
+              (log) => log.log(
+                LoggedEvent(
+                  type: 'scanned_read',
+                  at: DateTime.now(),
+                  engine: model,
+                  data: {
+                    'pages': took.length,
+                    'ms': took,
+                    'finished': result.finished,
+                  },
+                ),
+              ),
+            )
+            .catchError((_) {}),
+      );
+    }
+    if (!mounted || _scanned != reader) return;
+    if (result.error != null) {
+      _scannedMessage(
+        "Scanned pages couldn't be read this time "
+        '(${result.read} of ${pages.length} read). It carries on next '
+        'time the PDF is opened.',
+      );
+    } else if (result.finished && result.read > 0) {
+      _scannedMessage(
+        'Scanned pages read. Their words can be found with search on the '
+        'home screen.',
+      );
+    } else if (result.read < pages.length) {
+      _scannedMessage(
+        'Stopped after ${result.read} of ${pages.length} pages. The rest '
+        'are read when the app next opens this PDF.',
+      );
+    }
+  }
+
+  void _scannedMessage(String text, {SnackBarAction? action}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(text),
+        action: action,
+        duration: Duration(seconds: action == null ? 4 : 8),
+      ),
+    );
   }
 
   void _showOpenMessage(OpenTiming? timing) {
@@ -3159,6 +3393,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   void _onPageChanged(int? pageNumber) {
+    _lastBusy = DateTime.now();
     _pageNumber.value = pageNumber;
     if (!_restored || pageNumber == null) return;
     // Save shortly after scrolling settles, not on every page flick.
@@ -3571,6 +3806,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     unawaited(_loadProfile());
     unawaited(_loadDictionary());
     _ink.addListener(_checkTidiedShape);
+    _ink.addListener(_markBusy);
     _text.printedText = _printedOf;
     _coloursLoaded = _loadColours();
     // A selection belongs to the Select tool.
@@ -4105,6 +4341,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _resumeNoteTimer?.cancel();
     _slowOpenTimer?.cancel();
     _slowOpen.dispose();
+    _scanned?.dispose();
     _savePosition();
     _saveView();
     _docSettings?.dispose();
@@ -4116,6 +4353,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       t.keep.cancel();
     }
     _ink.removeListener(_checkTidiedShape);
+    _ink.removeListener(_markBusy);
     _lifecycle.dispose();
     _autosaver?.flush();
     _autosaver?.dispose();
@@ -4535,6 +4773,24 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                           child: Center(child: _LoadingInkChip()),
                         ),
                 ),
+                // Reading a scanned PDF's pages, with Stop.
+                if (_scanned case final reader?)
+                  ValueListenableBuilder(
+                    valueListenable: reader.progress,
+                    builder: (context, p, _) => p == null
+                        ? const SizedBox.shrink()
+                        : Positioned(
+                            bottom: 16,
+                            left: 16,
+                            right: 16,
+                            child: Center(
+                              child: ScannedProgressCard(
+                                progress: p,
+                                onStop: reader.stop,
+                              ),
+                            ),
+                          ),
+                  ),
                 // A PDF that is slow to show its first page can be abandoned.
                 ValueListenableBuilder(
                   valueListenable: _slowOpen,

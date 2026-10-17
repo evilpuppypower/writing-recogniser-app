@@ -4,7 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/ocr_models.dart';
 import '../core/transfer_estimate.dart';
+import '../core/app_settings.dart';
 import '../platform/ocr_channel.dart';
+import 'settings_controller.dart';
 
 /// Which downloaded model reads scanned PDFs (kept in the settings).
 const ocrModelPrefsKey = 'ocr.model';
@@ -203,6 +205,37 @@ class _OcrModelsScreenState extends State<OcrModelsScreen> {
                         : null,
                   ),
                 const SizedBox(height: 16),
+                if (context
+                        .getInheritedWidgetOfExactType<SettingsScope>()
+                        ?.notifier
+                    case final settings?) ...[
+                  Text(
+                    'When a PDF looks scanned',
+                    style: theme.textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  SegmentedButton<ScannedChoice>(
+                    segments: const [
+                      ButtonSegment(
+                        value: ScannedChoice.ask,
+                        label: Text('Ask'),
+                      ),
+                      ButtonSegment(
+                        value: ScannedChoice.read,
+                        label: Text('Read it'),
+                      ),
+                      ButtonSegment(
+                        value: ScannedChoice.leave,
+                        label: Text('Leave it'),
+                      ),
+                    ],
+                    selected: {SettingsScope.valueOf(context).scannedPdfs},
+                    onSelectionChanged: (v) => settings.update(
+                      settings.value.copyWith(scannedPdfs: v.first),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 Text('Models', style: theme.textTheme.titleSmall),
                 RadioGroup<String>(
                   groupValue: _chosen,
@@ -260,5 +293,19 @@ class _OcrModelsScreenState extends State<OcrModelsScreen> {
               ],
             ),
     );
+  }
+}
+
+/// The downloaded model to read scanned pages with: the one chosen in
+/// Settings, or else any downloaded one in the app's list; null if none.
+Future<String?> chosenOcrModel(TextReaderService reader) async {
+  try {
+    final known = {for (final m in await _loadCatalogue()) m.id};
+    final installed = (await reader.installed()).where(known.contains);
+    if (installed.isEmpty) return null;
+    final chosen = await OcrModelsScreen._loadChoice();
+    return installed.contains(chosen) ? chosen : installed.first;
+  } catch (_) {
+    return null;
   }
 }

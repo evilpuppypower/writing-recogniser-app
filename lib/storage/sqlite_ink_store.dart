@@ -68,6 +68,12 @@ class SqliteInkStore implements InkStore {
       where: 'document_id = ?',
       whereArgs: [documentId],
     );
+    // And the text read from its scanned pages.
+    await _db.delete(
+      'scanned_text',
+      where: 'document_id = ?',
+      whereArgs: [documentId],
+    );
     // Its bookmarks go with it.
     await _db.delete(
       'bookmarks',
