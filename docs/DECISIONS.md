@@ -821,3 +821,14 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
   - They're offered under "Your templates" when adding a blank page or starting a notebook. An added page gets the template's paper, size and a copy of its ink. A new notebook's page keeps the notebook size chosen, with the ink stretched to fit. An × removes a template.
   - The template's ink is never read as handwriting on the new pages, so headings and boxes you drew don't become text. Typed text boxes stay as they are.
   - Templates are kept with the settings, so they're in backups.
+
+## 2026-10-17 — Battery saver (owner: "b", a switch, and on by itself with Android's battery saver)
+
+- **Settings → Battery saver** (off by default), and "Also when Android's battery saver is on" (on by default). The app watches Android's battery saver while it runs.
+- **What it changes while on:**
+  - Writing is read after a 2-second pause (or your own longer one), so it's read less often while you write.
+  - Search doesn't read PDFs' printed text by itself. It says how many aren't read yet and offers "Read now".
+  - Automatic backups wait and try again later ("Back up to the folder now" still works).
+- **In the PDF**, a battery icon (tooltip "Battery saver is on") shows while it's on; tapping it says what it does.
+- **Not changed:** drawing, the pens and anything you ask for straight away (converting, exporting, the highlights summary) work as usual.
+- **Already using other cores:** handwriting is read by MyScript in its own worker, PDFs are drawn and read by PDFium in its own worker, and exports and backups run apart from the screen. The heavier new work (search's printed text, backups) never runs on the core that draws the screen.

@@ -600,6 +600,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) => settings.update(s.copyWith(writingBoxButton: v)),
           ),
           SwitchListTile(
+            secondary: const Icon(Icons.battery_saver),
+            title: const Text('Battery saver'),
+            subtitle: const Text(
+              'Writing is read after you pause for 2 seconds (fewer reads '
+              'while you write), PDFs\' printed text is read for search '
+              'only when you ask, and automatic backups wait.',
+            ),
+            value: s.batterySaver,
+            onChanged: (v) => settings.update(s.copyWith(batterySaver: v)),
+          ),
+          SwitchListTile(
+            title: const Text('Also when Android\'s battery saver is on'),
+            subtitle: const Text(
+              'Battery saver turns on by itself while the tablet\'s own '
+              'battery saver is on.',
+            ),
+            value: s.batterySaverWithSystem,
+            onChanged: (v) =>
+                settings.update(s.copyWith(batterySaverWithSystem: v)),
+          ),
+          SwitchListTile(
             title: const Text('Highlights summary'),
             subtitle: const Text(
               'A button in the PDF\'s toolbar that lists the printed text '

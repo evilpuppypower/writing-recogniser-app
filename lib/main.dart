@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+
+import 'platform/power.dart';
 
 import 'core/app_settings.dart';
 import 'library/home_screen.dart';
@@ -7,10 +11,27 @@ import 'settings/settings_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  unawaited(watchSystemBatterySaver());
   final (settings, accent) = await (
     SettingsController.load(),
     systemAccentColour(),
   ).wait;
+  // Automatic backups wait while battery saver is on (they run without
+  // the app, so they're told).
+  var told = (
+    settings.value.batterySaver,
+    settings.value.batterySaverWithSystem,
+  );
+  unawaited(tellBackupsBatterySaver(on: told.$1, withSystem: told.$2));
+  settings.addListener(() {
+    final now = (
+      settings.value.batterySaver,
+      settings.value.batterySaverWithSystem,
+    );
+    if (now == told) return;
+    told = now;
+    unawaited(tellBackupsBatterySaver(on: now.$1, withSystem: now.$2));
+  });
   runApp(WritingRecogniserApp(settings: settings, accentArgb: accent));
 }
 

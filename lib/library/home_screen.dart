@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_settings.dart' show PageColours;
 import '../core/document_colours.dart';
 import '../core/document_state.dart';
+import '../core/battery_saver.dart';
 import '../core/page_layout.dart';
 import '../core/page_templates.dart';
 import '../core/paper.dart' show NotebookSize, ruledGap;
@@ -19,6 +20,7 @@ import '../core/stored_copy.dart';
 import '../core/tags.dart';
 import '../storage/sqlite_tag_store.dart';
 import '../platform/backup_channel.dart';
+import '../platform/power.dart';
 import 'library_search_screen.dart';
 import 'library_search_service.dart';
 import 'tags_sheet.dart';
@@ -491,6 +493,11 @@ class _HomeScreenState extends State<HomeScreen> {
           service: _s.librarySearch,
           // Until the library has loaded, what isn't listed isn't gone.
           complete: _loadedOnce,
+          savingBattery: batterySaverOn(
+            switchedOn: SettingsScope.of(context).value.batterySaver,
+            withSystem: SettingsScope.of(context).value.batterySaverWithSystem,
+            systemSaving: systemBatterySaver.value,
+          ),
           entries: [
             for (final i in items)
               SearchEntry(

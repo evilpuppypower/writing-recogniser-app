@@ -42,6 +42,7 @@ class LibrarySearchScreen extends StatefulWidget {
     required this.service,
     required this.onOpen,
     this.complete = true,
+    this.savingBattery = false,
   });
 
   final List<SearchEntry> entries;
@@ -49,6 +50,9 @@ class LibrarySearchScreen extends StatefulWidget {
   /// [entries] is the whole library, so printed text kept for documents
   /// not in it can be forgotten.
   final bool complete;
+
+  /// Battery saver is on: PDFs' printed text is read only when asked.
+  final bool savingBattery;
   final Future<LibrarySearchService> Function() service;
 
   /// Opens a document, at [page] if given, with [query] searched in it.
@@ -65,6 +69,9 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
   /// What's ready to search, by document id.
   final _docs = <String, SearchableDocument>{};
   bool _loading = true;
+
+  /// Not read yet because battery saver is on.
+  List<SearchEntry> _waiting = const [];
 
   /// Documents loaded so far (while loading).
   int _loaded = 0;
@@ -151,6 +158,10 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
       _loading = false;
       _search();
     });
+    if (widget.savingBattery && toRead.isNotEmpty) {
+      setState(() => _waiting = toRead);
+      return;
+    }
     await _readPrinted(service, toRead);
   }
 
@@ -283,6 +294,35 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (_reading) _readingBar(theme),
+          if (!_reading && _waiting.isNotEmpty)
+            Material(
+              color: theme.colorScheme.surfaceContainerHighest,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Battery saver is on, so the printed text of '
+                        '${_waiting.length} '
+                        '${_waiting.length == 1 ? 'PDF' : 'PDFs'} isn\'t read '
+                        'yet.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        final service = _service;
+                        final toRead = _waiting;
+                        setState(() => _waiting = const []);
+                        if (service != null) _readPrinted(service, toRead);
+                      },
+                      child: const Text('Read now'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           Expanded(child: _body(theme)),
         ],
       ),

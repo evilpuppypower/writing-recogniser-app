@@ -97,6 +97,14 @@ class BackupChannel(private val activity: Activity, messenger: BinaryMessenger) 
                     }
                 }
                 "autoStatus" -> work(result) { autoStatus() }
+                "setBatterySaver" -> {
+                    val on = call.argument<Boolean>("on") ?: false
+                    val withSystem = call.argument<Boolean>("withSystem") ?: true
+                    work(result) {
+                        AutoBackup.saveBatterySaver(activity, on, withSystem)
+                        null
+                    }
+                }
                 "backUpToFolder" -> {
                     stop.set(false)
                     work(result) {
