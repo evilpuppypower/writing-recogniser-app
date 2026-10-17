@@ -29,8 +29,9 @@ abstract class TextReaderService {
 
   Future<void> remove(String id);
 
-  /// The lines of text in an image ([rgba], [width] x [height]).
-  Future<List<OcrLine>> read(String id, int width, int height, Uint8List rgba);
+  /// The lines of text in an image ([bgra], [width] x [height], blue,
+  /// green, red, alpha bytes as PDFium draws a page).
+  Future<List<OcrLine>> read(String id, int width, int height, Uint8List bgra);
 }
 
 class AndroidTextReader implements TextReaderService {
@@ -81,14 +82,14 @@ class AndroidTextReader implements TextReaderService {
     String id,
     int width,
     int height,
-    Uint8List rgba,
+    Uint8List bgra,
   ) async {
     final list =
         await _channel.invokeListMethod<Map<Object?, Object?>>('read', {
           'id': id,
           'width': width,
           'height': height,
-          'pixels': rgba,
+          'pixels': bgra,
         }) ??
         const [];
     return [

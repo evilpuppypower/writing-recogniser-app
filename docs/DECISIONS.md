@@ -859,3 +859,13 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
   1. Now: the community's ONNX conversion of PaddleOCR's models (Hugging Face `monkt/paddleocr-onnx`, Apache 2.0), fixed to one commit so the files can't change under us.
   2. Later (owner: not before Thursday 2026-10-22): our own conversion from PaddleOCR's official files, published as a release of this repo, so we depend on no one else's copy. That needs a hand-run workflow, which will be asked about first.
 - **English only for now** (other languages are out of scope for the MVP).
+
+## 2026-10-17 — Reading scanned PDFs, part 2: using the reader (owner: asked once per PDF, with "do the same for others")
+
+- **When a PDF looks scanned** (most of its first 5 pages have almost no printed text that PDFium can find), the viewer asks once: "This PDF looks scanned". Options: "Read it" (or "Get a reader" if none is downloaded yet, which opens the download screen) and "Not this PDF", plus "Do the same for other scanned PDFs". Notebooks are never asked about.
+- **Settings → Reading scanned PDFs → When a PDF looks scanned:** Ask (default), Read it, Leave it. Each PDF keeps its own answer with its other preferences.
+- **Reading** happens while the PDF is open, a page at a time, with a card ("Reading scanned pages: 3 of 20 · about 1 min left") and Stop. Each page is kept as soon as it's read, so stopping or closing the PDF loses nothing: the rest is read next time it's opened. Pages are drawn at 2800 pixels on the longer side (about 240 dpi on A4).
+- **Battery saver:** reading doesn't start by itself while it's on; a message offers "Read now". Answering the question with "Read it" starts straight away.
+- **What's kept:** each line's text and its box (as a share of the page), by the PDF's own page number, in the app database (table `scanned_text`, database version 14). Lines the reader is unsure of (under 50%) are left out. Nothing leaves the tablet. How long pages took (no text) goes into the local event log.
+- **Search:** the home screen's search finds scanned text on pages without printed text of their own.
+- **Not in this part:** searching inside the open PDF, highlighting scanned text, and writing around it. They come next.

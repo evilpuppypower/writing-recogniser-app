@@ -170,6 +170,7 @@ void main() {
         await v7.execute('DROP TABLE document_tags');
         await v7.execute('DROP TABLE printed_text');
         await v7.execute('DROP TABLE printed_documents');
+        await v7.execute('DROP TABLE scanned_text');
         await v7.setVersion(6);
         await v7.close();
         final upgraded = await AppDatabase.open(

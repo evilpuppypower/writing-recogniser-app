@@ -21,6 +21,7 @@ class DocumentView {
     this.textPanel,
     this.showTyped,
     this.readLater,
+    this.readScanned,
   });
 
   /// The page in the middle of the screen, and where on it the middle of
@@ -47,6 +48,10 @@ class DocumentView {
   /// a default in Settings, and each document can change it).
   final bool? readLater;
 
+  /// Whether its scanned pages are read (owner, 2026-10-17: asked once
+  /// per PDF); null if it hasn't been asked.
+  final bool? readScanned;
+
   DocumentView copyWith({
     int? page,
     double? pageX,
@@ -60,6 +65,7 @@ class DocumentView {
     String? textPanel,
     bool? showTyped,
     bool? readLater,
+    bool? readScanned,
   }) => DocumentView(
     page: page ?? this.page,
     pageX: pageX ?? this.pageX,
@@ -73,6 +79,7 @@ class DocumentView {
     textPanel: textPanel ?? this.textPanel,
     showTyped: showTyped ?? this.showTyped,
     readLater: readLater ?? this.readLater,
+    readScanned: readScanned ?? this.readScanned,
   );
 
   /// [tools] with this document's own pen, highlighter and tool.
@@ -101,6 +108,7 @@ class DocumentView {
     if (textPanel != null) 'panel': textPanel,
     if (showTyped != null) 'typed': showTyped,
     if (readLater != null) 'later': readLater,
+    if (readScanned != null) 'scan': readScanned,
   });
 
   /// [json] from [toJson]; anything missing or unreadable is left unset
@@ -128,6 +136,7 @@ class DocumentView {
         textPanel: j['panel'] as String?,
         showTyped: j['typed'] is bool ? j['typed']! as bool : null,
         readLater: j['later'] is bool ? j['later']! as bool : null,
+        readScanned: j['scan'] is bool ? j['scan']! as bool : null,
       );
     } catch (_) {
       return const DocumentView();
