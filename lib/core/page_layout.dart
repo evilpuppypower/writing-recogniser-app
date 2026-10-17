@@ -21,6 +21,13 @@ enum Paper {
 
   /// Lined, the lines as far apart as the user's own writing needs.
   linedToFit,
+
+  /// Templates (owner's idea 20): Cornell notes (a cue column on the
+  /// left, notes on the right, a summary at the foot), a to-do list (a
+  /// box at the start of each line) and a week planner (a box per day).
+  cornell,
+  todo,
+  weekly,
 }
 
 class LaidOutPage {

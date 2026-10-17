@@ -40,6 +40,12 @@ class ChangePaper extends PagesAction {
   final int page;
 }
 
+/// Save [page] (its paper and ink) as a template of the user's own.
+class SaveAsTemplate extends PagesAction {
+  const SaveAsTemplate(this.page);
+  final int page;
+}
+
 /// Drag the pages into another order.
 class ArrangeShownPages extends PagesAction {
   const ArrangeShownPages();
@@ -287,6 +293,14 @@ extension on _PagesScreenState {
                 title: const Text('Change paper'),
                 onTap: () => Navigator.of(context).pop(ChangePaper(n)),
               ),
+            ListTile(
+              leading: const Icon(Icons.dashboard_customize_outlined),
+              title: const Text('Save as a template'),
+              subtitle: const Text(
+                'Its paper and what\'s drawn on it, to start new pages from',
+              ),
+              onTap: () => Navigator.of(context).pop(SaveAsTemplate(n)),
+            ),
             ListTile(
               leading: const Icon(Icons.copy_outlined),
               title: const Text('Duplicate this page'),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/night_colours.dart';
 import '../core/page_layout.dart';
+import '../core/page_templates.dart';
 import '../core/paper.dart';
 
 /// Draws [page]'s paper (see paperMarks) into [rect], where the page is
@@ -83,6 +84,10 @@ class _PaperPainter extends CustomPainter {
 /// Choosing a blank page's paper: a small picture of each, and with
 /// [afterPage], whether the page goes after that page or at the end.
 /// Pops ({paper, atEnd}).
+/// What was chosen: a paper, or one of the user's templates (its paper
+/// and its ink), and whether the page goes at the end.
+typedef PaperChoice = ({Paper paper, bool atEnd, PageTemplate? template});
+
 class PaperChooser extends StatefulWidget {
   const PaperChooser({
     super.key,
@@ -92,7 +97,15 @@ class PaperChooser extends StatefulWidget {
     this.dark = false,
     this.doneLabel = 'Done',
     this.onSize,
+    this.templates = const [],
+    this.onRemoveTemplate,
   });
+
+  /// The user's own templates (owner's idea 20), offered after the papers.
+  final List<PageTemplate> templates;
+
+  /// Removes one of them (an × on it); none when null.
+  final ValueChanged<PageTemplate>? onRemoveTemplate;
 
   /// Also asks the page size (a new notebook), told here as it changes.
   final ValueChanged<NotebookSize>? onSize;
@@ -112,12 +125,14 @@ class PaperChooser extends StatefulWidget {
 class _PaperChooserState extends State<PaperChooser> {
   late Paper _paper = widget.start;
   var _size = NotebookSize.a4;
+  PageTemplate? _template;
+  late final _templates = [...widget.templates];
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    void done(bool atEnd) =>
-        Navigator.of(context).pop((paper: _paper, atEnd: atEnd));
+    void done(bool atEnd) => Navigator.of(context)
+        .pop<PaperChoice>((paper: _paper, atEnd: atEnd, template: _template));
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -134,10 +149,13 @@ class _PaperChooserState extends State<PaperChooser> {
                 for (final p in Paper.values)
                   Semantics(
                     button: true,
-                    selected: p == _paper,
+                    selected: p == _paper && _template == null,
                     label: paperName(p),
                     child: InkWell(
-                      onTap: () => setState(() => _paper = p),
+                      onTap: () => setState(() {
+                        _paper = p;
+                        _template = null;
+                      }),
                       borderRadius: BorderRadius.circular(8),
                       child: SizedBox(
                         width: 96,
@@ -151,10 +169,12 @@ class _PaperChooserState extends State<PaperChooser> {
                                     ? const Color(0xFF202124)
                                     : Colors.white,
                                 border: Border.all(
-                                  color: p == _paper
+                                  color: p == _paper && _template == null
                                       ? scheme.primary
                                       : scheme.outlineVariant,
-                                  width: p == _paper ? 3 : 1,
+                                  width: p == _paper && _template == null
+                                      ? 3
+                                      : 1,
                                 ),
                                 borderRadius: BorderRadius.circular(4),
                               ),
@@ -189,6 +209,41 @@ class _PaperChooserState extends State<PaperChooser> {
                   ),
               ],
             ),
+            if (_templates.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Your templates',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  for (final t in _templates)
+                    InputChip(
+                      avatar: const Icon(Icons.dashboard_customize_outlined),
+                      label: Text(t.name),
+                      selected: identical(t, _template),
+                      onSelected: (_) => setState(() {
+                        _template = t;
+                        _paper = t.paper;
+                      }),
+                      deleteButtonTooltipMessage:
+                          'Remove the template "${t.name}"',
+                      onDeleted: widget.onRemoveTemplate == null
+                          ? null
+                          : () {
+                              widget.onRemoveTemplate!(t);
+                              setState(() {
+                                _templates.remove(t);
+                                if (identical(t, _template)) _template = null;
+                              });
+                            },
+                    ),
+                ],
+              ),
+            ],
             if (widget.onSize != null) ...[
               const SizedBox(height: 16),
               Text('Page size', style: Theme.of(context).textTheme.titleSmall),

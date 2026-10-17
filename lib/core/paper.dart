@@ -51,6 +51,51 @@ List<PaperMark> paperMarks(
         for (var y = height - gridGap; y > 0; y -= gridGap)
           for (var x = gridGap; x < width; x += gridGap) (x, y, x, y),
       ];
+    case Paper.cornell:
+      // A title band, a cue column (30%), notes ruled on the right, and a
+      // summary below (the lowest 22%).
+      final header = height - ruledGap * 2;
+      final summary = height * 0.22;
+      final cue = width * 0.3;
+      return [
+        (0, header, width, header),
+        (cue, header, cue, summary),
+        (0, summary, width, summary),
+        for (
+          var y = header - ruledGap;
+          y > summary + ruledGap * 0.5;
+          y -= ruledGap
+        )
+          (cue, y, width, y),
+      ];
+    case Paper.todo:
+      // A line per task with a box at its start.
+      final gap = ruledGap * 1.25;
+      final box = gap * 0.5, left = width * 0.06;
+      return [
+        for (var y = height - gap * 1.5; y > gap * 0.5; y -= gap) ...[
+          (0, y, width, y),
+          (left, y + gap * 0.2, left + box, y + gap * 0.2),
+          (left, y + gap * 0.2 + box, left + box, y + gap * 0.2 + box),
+          (left, y + gap * 0.2, left, y + gap * 0.2 + box),
+          (left + box, y + gap * 0.2, left + box, y + gap * 0.2 + box),
+        ],
+      ];
+    case Paper.weekly:
+      // A title band, then two columns of four boxes: Monday to Sunday,
+      // and one for notes.
+      final top = height - ruledGap * 2;
+      final m = width * 0.04;
+      final rowH = (top - m) / 4;
+      return [
+        (0, top, width, top),
+        (width / 2, top, width / 2, m),
+        for (var r = 1; r < 4; r++)
+          (m, top - rowH * r, width - m, top - rowH * r),
+        (m, m, width - m, m),
+        (m, top, m, m),
+        (width - m, top, width - m, m),
+      ];
   }
 }
 
@@ -90,6 +135,9 @@ String paperName(Paper paper) => switch (paper) {
   Paper.squared => 'Squared',
   Paper.dotted => 'Dotted',
   Paper.linedToFit => 'Lined to fit your writing',
+  Paper.cornell => 'Cornell notes',
+  Paper.todo => 'To-do list',
+  Paper.weekly => 'Week planner',
 };
 
 /// The colour of paper lines: a soft blue-grey, like a notebook's.

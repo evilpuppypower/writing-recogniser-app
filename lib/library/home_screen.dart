@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import '../core/app_settings.dart' show PageColours;
 import '../core/document_colours.dart';
 import '../core/document_state.dart';
 import '../core/page_layout.dart';
+import '../core/page_templates.dart';
 import '../core/paper.dart' show NotebookSize, ruledGap;
 import '../core/page_ink.dart';
 import '../core/recent_pdfs.dart';
@@ -32,7 +34,7 @@ import '../storage/sqlite_document_store.dart';
 import '../storage/sqlite_ink_store.dart';
 import '../storage/sqlite_page_layout_store.dart';
 import '../viewer/page_colours_dialog.dart';
-import '../viewer/paper_painter.dart' show PaperChooser;
+import '../viewer/paper_painter.dart' show PaperChoice, PaperChooser;
 import '../viewer/pdf_viewer_screen.dart';
 import 'locate_copy.dart';
 import 'notebooks.dart';
@@ -658,9 +660,15 @@ class _HomeScreenState extends State<HomeScreen> {
         orElse: () => Paper.plain,
       );
     } catch (_) {}
+    // The user's own templates (owner's idea 20).
+    final templates = TemplateLibrary();
+    try {
+      final raw = await prefs?.getString(TemplateLibrary.prefsKey);
+      if (raw != null) templates.load(jsonDecode(raw));
+    } catch (_) {}
     if (!mounted) return;
     var size = NotebookSize.a4;
-    final chosen = await showModalBottomSheet<({Paper paper, bool atEnd})>(
+    final chosen = await showModalBottomSheet<PaperChoice>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
@@ -669,33 +677,56 @@ class _HomeScreenState extends State<HomeScreen> {
         start: last,
         doneLabel: 'Create',
         onSize: (s) => size = s,
+        templates: templates.templates,
+        onRemoveTemplate: (t) async {
+          templates.remove(t.name);
+          try {
+            await prefs?.setString(
+              TemplateLibrary.prefsKey,
+              jsonEncode(templates.toJson()),
+            );
+          } catch (_) {}
+        },
       ),
     );
     if (chosen == null || !mounted) return;
     final tapped = DateTime.now();
-    double? gap;
-    if (chosen.paper == Paper.linedToFit) {
+    final template = chosen.template;
+    double? gap = template?.lineGap;
+    if (template == null && chosen.paper == Paper.linedToFit) {
       try {
         gap = await prefs?.getDouble('paper.fitGap');
       } catch (_) {}
       gap ??= ruledGap;
     }
-    try {
-      await prefs?.setString('paper.last', chosen.paper.name);
-    } catch (_) {}
+    if (template == null) {
+      try {
+        await prefs?.setString('paper.last', chosen.paper.name);
+      } catch (_) {}
+    }
     final name = 'Notebook ${formatDateTime(tapped).replaceAll(':', '.')}';
     final ({String id, String path}) file;
     try {
       file = await _s.newNotebookFile(name);
-      await (await _s.pageLayouts()).save(
-        file.id,
-        PageLayout.newNotebook(
-          paper: chosen.paper,
-          lineGap: gap,
-          width: size.width,
-          height: size.height,
-        ),
+      final layout = PageLayout.newNotebook(
+        paper: chosen.paper,
+        lineGap: gap,
+        width: size.width,
+        height: size.height,
       );
+      // A template's ink on the first page.
+      if (template != null && template.strokes.isNotEmpty) {
+        await (await SqliteInkStore.open()).savePage(
+          file.id,
+          layout.keyAt(1),
+          template.strokesFor(
+            size.width.toDouble(),
+            size.height.toDouble(),
+            now: tapped.millisecondsSinceEpoch,
+          ),
+        );
+      }
+      await (await _s.pageLayouts()).save(file.id, layout);
     } catch (e) {
       _message("Couldn't make the notebook: $e");
       return;
