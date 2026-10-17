@@ -25,6 +25,7 @@ import '../core/document_state.dart';
 import '../core/feedback/correction_store.dart';
 import '../core/handwriting_search.dart';
 import '../core/highlights.dart';
+import '../core/page_templates.dart';
 import '../core/ink_export_plan.dart' show ExportLine, ExportWord;
 import '../core/ink_classifier.dart';
 import '../core/event_log.dart';
@@ -1049,6 +1050,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         );
       case ArrangeShownPages():
         await _arrangeShownPages();
+      case SaveAsTemplate(:final page):
+        await _saveAsTemplate(page);
       case RestorePages():
         var next = _shownPages;
         for (final n in next.hiddenPdfPages) {
@@ -1085,6 +1088,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       title: 'Add a blank page',
       current: await _lastPaper(),
       afterPage: after == null ? current : null,
+      withTemplates: true,
     );
     if (chosen == null || !mounted || !_controller.isReady) return;
     final at = chosen.atEnd ? _shownPages.length : current;
@@ -1092,16 +1096,33 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final size = at >= 1 && at <= pages.length
         ? (pages[at - 1].width, pages[at - 1].height)
         : (595.0, 842.0);
-    final gap = chosen.paper == Paper.linedToFit ? await _fitLineGap() : null;
-    unawaited(_saveLastPaper(chosen.paper));
-    final (next, _) = _shownPages.insert(
+    final template = chosen.template;
+    final gap = template != null
+        ? template.lineGap
+        : chosen.paper == Paper.linedToFit
+        ? await _fitLineGap()
+        : null;
+    if (template == null) unawaited(_saveLastPaper(chosen.paper));
+    final (next, key) = _shownPages.insert(
       at + 1,
       paper: chosen.paper,
       width: size.$1,
       height: size.$2,
       lineGap: gap,
     );
-    await _changeLayout(next, showPage: at + 1);
+    await _changeLayout(
+      next,
+      showPage: at + 1,
+      newInk: template == null
+          ? const {}
+          : {
+              key: template.strokesFor(
+                size.$1,
+                size.$2,
+                now: DateTime.now().millisecondsSinceEpoch,
+              ),
+            },
+    );
   }
 
   static const _lastPaperKey = 'paper.last', _fitGapKey = 'paper.fitGap';
@@ -1151,21 +1172,97 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// Asks which paper (and, with [afterPage], whether after that page or
   /// at the end); null if cancelled.
-  Future<({Paper paper, bool atEnd})?> _choosePaper({
+  Future<PaperChoice?> _choosePaper({
     required String title,
     Paper? current,
     int? afterPage,
-  }) => showModalBottomSheet<({Paper paper, bool atEnd})>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (context) => PaperChooser(
-      title: title,
-      start: current ?? Paper.plain,
-      afterPage: afterPage,
-      dark: _dark,
-    ),
-  );
+    bool withTemplates = false,
+  }) async {
+    final templates = withTemplates ? await _loadTemplates() : null;
+    if (!mounted) return null;
+    return showModalBottomSheet<PaperChoice>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => PaperChooser(
+        title: title,
+        start: current ?? Paper.plain,
+        afterPage: afterPage,
+        dark: _dark,
+        templates: templates?.templates ?? const [],
+        onRemoveTemplate: templates == null
+            ? null
+            : (t) {
+                templates.remove(t.name);
+                unawaited(_saveTemplates(templates));
+              },
+      ),
+    );
+  }
+
+  /// The user's own templates (owner's idea 20), kept in the settings.
+  Future<TemplateLibrary> _loadTemplates() async {
+    final lib = TemplateLibrary();
+    try {
+      final raw = await SharedPreferencesAsync().getString(
+        TemplateLibrary.prefsKey,
+      );
+      if (raw != null) lib.load(jsonDecode(raw));
+    } catch (_) {}
+    return lib;
+  }
+
+  Future<void> _saveTemplates(TemplateLibrary lib) async {
+    try {
+      await SharedPreferencesAsync().setString(
+        TemplateLibrary.prefsKey,
+        jsonEncode(lib.toJson()),
+      );
+    } catch (_) {}
+  }
+
+  /// Saves [page] (its paper and ink) as a template, by a name the user
+  /// gives.
+  Future<void> _saveAsTemplate(int page) async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => const _TemplateNameDialog(),
+    );
+    if (name == null || name.trim().isEmpty || !mounted) return;
+    final laid = _layout?.at(page);
+    final pages = _controller.isReady ? _controller.document.pages : null;
+    final w = laid != null && laid.isBlank
+        ? laid.width
+        : (pages != null && page <= pages.length
+              ? pages[page - 1].width
+              : 595.0);
+    final h = laid != null && laid.isBlank
+        ? laid.height
+        : (pages != null && page <= pages.length
+              ? pages[page - 1].height
+              : 842.0);
+    final lib = await _loadTemplates();
+    lib.add(
+      PageTemplate.fromPage(
+        name: name,
+        paper: laid?.paper ?? Paper.plain,
+        width: w,
+        height: h,
+        lineGap: laid?.lineGap,
+        strokes: _ink.ink.strokesOn(page),
+      ),
+    );
+    await _saveTemplates(lib);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Saved the template "${name.trim()}". It\'s offered when you add '
+          'a page or start a notebook.',
+        ),
+      ),
+    );
+  }
 
   Future<void> _removePage(int page) async {
     final p = _shownPages.at(page);
@@ -1320,6 +1417,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     Map<int, int> copies = const {},
     Set<int> deleted = const {},
     int? showPage,
+    Map<int, List<PageStroke>> newInk = const {},
   }) async {
     final store = _layoutStore;
     if (store == null || !_canChangePages) return;
@@ -1342,6 +1440,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           await ink.savePage(id, e.value, [...strokes]);
           await ink.saveText(id, e.value, text[e.key]);
         }
+      }
+      // A template's ink on a new page.
+      for (final e in newInk.entries) {
+        if (e.value.isNotEmpty) await ink.savePage(id, e.key, e.value);
       }
       // The new pages first: if that fails, nothing is lost.
       await store.save(id, next);
@@ -4737,4 +4839,43 @@ class _BoxGuide extends CustomPainter {
 
   @override
   bool shouldRepaint(_BoxGuide old) => old.rect != rect || old.colour != colour;
+}
+
+/// A name for a new template.
+class _TemplateNameDialog extends StatefulWidget {
+  const _TemplateNameDialog();
+
+  @override
+  State<_TemplateNameDialog> createState() => _TemplateNameDialogState();
+}
+
+class _TemplateNameDialogState extends State<_TemplateNameDialog> {
+  final _name = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Save as a template'),
+    content: TextField(
+      controller: _name,
+      autofocus: true,
+      decoration: const InputDecoration(labelText: 'Template name'),
+      onSubmitted: (v) => Navigator.pop(context, v),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(context, _name.text),
+        child: const Text('Save'),
+      ),
+    ],
+  );
 }

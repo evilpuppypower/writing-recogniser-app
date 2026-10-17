@@ -809,3 +809,15 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - **Using it:** tap any line to go to its page. "Copy" puts it all on the clipboard as plain text. "Save" saves it as a `.txt` file wherever you choose. It's worked out when opened, from the ink and the PDF's text, so it's always up to date and nothing extra is stored.
 - **How text counts as highlighted:** the highlighter's line passes within half its width (or half the letter's height) of a letter's middle.
 - **Scanned PDFs** have no printed text to find until OCR comes, so only notes show for them.
+
+## 2026-10-17 — Templates (owner: answer 20, "yes, with user-made templates")
+
+- **Three ready-made papers**, alongside plain, lined, squared and dotted wherever paper is chosen:
+  - **Cornell notes:** a title band, a cue column (the left 30%), ruled notes on the right, and a summary box at the foot (the lowest 22%).
+  - **To-do list:** a ruled line per task with a box at its start.
+  - **Week planner:** a title band and eight boxes in two columns (Monday to Sunday, and notes).
+  - Like the other papers, they're drawn under the ink and written into exports. The boxes carry no printed day names; you write your own.
+- **Your own templates:** in "All pages", a page's menu has "Save as a template". It keeps the page's paper and everything drawn or written on it, under a name you give (the same name replaces the old one).
+  - They're offered under "Your templates" when adding a blank page or starting a notebook. The new page gets the template's paper and a copy of its ink, stretched to the page's size. An × removes a template.
+  - The template's ink is never read as handwriting on the new pages, so headings and boxes you drew don't become text. Typed text boxes stay as they are.
+  - Templates are kept with the settings, so they're in backups.

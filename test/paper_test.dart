@@ -78,7 +78,7 @@ void main() {
   });
 
   testWidgets('choosing the paper and where the page goes', (tester) async {
-    ({Paper paper, bool atEnd})? chosen;
+    PaperChoice? chosen;
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
