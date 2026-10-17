@@ -133,6 +133,7 @@ class AppSettings {
     this.twoPages = false,
     this.tidyShapes = true,
     this.writingBoxButton = true,
+    this.highlightsSummary = true,
     this.suggestTagsFromContents = true,
     this.textLabels = TextLabelPlace.above,
     this.textPanel = TextPanelPlace.off,
@@ -242,6 +243,10 @@ class AppSettings {
   /// whether they want it).
   final bool writingBoxButton;
 
+  /// The highlights summary in the PDF's toolbar (owner: a setting to
+  /// turn it on or off).
+  final bool highlightsSummary;
+
   /// Tags are also suggested from what's written in a document, not only
   /// its name (read on the tablet only).
   final bool suggestTagsFromContents;
@@ -298,6 +303,7 @@ class AppSettings {
     bool? twoPages,
     bool? tidyShapes,
     bool? writingBoxButton,
+    bool? highlightsSummary,
     bool? suggestTagsFromContents,
     TextLabelPlace? textLabels,
     TextPanelPlace? textPanel,
@@ -340,6 +346,7 @@ class AppSettings {
     twoPages: twoPages ?? this.twoPages,
     tidyShapes: tidyShapes ?? this.tidyShapes,
     writingBoxButton: writingBoxButton ?? this.writingBoxButton,
+    highlightsSummary: highlightsSummary ?? this.highlightsSummary,
     suggestTagsFromContents:
         suggestTagsFromContents ?? this.suggestTagsFromContents,
     textLabels: textLabels ?? this.textLabels,
@@ -371,6 +378,7 @@ class AppSettings {
     'twoPages': twoPages,
     'tidyShapes': tidyShapes,
     'writingBoxButton': writingBoxButton,
+    'highlightsSummary': highlightsSummary,
     'suggestTagsFromContents': suggestTagsFromContents,
     'textLabels': textLabels.name,
     'textPanel': textPanel.name,
@@ -409,6 +417,7 @@ class AppSettings {
     final twoPages = m['twoPages'];
     final tidyShapes = m['tidyShapes'];
     final writingBoxButton = m['writingBoxButton'];
+    final highlightsSummary = m['highlightsSummary'];
     final suggestTags = m['suggestTagsFromContents'];
     final askPageColours = m['askPageColours'];
     final askWhenUnsure = m['askWhenUnsure'];
@@ -462,6 +471,9 @@ class AppSettings {
       writingBoxButton: writingBoxButton is bool
           ? writingBoxButton
           : d.writingBoxButton,
+      highlightsSummary: highlightsSummary is bool
+          ? highlightsSummary
+          : d.highlightsSummary,
       suggestTagsFromContents: suggestTags is bool
           ? suggestTags
           : d.suggestTagsFromContents,
@@ -509,6 +521,7 @@ class AppSettings {
       other.twoPages == twoPages &&
       other.tidyShapes == tidyShapes &&
       other.writingBoxButton == writingBoxButton &&
+      other.highlightsSummary == highlightsSummary &&
       other.suggestTagsFromContents == suggestTagsFromContents &&
       other.textLabels == textLabels &&
       other.textPanel == textPanel &&
@@ -539,6 +552,7 @@ class AppSettings {
     twoPages,
     tidyShapes,
     writingBoxButton,
+    highlightsSummary,
     suggestTagsFromContents,
     textLabels,
     textPanel,

@@ -24,6 +24,7 @@ import '../core/document_colours.dart';
 import '../core/document_state.dart';
 import '../core/feedback/correction_store.dart';
 import '../core/handwriting_search.dart';
+import '../core/highlights.dart';
 import '../core/ink_export_plan.dart' show ExportLine, ExportWord;
 import '../core/ink_classifier.dart';
 import '../core/event_log.dart';
@@ -76,6 +77,7 @@ import 'frame_recorder.dart';
 import 'label_fade.dart';
 import 'page_ink_layer.dart';
 import 'correct_word_sheet.dart';
+import 'highlights_sheet.dart';
 import 'export_options_dialog.dart';
 import 'page_text_labels.dart';
 import 'page_typed_text.dart';
@@ -849,6 +851,151 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// Every page small, with its ink and bookmarks; tap one to go there
   /// (owner's choice: page tools).
+  /// The highlights summary: gathered from every page with highlighter
+  /// ink or writing (reading each such page's printed text), with a
+  /// progress bar when it takes a while.
+  Future<void> _showHighlights() async {
+    if (!_controller.isReady) return;
+    final doc = _controller.document;
+    final count = _pageCount ?? 0;
+    final progress = ValueNotifier<double>(0);
+    var cancelled = false;
+    final pages = <PageHighlights>[];
+    Future<void> gather() async {
+      for (var page = 1; page <= count && !cancelled; page++) {
+        progress.value = page / count;
+        final strokes = _ink.ink.strokesOn(page);
+        final words = _text.wordsOn(page);
+        final typed = typedLines(strokes);
+        final hasMarks = strokes.any((s) => s.tool == InkTool.highlighter);
+        if (!hasMarks && words.isEmpty && typed.isEmpty) continue;
+        final converted = convertedStrokeIds(strokes);
+        // Your writing, line by line (converted lines by their typed text).
+        final byLine = <int, List<RecognizedWord>>{};
+        for (final w in words) {
+          if (w.key.split(',').any(converted.contains)) continue;
+          byLine.putIfAbsent(w.line, () => []).add(w);
+        }
+        final notes = <NoteLine>[
+          for (final ws in byLine.values)
+            (
+              text: (ws..sort((a, b) => a.box.left.compareTo(b.box.left)))
+                  .map((w) => _dictionary.expand(w.text.trim()))
+                  .join(' '),
+              box: ws.map((w) => w.box).reduce((a, b) => a.union(b)),
+            ),
+          for (final t in typed) (text: t.text, box: t.box),
+        ];
+        var chars = <PrintedChar>[];
+        try {
+          if (page <= doc.pages.length) {
+            final raw = await doc.pages[page - 1].loadText();
+            if (raw != null && raw.fullText.length == raw.charRects.length) {
+              chars = [
+                for (var i = 0; i < raw.charRects.length; i++)
+                  (
+                    char: raw.fullText[i],
+                    box: InkBox(
+                      raw.charRects[i].left,
+                      raw.charRects[i].bottom,
+                      raw.charRects[i].right,
+                      raw.charRects[i].top,
+                    ),
+                  ),
+              ];
+            }
+          }
+        } catch (_) {
+          // A page without readable printed text: just the notes.
+        }
+        final h = PageHighlights(
+          page: page,
+          highlights: highlightedText(strokes, chars),
+          notes: notesNextToPrint(notes, printedLines(chars)),
+        );
+        if (!h.isEmpty) pages.add(h);
+      }
+    }
+
+    // Shown only if it takes more than a moment.
+    final work = gather();
+    // Open while gathering; closing it any way (Stop, or Back) stops.
+    var open = false, finishing = false;
+    final timer = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      open = true;
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Gathering highlights and notes…'),
+          content: ValueListenableBuilder(
+            valueListenable: progress,
+            builder: (_, v, _) => LinearProgressIndicator(value: v),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Stop'),
+            ),
+          ],
+        ),
+      ).then((_) {
+        open = false;
+        if (!finishing) cancelled = true;
+      });
+    });
+    try {
+      await work;
+    } finally {
+      timer.cancel();
+    }
+    if (!mounted) {
+      progress.dispose();
+      return;
+    }
+    if (open && !cancelled) {
+      // Done: closes the progress box (only it), and carries on.
+      finishing = true;
+      Navigator.of(context).pop();
+    }
+    if (cancelled || !mounted) {
+      progress.dispose();
+      return;
+    }
+    final text = highlightsText(widget.title, pages);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheet) => HighlightsSheet(
+        pages: pages,
+        onGoTo: (page) {
+          Navigator.pop(sheet);
+          _controller.goToPage(pageNumber: page);
+        },
+        onCopy: () {
+          Clipboard.setData(ClipboardData(text: text));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Highlights and notes copied.')),
+          );
+        },
+        onSave: () async {
+          final base = widget.title.replaceAll(
+            RegExp(r'\.pdf$', caseSensitive: false),
+            '',
+          );
+          await widget.saveFile(
+            '$base highlights.txt',
+            'text/plain',
+            utf8.encode(text),
+          );
+        },
+      ),
+    );
+    progress.dispose();
+  }
+
   Future<void> _showPages() async {
     if (!_controller.isReady) return;
     final action = await showPagesSheet(
@@ -3914,6 +4061,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     icon: const Icon(Icons.zoom_in_map),
                     onPressed: _pageCount == null ? null : _toggleWritingBox,
                   ),
+                ),
+              if ((_docSettings?.value ?? SettingsScope.valueOf(context))
+                  .highlightsSummary)
+                IconButton(
+                  tooltip: 'Highlights and notes, page by page',
+                  icon: const Icon(Icons.summarize_outlined),
+                  onPressed: _pageCount == null ? null : _showHighlights,
                 ),
               if (widget.sourcePath != null)
                 IconButton(

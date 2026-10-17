@@ -600,6 +600,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) => settings.update(s.copyWith(writingBoxButton: v)),
           ),
           SwitchListTile(
+            title: const Text('Highlights summary'),
+            subtitle: const Text(
+              'A button in the PDF\'s toolbar that lists the printed text '
+              'you highlighted and your notes, page by page, to copy or '
+              'save for revision.',
+            ),
+            value: s.highlightsSummary,
+            onChanged: (v) => settings.update(s.copyWith(highlightsSummary: v)),
+          ),
+          SwitchListTile(
             title: const Text('Tidy up shapes'),
             subtitle: const Text(
               'Hold the pen still at the end of a circle, rectangle or '
