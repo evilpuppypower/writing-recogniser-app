@@ -24,6 +24,7 @@ import '../core/document_colours.dart';
 import '../core/document_state.dart';
 import '../core/feedback/correction_store.dart';
 import '../core/handwriting_search.dart';
+import '../core/battery_saver.dart';
 import '../core/highlights.dart';
 import '../core/page_templates.dart';
 import '../core/ink_export_plan.dart' show ExportLine, ExportWord;
@@ -78,6 +79,7 @@ import 'frame_recorder.dart';
 import 'label_fade.dart';
 import 'page_ink_layer.dart';
 import 'correct_word_sheet.dart';
+import '../platform/power.dart';
 import 'highlights_sheet.dart';
 import 'export_options_dialog.dart';
 import 'page_text_labels.dart';
@@ -2732,12 +2734,23 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       page,
       _ink.ink.strokesOn(page),
       Duration(
-        milliseconds: settings.autoPause
-            ? _rhythmFor(settings).pauseMs
-            : settings.recognitionPauseMs,
+        milliseconds: readPauseMs(
+          settings.autoPause
+              ? _rhythmFor(settings).pauseMs
+              : settings.recognitionPauseMs,
+          saving: _savingBattery(settings),
+        ),
       ),
     );
   }
+
+  /// Saving battery now (Settings → Battery saver): writing is read after
+  /// a longer pause, so less often while writing.
+  bool _savingBattery(AppSettings s) => batterySaverOn(
+    switchedOn: s.batterySaver,
+    withSystem: s.batterySaverWithSystem,
+    systemSaving: systemBatterySaver.value,
+  );
 
   /// The pen hovering near a recognised word (or its label, just above or
   /// below it) brings the labels back.
@@ -4167,6 +4180,29 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     onPressed: _pageCount == null ? null : _toggleWritingBox,
                   ),
                 ),
+              ValueListenableBuilder(
+                valueListenable: systemBatterySaver,
+                builder: (context, _, _) {
+                  final s =
+                      _docSettings?.value ?? SettingsScope.valueOf(context);
+                  if (!_savingBattery(s)) return const SizedBox.shrink();
+                  return IconButton(
+                    tooltip: 'Battery saver is on',
+                    icon: const Icon(Icons.battery_saver),
+                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Battery saver is on'
+                          '${s.batterySaver ? '' : ' (with Android\'s)'}: '
+                          'writing is read after you pause for '
+                          '${savingPauseMs ~/ 1000} seconds. Change it '
+                          'in Settings → Battery saver.',
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
               if ((_docSettings?.value ?? SettingsScope.valueOf(context))
                   .highlightsSummary)
                 IconButton(

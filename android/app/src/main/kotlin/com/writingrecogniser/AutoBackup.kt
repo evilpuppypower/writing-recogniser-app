@@ -37,6 +37,22 @@ object AutoBackup {
     private fun dir(context: Context) = File(context.filesDir, "backup").apply { mkdirs() }
     private fun settingsFile(context: Context) = File(dir(context), "auto.txt")
     private fun statusFile(context: Context) = File(dir(context), "auto-status.txt")
+    private fun saverFile(context: Context) = File(dir(context), "battery-saver.txt")
+
+    /** The app's battery saver (owner, 2026-10-17), told by the app when it
+     * changes: switched on, and whether it follows Android's. */
+    fun saveBatterySaver(context: Context, on: Boolean, withSystem: Boolean) {
+        writeAtomically(saverFile(context), BackupFile.lines(linkedMapOf("on" to on.toString(), "withSystem" to withSystem.toString())))
+    }
+
+    /** Whether to wait: the app's battery saver is on now. */
+    fun savingBattery(context: Context): Boolean {
+        val m = if (saverFile(context).isFile) BackupFile.parseLines(saverFile(context).readBytes()) else emptyMap()
+        val on = m["on"] == "true"
+        val withSystem = m["withSystem"] != "false"
+        val system = context.getSystemService(android.os.PowerManager::class.java).isPowerSaveMode
+        return on || (withSystem && system)
+    }
 
     fun settings(context: Context): Settings {
         val m = if (settingsFile(context).isFile) BackupFile.parseLines(settingsFile(context).readBytes()) else emptyMap()
@@ -109,6 +125,9 @@ object AutoBackup {
                 .setPersisted(true) // kept after the tablet restarts
                 .setRequiresBatteryNotLow(true)
                 .setRequiresStorageNotLow(true)
+                // Tried again within the hour or so if it had to wait
+                // (battery saver), or failed.
+                .setBackoffCriteria(30L * 60 * 1000, JobInfo.BACKOFF_POLICY_EXPONENTIAL)
                 .build(),
         )
     }
@@ -220,6 +239,11 @@ class AutoBackupJob : JobService() {
         Thread {
             var retry = false
             try {
+                if (AutoBackup.savingBattery(applicationContext)) {
+                    // Waits while battery saver is on; tried again later.
+                    retry = true
+                    return@Thread
+                }
                 val ok = AutoBackup.run(applicationContext, null) { stopped }
                 // Failed for a reason other than being stopped, and the
                 // folder is still there: tried again with Android's

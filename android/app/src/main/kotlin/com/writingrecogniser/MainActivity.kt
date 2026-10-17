@@ -1,6 +1,10 @@
 package com.writingrecogniser
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.PowerManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -9,6 +13,7 @@ class MainActivity : FlutterActivity() {
     private lateinit var pdfImporter: PdfImporter
     private lateinit var fileTransfer: FileTransfer
     private lateinit var backup: BackupChannel
+    private var powerReceiver: BroadcastReceiver? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -18,6 +23,20 @@ class MainActivity : FlutterActivity() {
         fileTransfer = FileTransfer(this, messenger)
         SecretBox(messenger)
         backup = BackupChannel(this, messenger)
+        // Android's battery saver, for the app's own (owner, 2026-10-17).
+        val power = MethodChannel(messenger, "writing_recogniser/power")
+        val pm = getSystemService(PowerManager::class.java)
+        power.setMethodCallHandler { call, result ->
+            if (call.method == "powerSave") result.success(pm.isPowerSaveMode) else result.notImplemented()
+        }
+        powerReceiver?.let { unregisterReceiver(it) }
+        powerReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                power.invokeMethod("powerSaveChanged", pm.isPowerSaveMode)
+            }
+        }.also {
+            registerReceiver(it, IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED), Context.RECEIVER_NOT_EXPORTED)
+        }
         // The system "Material You" accent colour (from the wallpaper/theme),
         // so the app can match the tablet's colours.
         MethodChannel(messenger, "writing_recogniser/system").setMethodCallHandler { call, result ->
@@ -38,6 +57,16 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun onDestroy() {
+        powerReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (_: Exception) {}
+        }
+        powerReceiver = null
+        super.onDestroy()
     }
 
     @Deprecated("Uses the Activity result API that FlutterActivity supports.")

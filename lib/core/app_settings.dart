@@ -134,6 +134,8 @@ class AppSettings {
     this.tidyShapes = true,
     this.writingBoxButton = true,
     this.highlightsSummary = true,
+    this.batterySaver = false,
+    this.batterySaverWithSystem = true,
     this.suggestTagsFromContents = true,
     this.textLabels = TextLabelPlace.above,
     this.textPanel = TextPanelPlace.off,
@@ -247,6 +249,12 @@ class AppSettings {
   /// turn it on or off).
   final bool highlightsSummary;
 
+  /// Battery saver, switched on by the user (owner, 2026-10-17).
+  final bool batterySaver;
+
+  /// Battery saver also while Android's own battery saver is on.
+  final bool batterySaverWithSystem;
+
   /// Tags are also suggested from what's written in a document, not only
   /// its name (read on the tablet only).
   final bool suggestTagsFromContents;
@@ -304,6 +312,8 @@ class AppSettings {
     bool? tidyShapes,
     bool? writingBoxButton,
     bool? highlightsSummary,
+    bool? batterySaver,
+    bool? batterySaverWithSystem,
     bool? suggestTagsFromContents,
     TextLabelPlace? textLabels,
     TextPanelPlace? textPanel,
@@ -347,6 +357,9 @@ class AppSettings {
     tidyShapes: tidyShapes ?? this.tidyShapes,
     writingBoxButton: writingBoxButton ?? this.writingBoxButton,
     highlightsSummary: highlightsSummary ?? this.highlightsSummary,
+    batterySaver: batterySaver ?? this.batterySaver,
+    batterySaverWithSystem:
+        batterySaverWithSystem ?? this.batterySaverWithSystem,
     suggestTagsFromContents:
         suggestTagsFromContents ?? this.suggestTagsFromContents,
     textLabels: textLabels ?? this.textLabels,
@@ -379,6 +392,8 @@ class AppSettings {
     'tidyShapes': tidyShapes,
     'writingBoxButton': writingBoxButton,
     'highlightsSummary': highlightsSummary,
+    'batterySaver': batterySaver,
+    'batterySaverWithSystem': batterySaverWithSystem,
     'suggestTagsFromContents': suggestTagsFromContents,
     'textLabels': textLabels.name,
     'textPanel': textPanel.name,
@@ -418,6 +433,8 @@ class AppSettings {
     final tidyShapes = m['tidyShapes'];
     final writingBoxButton = m['writingBoxButton'];
     final highlightsSummary = m['highlightsSummary'];
+    final batterySaver = m['batterySaver'];
+    final batterySaverWithSystem = m['batterySaverWithSystem'];
     final suggestTags = m['suggestTagsFromContents'];
     final askPageColours = m['askPageColours'];
     final askWhenUnsure = m['askWhenUnsure'];
@@ -474,6 +491,10 @@ class AppSettings {
       highlightsSummary: highlightsSummary is bool
           ? highlightsSummary
           : d.highlightsSummary,
+      batterySaver: batterySaver is bool ? batterySaver : d.batterySaver,
+      batterySaverWithSystem: batterySaverWithSystem is bool
+          ? batterySaverWithSystem
+          : d.batterySaverWithSystem,
       suggestTagsFromContents: suggestTags is bool
           ? suggestTags
           : d.suggestTagsFromContents,
@@ -522,6 +543,8 @@ class AppSettings {
       other.tidyShapes == tidyShapes &&
       other.writingBoxButton == writingBoxButton &&
       other.highlightsSummary == highlightsSummary &&
+      other.batterySaver == batterySaver &&
+      other.batterySaverWithSystem == batterySaverWithSystem &&
       other.suggestTagsFromContents == suggestTagsFromContents &&
       other.textLabels == textLabels &&
       other.textPanel == textPanel &&
@@ -553,6 +576,8 @@ class AppSettings {
     tidyShapes,
     writingBoxButton,
     highlightsSummary,
+    batterySaver,
+    batterySaverWithSystem,
     suggestTagsFromContents,
     textLabels,
     textPanel,
