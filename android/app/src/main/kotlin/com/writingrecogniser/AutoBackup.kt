@@ -26,6 +26,7 @@ import java.util.TimeZone
  */
 object AutoBackup {
     private const val JOB_ID = 7310
+    private const val BACKOFF_MS = 30L * 60 * 1000
     /** Automatic backups have their own name, so only they are ever removed
      * (never a backup the user saved there by hand); the time is in UTC,
      * so the names sort by age even if the clock's zone changes. */
@@ -84,7 +85,14 @@ object AutoBackup {
     fun ensureScheduled(context: Context) {
         val s = settings(context)
         val scheduler = context.getSystemService(JobScheduler::class.java)
-        if (s.folder != null && s.everyDays > 0 && scheduler.getPendingJob(JOB_ID) == null) schedule(context, s)
+        val pending = scheduler.getPendingJob(JOB_ID)
+        // Also set up again if it was scheduled before it waited half an
+        // hour between tries (an older version of the app).
+        if (s.folder != null && s.everyDays > 0 &&
+            (pending == null || pending.initialBackoffMillis != BACKOFF_MS)
+        ) {
+            schedule(context, s)
+        }
     }
 
     /** Whether the app may still write to the chosen folder (it may have
@@ -107,6 +115,15 @@ object AutoBackup {
     fun status(context: Context): Map<String, String> =
         if (statusFile(context).isFile) BackupFile.parseLines(statusFile(context).readBytes()) else emptyMap()
 
+    /** Says the last try waited for battery saver (the last backup kept). */
+    fun recordWaiting(context: Context) {
+        record(
+            context,
+            status(context).filterKeys { it == "at" || it == "bytes" } +
+                mapOf("failedAt" to utcNow(), "error" to "Waiting while battery saver is on"),
+        )
+    }
+
     @Synchronized
     private fun record(context: Context, status: Map<String, String>) {
         writeAtomically(statusFile(context), BackupFile.lines(status.mapValues { it.value.replace("\n", " ") }))
@@ -127,7 +144,7 @@ object AutoBackup {
                 .setRequiresStorageNotLow(true)
                 // Tried again within the hour or so if it had to wait
                 // (battery saver), or failed.
-                .setBackoffCriteria(30L * 60 * 1000, JobInfo.BACKOFF_POLICY_EXPONENTIAL)
+                .setBackoffCriteria(BACKOFF_MS, JobInfo.BACKOFF_POLICY_EXPONENTIAL)
                 .build(),
         )
     }
@@ -241,6 +258,7 @@ class AutoBackupJob : JobService() {
             try {
                 if (AutoBackup.savingBattery(applicationContext)) {
                     // Waits while battery saver is on; tried again later.
+                    AutoBackup.recordWaiting(applicationContext)
                     retry = true
                     return@Thread
                 }
