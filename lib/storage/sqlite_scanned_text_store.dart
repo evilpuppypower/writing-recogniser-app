@@ -24,6 +24,17 @@ class SqliteScannedTextStore implements ScannedTextStore {
   };
 
   @override
+  Future<Set<int>> pagesRead(String documentId) async => {
+    for (final r in await _db.query(
+      'scanned_text',
+      columns: ['page'],
+      where: 'document_id = ?',
+      whereArgs: [documentId],
+    ))
+      r['page']! as int,
+  };
+
+  @override
   Future<void> savePage(String documentId, int page, List<ScannedLine> lines) =>
       _db.insert('scanned_text', {
         'document_id': documentId,

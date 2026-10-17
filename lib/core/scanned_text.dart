@@ -27,7 +27,7 @@ const scannedMinConfidence = 0.5;
 
 /// A page counts as having printed text with at least this many letters
 /// or digits.
-const _textChars = 20;
+const scannedPageTextChars = 20;
 
 /// Whether a PDF looks scanned, from how many letters or digits PDFium
 /// found as printed text on some of its pages ([charsPerPage], usually
@@ -36,7 +36,7 @@ const _textChars = 20;
 /// has text, and isn't asked about.)
 bool looksScanned(List<int> charsPerPage) {
   if (charsPerPage.isEmpty) return false;
-  final empty = charsPerPage.where((c) => c < _textChars).length;
+  final empty = charsPerPage.where((c) => c < scannedPageTextChars).length;
   return empty * 5 >= charsPerPage.length * 4;
 }
 
@@ -112,6 +112,9 @@ abstract class ScannedTextStore {
   /// [documentId]'s pages read so far, by the PDF's own page number.
   Future<Map<int, List<ScannedLine>>> load(String documentId);
 
+  /// [documentId]'s pages read so far (without their text).
+  Future<Set<int>> pagesRead(String documentId);
+
   Future<void> savePage(String documentId, int page, List<ScannedLine> lines);
 
   Future<Set<String>> documents();
@@ -125,6 +128,11 @@ class MemoryScannedTextStore implements ScannedTextStore {
   @override
   Future<Map<int, List<ScannedLine>>> load(String documentId) async => {
     ...?_docs[documentId],
+  };
+
+  @override
+  Future<Set<int>> pagesRead(String documentId) async => {
+    ...?_docs[documentId]?.keys,
   };
 
   @override

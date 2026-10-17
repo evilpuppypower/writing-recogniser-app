@@ -48,7 +48,10 @@ class _Reader implements TextReaderService {
   Future<void> remove(String id) async {}
 }
 
-PageImage _image(int w) => (width: w, height: 100, bgra: Uint8List(w * 400));
+var _freed = 0;
+
+PageImage _image(int w) =>
+    (width: w, height: 100, bgra: Uint8List(w * 400), dispose: () => _freed++);
 
 _Read _line(String text, {double c = 0.9}) =>
     (left: 10, top: 20, right: 60, bottom: 40, text: text, confidence: c);
@@ -92,6 +95,7 @@ void main() {
 
   group('readScannedPages', () {
     test('reads and keeps each page, a blank one too', () async {
+      _freed = 0;
       final store = MemoryScannedTextStore();
       final reader = _Reader({
         101: [_line('Page one')],
@@ -107,13 +111,16 @@ void main() {
         onPage: (done, total, _) => progress.add(done),
         stop: () => false,
       );
-      expect(ok, isTrue);
+      // Page 3 couldn't be drawn: not kept, so it's tried again.
+      expect(ok, isFalse);
       expect(progress, [1, 2, 3]);
       final kept = await store.load('d');
-      expect(kept.keys, [1, 2, 3]);
+      expect(kept.keys, [1, 2]);
       expect(kept[1]!.single.text, 'Page one');
       expect(kept[2], isEmpty);
       expect(reader.reads, ['m:101', 'm:102']);
+      expect(await store.pagesRead('d'), {1, 2});
+      expect(_freed, 2);
     });
 
     test('stops before the next page', () async {
@@ -192,6 +199,7 @@ void main() {
       await s.savePage('b', 1, const []);
       final a = await s.load('a');
       expect(a.keys.toSet(), {1, 2});
+      expect(await s.pagesRead('a'), {1, 2});
       expect(a[1]!.single.text, 'Hi');
       expect(await s.documents(), {'a', 'b'});
       await s.forget('a');
@@ -203,7 +211,10 @@ void main() {
 
   test('search finds scanned text where a page has none printed', () async {
     final printed = MemoryPrintedTextStore();
-    await printed.save('d', (pages: {2: 'printed words'}, pageCount: 2));
+    await printed.save('d', (
+      pages: {1: 'p. 1', 2: 'printed words that are plenty long'},
+      pageCount: 2,
+    ));
     final scanned = MemoryScannedTextStore();
     await scanned.savePage(
       'd',

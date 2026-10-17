@@ -724,6 +724,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       // saved pages (and their ink) are kept as they were.
       final source = await PdfDocument.openFile(_sourceFile!);
       _parts.add(source);
+      _savedNotebook = json.contains('"nb":true');
       final layout = PageLayout.fromJson(json, source.pages.length);
       if (layout == null) return;
       // Back to the PDF's own pages: shown as it is, but new pages still
@@ -741,6 +742,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   /// The PDF's file, when it's shown with pages of our own.
   String? _sourceFile;
+
+  /// Its saved pages say it's a notebook (even if they couldn't be used).
+  var _savedNotebook = false;
 
   /// Makes each put-together document's name new (pdfrx shares documents
   /// with the same name).
@@ -3160,13 +3164,40 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   PdfDocument? _document;
   ScannedPagesReader? _scanned;
 
+  /// Documents whose reading was stopped, or whose "waiting for battery
+  /// saver" message was shown, while the app has been open: not started
+  /// or said again when the viewer opens again for changed pages.
+  static final _scanStopped = <String>{};
+  static final _scanWaitShown = <String>{};
+
+  /// When the user last turned a page or wrote: reading waits for a quiet
+  /// moment, so drawing the pages on screen isn't held up.
+  var _lastBusy = DateTime.now();
+
+  void _markBusy() => _lastBusy = DateTime.now();
+
+  Future<void> _quietMoment() async {
+    while (mounted &&
+        DateTime.now().difference(_lastBusy) <
+            const Duration(milliseconds: 1500)) {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+  }
+
   /// Asks once whether to read a scanned PDF's pages (or follows Settings'
   /// choice), and reads the pages not read yet while it's open.
   Future<void> _checkScanned() async {
-    final document = _document;
-    if (!mounted || document == null) return;
+    final shown = _document;
+    if (!mounted || shown == null) return;
     await _layoutLoaded;
-    if (!mounted || (_layout?.notebook ?? false)) return;
+    await _viewLoaded;
+    if (!mounted || (_layout?.notebook ?? false) || _savedNotebook) return;
+    if (_scanStopped.contains(widget.documentId)) return;
+    // The PDF's own pages (the shown ones may have pages of our own
+    // between them, or in another order).
+    final document = _layout != null && _parts.isNotEmpty
+        ? _parts.first
+        : shown;
     var choice = _view.readScanned;
     if (choice == false) return;
     final ScannedTextStore store;
@@ -3181,7 +3212,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       reader: widget.textReader,
     );
     _scanned?.dispose();
-    _scanned = reader;
+    setState(() => _scanned = reader);
     final List<int> left;
     try {
       left = await reader.pagesLeft(document.pages.length);
@@ -3203,6 +3234,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       final byDefault = settings?.value.scannedPdfs ?? ScannedChoice.ask;
       if (byDefault == ScannedChoice.leave) return;
       if (byDefault == ScannedChoice.ask) {
+        // Not over another screen or sheet opened meanwhile.
+        if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
         final answer = await askReadScanned(context, haveReader: model != null);
         if (answer == null || !mounted) return;
         if (answer.same && settings != null) {
@@ -3245,6 +3278,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     final settingsNow = _docSettings?.value ?? SettingsScope.valueOf(context);
     if (!asked && _savingBattery(settingsNow)) {
       // Not by itself while saving battery; reading it now still works.
+      if (!_scanWaitShown.add(widget.documentId)) return;
       final id = model;
       _scannedMessage(
         'Scanned pages wait while battery saver is on.',
@@ -3270,7 +3304,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       model,
       renderPagesOf(document),
       onPageTook: (d) => took.add(d.inMilliseconds),
+      pause: _quietMoment,
     );
+    if (reader.stopped && !result.finished && mounted) {
+      _scanStopped.add(widget.documentId);
+    }
     // How long pages took, on the tablet only (no text).
     if (took.isNotEmpty) {
       unawaited(
@@ -3300,7 +3338,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         '(${result.read} of ${pages.length} read). It carries on next '
         'time the PDF is opened.',
       );
-    } else if (result.finished) {
+    } else if (result.finished && result.read > 0) {
       _scannedMessage(
         'Scanned pages read. Their words can be found with search on the '
         'home screen.',
@@ -3308,7 +3346,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     } else if (result.read < pages.length) {
       _scannedMessage(
         'Stopped after ${result.read} of ${pages.length} pages. The rest '
-        'are read next time the PDF is opened.',
+        'are read when the app next opens this PDF.',
       );
     }
   }
@@ -3355,6 +3393,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   void _onPageChanged(int? pageNumber) {
+    _lastBusy = DateTime.now();
     _pageNumber.value = pageNumber;
     if (!_restored || pageNumber == null) return;
     // Save shortly after scrolling settles, not on every page flick.
@@ -3767,6 +3806,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     unawaited(_loadProfile());
     unawaited(_loadDictionary());
     _ink.addListener(_checkTidiedShape);
+    _ink.addListener(_markBusy);
     _text.printedText = _printedOf;
     _coloursLoaded = _loadColours();
     // A selection belongs to the Select tool.
@@ -4313,6 +4353,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       t.keep.cancel();
     }
     _ink.removeListener(_checkTidiedShape);
+    _ink.removeListener(_markBusy);
     _lifecycle.dispose();
     _autosaver?.flush();
     _autosaver?.dispose();

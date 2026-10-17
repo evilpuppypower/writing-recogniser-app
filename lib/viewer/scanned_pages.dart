@@ -20,6 +20,8 @@ Future<ScannedAnswer?> askReadScanned(
   required bool haveReader,
 }) => showDialog<ScannedAnswer>(
   context: context,
+  // An answer is needed (or it would be asked again every time).
+  barrierDismissible: false,
   builder: (context) => _AskScanned(haveReader: haveReader),
 );
 
@@ -96,10 +98,10 @@ class ScannedPagesReader {
 
   /// The PDF's own pages (1 to [pageCount]) not read yet.
   Future<List<int>> pagesLeft(int pageCount) async {
-    final done = await store.load(documentId);
+    final done = await store.pagesRead(documentId);
     return [
       for (var p = 1; p <= pageCount; p++)
-        if (!done.containsKey(p)) p,
+        if (!done.contains(p)) p,
     ];
   }
 
@@ -110,6 +112,7 @@ class ScannedPagesReader {
     String modelId,
     Future<PageImage?> Function(int page) render, {
     void Function(Duration took)? onPageTook,
+    Future<void> Function()? pause,
   }) async {
     if (running || pages.isEmpty || _disposed) {
       return (read: 0, finished: pages.isEmpty, error: null);
@@ -128,6 +131,7 @@ class ScannedPagesReader {
         modelId: modelId,
         render: render,
         stop: () => _stop || _disposed,
+        pause: pause,
         onPage: (done, total, took) {
           read = done;
           onPageTook?.call(took);
@@ -151,6 +155,8 @@ class ScannedPagesReader {
       if (!_disposed) progress.value = null;
     }
   }
+
+  bool get stopped => _stop;
 
   void stop() => _stop = true;
 

@@ -111,8 +111,12 @@ class LibrarySearchService {
         const <int, List<ScannedLine>>{};
     for (final e in read.entries) {
       final text = tidySearch(scannedPageText(e.value));
-      if (text.isNotEmpty && (pages[e.key]?.isEmpty ?? true)) {
-        pages[e.key] = text;
+      if (text.isEmpty) continue;
+      final own = pages[e.key] ?? '';
+      // A scan's page number or stamp doesn't hide what was read on it; a
+      // page with real printed text keeps only its own.
+      if (textChars(own) < scannedPageTextChars) {
+        pages[e.key] = own.isEmpty ? text : '$own\n$text';
       }
     }
     return [

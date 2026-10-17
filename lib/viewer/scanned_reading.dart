@@ -5,19 +5,28 @@ import 'package:pdfrx/pdfrx.dart';
 import '../core/scanned_text.dart';
 import '../platform/ocr_channel.dart';
 
-/// A page drawn as an image: blue, green, red, alpha bytes.
-typedef PageImage = ({int width, int height, Uint8List bgra});
+/// A page drawn as an image: blue, green, red, alpha bytes, and how to
+/// free it once read.
+typedef PageImage = ({
+  int width,
+  int height,
+  Uint8List bgra,
+  void Function() dispose,
+});
 
 /// The longer side of a page drawn for reading: enough for ordinary print
-/// (about 240 dots per inch on A4) without using much memory.
-const scannedPageSide = 2800;
+/// (about 200 dots per inch on A4) without using much memory or holding
+/// up the drawing of the pages on screen for long.
+const scannedPageSide = 2400;
 
 /// Reads [pages] (the PDF's own page numbers) of [documentId] with
 /// [reader]'s model [modelId]: each page is drawn by [render], read, and
 /// kept in [store] straight away, so stopping (or closing the PDF) loses
-/// at most the page being read. [onPage] gets pages done, the total and
-/// how long the page took; stops before the next page once [stop] says
-/// so. True if every page was read.
+/// at most the page being read. A page that can't be drawn isn't kept (it's
+/// tried again next time). [onPage] gets pages done, the total and how
+/// long the page took; [pause] is waited on before each page (while the
+/// user is busy); stops before the next page once [stop] says so. True if
+/// every page was read.
 Future<bool> readScannedPages({
   required String documentId,
   required List<int> pages,
@@ -27,28 +36,39 @@ Future<bool> readScannedPages({
   required Future<PageImage?> Function(int page) render,
   required void Function(int done, int total, Duration took) onPage,
   required bool Function() stop,
+  Future<void> Function()? pause,
 }) async {
   var done = 0;
+  var all = true;
   for (final page in pages) {
+    await pause?.call();
     if (stop()) return false;
     final started = DateTime.now();
     final image = await render(page);
-    if (stop()) return false;
-    var lines = const <ScannedLine>[];
-    if (image != null) {
-      final read = await reader.read(
-        modelId,
-        image.width,
-        image.height,
-        image.bgra,
-      );
-      lines = scannedLines(read, image.width, image.height);
+    if (image == null) {
+      all = false;
+    } else {
+      try {
+        if (stop()) return false;
+        final read = await reader.read(
+          modelId,
+          image.width,
+          image.height,
+          image.bgra,
+        );
+        await store.savePage(
+          documentId,
+          page,
+          scannedLines(read, image.width, image.height),
+        );
+      } finally {
+        image.dispose();
+      }
     }
-    await store.savePage(documentId, page, lines);
     done++;
     onPage(done, pages.length, DateTime.now().difference(started));
   }
-  return true;
+  return all;
 }
 
 /// Draws [document]'s page [page] (1-based) for reading, white behind it,
@@ -70,15 +90,12 @@ Future<PageImage?> renderForReading(PdfDocument document, int page) async {
     annotationRenderingMode: PdfAnnotationRenderingMode.none,
   );
   if (image == null) return null;
-  try {
-    return (
-      width: image.width,
-      height: image.height,
-      bgra: Uint8List.fromList(image.pixels),
-    );
-  } finally {
-    image.dispose();
-  }
+  return (
+    width: image.width,
+    height: image.height,
+    bgra: image.pixels,
+    dispose: image.dispose,
+  );
 }
 
 /// How many letters or digits PDFium finds as printed text on the first
