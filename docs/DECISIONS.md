@@ -818,6 +818,6 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
   - **Week planner:** a title band and eight boxes in two columns (Monday to Sunday, and notes).
   - Like the other papers, they're drawn under the ink and written into exports. The boxes carry no printed day names; you write your own.
 - **Your own templates:** in "All pages", a page's menu has "Save as a template". It keeps the page's paper and everything drawn or written on it, under a name you give (the same name replaces the old one).
-  - They're offered under "Your templates" when adding a blank page or starting a notebook. The new page gets the template's paper and a copy of its ink, stretched to the page's size. An × removes a template.
+  - They're offered under "Your templates" when adding a blank page or starting a notebook. An added page gets the template's paper, size and a copy of its ink. A new notebook's page keeps the notebook size chosen, with the ink stretched to fit. An × removes a template.
   - The template's ink is never read as handwriting on the new pages, so headings and boxes you drew don't become text. Typed text boxes stay as they are.
   - Templates are kept with the settings, so they're in backups.

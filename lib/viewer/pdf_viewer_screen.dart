@@ -1093,10 +1093,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     if (chosen == null || !mounted || !_controller.isReady) return;
     final at = chosen.atEnd ? _shownPages.length : current;
     final pages = _controller.document.pages;
-    final size = at >= 1 && at <= pages.length
+    final template = chosen.template;
+    // A template's page keeps its own size, so its ink isn't stretched.
+    final size = template != null && template.width > 0 && template.height > 0
+        ? (template.width, template.height)
+        : at >= 1 && at <= pages.length
         ? (pages[at - 1].width, pages[at - 1].height)
         : (595.0, 842.0);
-    final template = chosen.template;
     final gap = template != null
         ? template.lineGap
         : chosen.paper == Paper.linedToFit
