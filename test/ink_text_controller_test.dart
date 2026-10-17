@@ -111,6 +111,23 @@ void main() {
     c.dispose();
   });
 
+  testWidgets('whether a page still needs reading (read later)', (
+    tester,
+  ) async {
+    final engine = FakeEngine();
+    final c = InkTextController(engine: engine);
+    final page = [...word(100, 700, 3, 0)];
+    expect(c.needsReading(1, page), isTrue);
+    expect(c.needsReading(2, const []), isFalse);
+    expect(engine.calls, isEmpty, reason: 'asking reads nothing');
+    c.inkChanged(1, page, pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    expect(c.needsReading(1, page), isFalse);
+    expect(c.needsReading(1, [...page, letter(149, 700, 9000)]), isTrue);
+    c.dispose();
+  });
+
   testWidgets('saved words come back without reading the ink again', (
     tester,
   ) async {

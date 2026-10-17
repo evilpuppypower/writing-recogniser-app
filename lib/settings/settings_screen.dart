@@ -600,6 +600,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) => settings.update(s.copyWith(writingBoxButton: v)),
           ),
           SwitchListTile(
+            secondary: const Icon(Icons.pause_circle_outline),
+            title: const Text('Read my writing later'),
+            subtitle: const Text(
+              'Handwriting isn\'t read as you write, only when you tap '
+              '"Read all now" in the PDF. Until then it isn\'t typed text, '
+              'found by search or learned from. Each document can change '
+              'this with the button in its toolbar.',
+            ),
+            value: s.readLater,
+            onChanged: (v) => settings.update(s.copyWith(readLater: v)),
+          ),
+          SwitchListTile(
             secondary: const Icon(Icons.battery_saver),
             title: const Text('Battery saver'),
             subtitle: const Text(

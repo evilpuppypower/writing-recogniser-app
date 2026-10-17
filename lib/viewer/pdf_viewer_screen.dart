@@ -575,6 +575,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               textLabels: labels?.name,
               textPanel: panel?.name,
               showTyped: _view.showTyped,
+              readLater: _view.readLater,
             );
             _saveView();
           },
@@ -2727,8 +2728,102 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     settings.update(settings.value.copyWith(learnedPauseMs: rhythm.pauseMs));
   }
 
+  /// Handwriting is read later in this document (its own choice, or
+  /// Settings'): only on "Read all now".
+  bool get _readLater =>
+      _view.readLater ??
+      (_docSettings?.value ?? SettingsScope.valueOf(context)).readLater;
+
+  /// Pages with writing not read yet because of [_readLater].
+  final _unread = ValueNotifier<Set<int>>(const {});
+
+  void _holdForLater(int page) {
+    if (_unread.value.contains(page)) return;
+    _unread.value = {..._unread.value, page};
+  }
+
+  /// Reads every page waiting (read later), one after another, with a
+  /// progress box when there are several.
+  Future<void> _readAllNow() async {
+    final pages = _unread.value.toList()..sort();
+    if (pages.isEmpty) return;
+    final progress = ValueNotifier<double>(0);
+    var stopped = false, open = false, finishing = false;
+    if (pages.length > 1) {
+      open = true;
+      unawaited(
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: Text('Reading ${pages.length} pages…'),
+            content: ValueListenableBuilder(
+              valueListenable: progress,
+              builder: (_, v, _) => LinearProgressIndicator(value: v),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Stop'),
+              ),
+            ],
+          ),
+        ).then((_) {
+          open = false;
+          if (!finishing) stopped = true;
+        }),
+      );
+    }
+    for (var i = 0; i < pages.length && !stopped && mounted; i++) {
+      final page = pages[i];
+      await _text.readNow(
+        page,
+        _ink.ink.strokesOn(page),
+        stop: () => stopped || !mounted,
+      );
+      if (!mounted) break;
+      _unread.value = {..._unread.value}..remove(page);
+      progress.value = (i + 1) / pages.length;
+    }
+    if (mounted && open && !stopped) {
+      finishing = true;
+      Navigator.of(context).pop();
+    }
+    progress.dispose();
+  }
+
+  /// This document's own choice: read later, or as you write.
+  void _setReadLater(bool on) {
+    setState(() => _view = _view.copyWith(readLater: on));
+    _saveView();
+    if (!on) {
+      // As you write again: what was waiting is read now, in the
+      // background.
+      for (final page in _unread.value) {
+        _text.ensure(page, _ink.ink.strokesOn(page));
+      }
+      _unread.value = const {};
+    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            on
+                ? 'Your writing in this document is read when you tap '
+                      '"Read all now", not as you write.'
+                : 'Your writing in this document is read as you write.',
+          ),
+        ),
+      );
+  }
+
   void _inkChangedForText(int page) {
     _labelsShown.wake();
+    if (_readLater) {
+      _holdForLater(page);
+      return;
+    }
     final settings = _settingsOf(context).value;
     _text.inkChanged(
       page,
@@ -3542,6 +3637,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   Future<void> _loadInk() async {
     await _layoutLoaded;
+    // Its own choices (read later) are known before any ink is read.
+    await _viewLoaded;
     try {
       final all = await widget.openInkStore();
       final layout = _layout;
@@ -3591,7 +3688,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       // erased) is read again; only new handwriting goes to the engine.
       for (final page in {...savedText.keys, ..._ink.ink.pagesWithInk}) {
         if (written.contains(page) || mixed.contains(page)) continue;
-        _text.ensure(page, _ink.ink.strokesOn(page));
+        final strokes = _ink.ink.strokesOn(page);
+        if (_readLater) {
+          if (_text.needsReading(page, strokes)) _holdForLater(page);
+        } else {
+          _text.ensure(page, strokes);
+        }
       }
     } catch (e) {
       if (mounted) _saveFailed(e);
@@ -4007,6 +4109,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _saveView();
     _docSettings?.dispose();
     _writingBox.dispose();
+    _unread.dispose();
     _boxAspectNotifier.dispose();
     _saveProfile();
     for (final t in _tidied) {
@@ -4180,6 +4283,53 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                     onPressed: _pageCount == null ? null : _toggleWritingBox,
                   ),
                 ),
+              ValueListenableBuilder(
+                valueListenable: _unread,
+                builder: (context, unread, _) {
+                  final later = _readLater;
+                  if (!later) {
+                    return IconButton(
+                      tooltip: 'Read my writing later, not as I write',
+                      icon: const Icon(Icons.pause_circle_outline),
+                      onPressed: () => _setReadLater(true),
+                    );
+                  }
+                  return PopupMenuButton<bool>(
+                    tooltip: unread.isEmpty
+                        ? 'Reading later: nothing waiting'
+                        : 'Reading later: ${unread.length} '
+                              '${unread.length == 1 ? 'page' : 'pages'} waiting',
+                    icon: Badge(
+                      isLabelVisible: unread.isNotEmpty,
+                      label: Text('${unread.length}'),
+                      child: const Icon(Icons.play_circle_outline),
+                    ),
+                    onSelected: (asYouWrite) {
+                      if (asYouWrite) {
+                        _setReadLater(false);
+                      } else {
+                        _readAllNow();
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        value: false,
+                        enabled: unread.isNotEmpty,
+                        child: Text(
+                          unread.isEmpty
+                              ? 'Nothing to read yet'
+                              : 'Read all now (${unread.length} '
+                                    '${unread.length == 1 ? 'page' : 'pages'})',
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: true,
+                        child: Text('Read as I write again'),
+                      ),
+                    ],
+                  );
+                },
+              ),
               ValueListenableBuilder(
                 valueListenable: systemBatterySaver,
                 builder: (context, _, _) {

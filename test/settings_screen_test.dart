@@ -25,7 +25,7 @@ void main() {
 
   Future<void> pumpScreen(WidgetTester tester) async {
     // Tablet-sized screen so the whole settings list is visible.
-    tester.view.physicalSize = const Size(1600, 6400);
+    tester.view.physicalSize = const Size(1600, 7600);
     tester.view.devicePixelRatio = 2;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(

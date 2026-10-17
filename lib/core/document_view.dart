@@ -20,6 +20,7 @@ class DocumentView {
     this.textLabels,
     this.textPanel,
     this.showTyped,
+    this.readLater,
   });
 
   /// The page in the middle of the screen, and where on it the middle of
@@ -42,6 +43,10 @@ class DocumentView {
 
   final bool? showTyped;
 
+  /// Its own choice of reading handwriting later (owner, 2026-10-17:
+  /// a default in Settings, and each document can change it).
+  final bool? readLater;
+
   DocumentView copyWith({
     int? page,
     double? pageX,
@@ -54,6 +59,7 @@ class DocumentView {
     String? textLabels,
     String? textPanel,
     bool? showTyped,
+    bool? readLater,
   }) => DocumentView(
     page: page ?? this.page,
     pageX: pageX ?? this.pageX,
@@ -66,6 +72,7 @@ class DocumentView {
     textLabels: textLabels ?? this.textLabels,
     textPanel: textPanel ?? this.textPanel,
     showTyped: showTyped ?? this.showTyped,
+    readLater: readLater ?? this.readLater,
   );
 
   /// [tools] with this document's own pen, highlighter and tool.
@@ -93,6 +100,7 @@ class DocumentView {
     if (textLabels != null) 'labels': textLabels,
     if (textPanel != null) 'panel': textPanel,
     if (showTyped != null) 'typed': showTyped,
+    if (readLater != null) 'later': readLater,
   });
 
   /// [json] from [toJson]; anything missing or unreadable is left unset
@@ -119,6 +127,7 @@ class DocumentView {
         textLabels: j['labels'] as String?,
         textPanel: j['panel'] as String?,
         showTyped: j['typed'] is bool ? j['typed']! as bool : null,
+        readLater: j['later'] is bool ? j['later']! as bool : null,
       );
     } catch (_) {
       return const DocumentView();

@@ -527,6 +527,13 @@ class InkTextController extends ChangeNotifier {
     _timers[page] = Timer(pause, () => _run(page));
   }
 
+  /// Whether [page] has writing that isn't read yet (or was changed since).
+  bool needsReading(int page, List<PageStroke> strokes) {
+    if (_pending.containsKey(page)) return true;
+    if (_words.containsKey(page) && upToDate(page, strokes)) return false;
+    return strokes.any(isWriting) || !(_words[page]?.isEmpty ?? true);
+  }
+
   /// Recognises [page] straight away if it has ink that hasn't been
   /// recognised yet (e.g. ink saved earlier, when the page is first shown).
   void ensure(int page, List<PageStroke> strokes) {
