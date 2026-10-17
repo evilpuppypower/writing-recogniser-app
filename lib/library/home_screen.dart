@@ -101,7 +101,7 @@ class LibraryServices {
       SharedPreferencesAsync().setString('quickNotes.id', id);
 
   static Future<bool> _pageHasInk(String id, int key) async =>
-      (await (await SqliteInkStore.open()).load(id)).strokesOn(key).isNotEmpty;
+      (await SqliteInkStore.open()).hasInkOn(id, key);
 
   static Future<String?> _restoreProblem() =>
       const AndroidBackupService().restoreProblem();
@@ -767,7 +767,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Quick note (owner, 2026-10-17): a new page at the end of the "Quick
   /// notes" notebook (made the first time), opened straight away.
+  /// Set while a quick note opens (the button waits, with a spinner).
+  bool _quickBusy = false;
+
   Future<void> _quickNote() async {
+    if (_quickBusy) return;
+    setState(() => _quickBusy = true);
+    try {
+      await _openQuickNote();
+    } finally {
+      if (mounted) setState(() => _quickBusy = false);
+    }
+  }
+
+  Future<void> _openQuickNote() async {
     final tapped = DateTime.now();
     SharedPreferencesAsync? prefs;
     try {
@@ -779,9 +792,12 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
     try {
       final layouts = await _s.pageLayouts();
-      final existing = id == null || !_notebooks.contains(id)
+      // Looked up in the store (the list may not have loaded yet); gone if
+      // the notebook was deleted.
+      final saved = id == null
           ? null
           : PageLayout.fromJson(await layouts.load(id));
+      final existing = saved != null && saved.notebook ? saved : null;
       String path;
       PageLayout? before = existing;
       if (before == null) {
@@ -793,10 +809,17 @@ class _HomeScreenState extends State<HomeScreen> {
             orElse: () => Paper.lined,
           );
         } catch (_) {}
+        double? gap;
+        if (paper == Paper.linedToFit) {
+          try {
+            gap = await prefs?.getDouble('paper.fitGap');
+          } catch (_) {}
+          gap ??= ruledGap;
+        }
         final file = await _s.newNotebookFile(quickNotesTitle);
         id = file.id;
         path = file.path;
-        final q = addQuickNote(null, paper: paper);
+        final q = addQuickNote(null, paper: paper, lineGap: gap);
         await layouts.save(file.id, q.layout);
         try {
           await _s.saveQuickNotesId(file.id);
@@ -1113,9 +1136,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(height: 12),
                         FilledButton.tonalIcon(
-                          icon: const Icon(Icons.bolt),
+                          icon: _quickBusy
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.bolt),
                           label: const Text('Quick note'),
-                          onPressed: _quickNote,
+                          onPressed: _quickBusy ? null : _quickNote,
                         ),
                         const SizedBox(height: 12),
                         OutlinedButton.icon(

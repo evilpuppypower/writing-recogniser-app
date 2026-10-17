@@ -75,6 +75,13 @@ void main() {
     });
     tearDown(() => db.close());
 
+    test('whether one page has ink', () async {
+      await store.savePage('doc', 2, [stroke(5)]);
+      expect(await store.hasInkOn('doc', 2), isTrue);
+      expect(await store.hasInkOn('doc', 1), isFalse);
+      expect(await store.hasInkOn('other', 2), isFalse);
+    });
+
     test('saves and reloads every page with tool, colour, width, pressure '
         'and arrows', () async {
       await store.savePage('doc', 1, [stroke(5), stroke(80, arrow: true)]);

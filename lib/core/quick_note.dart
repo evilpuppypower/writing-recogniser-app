@@ -16,6 +16,7 @@ const quickNotesTitle = 'Quick notes';
   Paper paper = Paper.lined,
   double width = 595,
   double height = 842,
+  double? lineGap,
 }) {
   if (notebook == null) {
     return (
@@ -23,6 +24,7 @@ const quickNotesTitle = 'Quick notes';
         paper: paper,
         width: width,
         height: height,
+        lineGap: lineGap,
         title: quickNotesTitle,
       ),
       page: 1,

@@ -837,5 +837,5 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 
 - **A "Quick note" button on the home screen**, under "New notebook". One tap opens a new page at the end of the "Quick notes" notebook, ready to write.
 - **The first time**, it makes that notebook, on the paper last chosen (lined if none). After that, each new page has the same paper and size as the last one.
-- **If the last page is still empty**, it's used again, so tapping twice doesn't leave empty pages behind.
+- **If the last page is still empty**, it's used again, so tapping twice doesn't leave empty pages behind. ("Empty" means nothing on it: no ink and no text box.)
 - The notebook is remembered by its id, so it can be renamed, tagged and searched like any other. If it's deleted, the next quick note makes a new one.
