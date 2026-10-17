@@ -30,6 +30,16 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         if (Application.getProcessName() != packageName) return
+        // A restored backup is put in place before anything opens the
+        // database or the settings. If that fails, the app still opens
+        // (with what was there) and the crash details say why.
+        try {
+            BackupChannel.finishRestore(this)
+        } catch (t: Throwable) {
+            try {
+                crashFile(this).writeText("Restoring a backup failed at ${now()}\n\n$t")
+            } catch (_: Throwable) {}
+        }
         mlKitStartError = try {
             Class.forName("com.google.mlkit.common.sdkinternal.MlKitContext")
                 .getMethod("initializeIfNeeded", Context::class.java)

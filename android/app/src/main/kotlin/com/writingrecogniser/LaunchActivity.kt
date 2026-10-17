@@ -28,7 +28,24 @@ class LaunchActivity : Activity() {
         // A normal-looking screen for the report; otherwise keep the splash.
         if (report != null) setTheme(android.R.style.Theme_DeviceDefault_DayNight)
         super.onCreate(savedInstanceState)
-        if (report == null) openApp() else showReport(report)
+        when {
+            report != null -> showReport(report)
+            intent.getBooleanExtra(AFTER_RESTORE, false) -> openAfterRestore(0)
+            else -> openApp()
+        }
+    }
+
+    /** After "Restart the app now" (restoring a backup): opens the app once
+     * its old process has gone, so the backup is put in place first. */
+    private fun openAfterRestore(tries: Int) {
+        val running = try {
+            getSystemService(ActivityManager::class.java).runningAppProcesses
+                ?.any { it.processName == packageName } ?: false
+        } catch (_: Throwable) {
+            false
+        }
+        if (!running || tries >= 20) openApp()
+        else android.os.Handler(mainLooper).postDelayed({ openAfterRestore(tries + 1) }, 100)
     }
 
     private fun openApp() {
@@ -154,6 +171,9 @@ class LaunchActivity : Activity() {
     }
 
     companion object {
+        /** Opened by "Restart the app now" after restoring a backup. */
+        const val AFTER_RESTORE = "afterRestore"
+
         private val REPORTED = setOf(
             ApplicationExitInfo.REASON_CRASH,
             ApplicationExitInfo.REASON_CRASH_NATIVE,

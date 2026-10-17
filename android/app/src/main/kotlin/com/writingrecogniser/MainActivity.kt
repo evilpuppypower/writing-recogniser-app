@@ -8,6 +8,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private lateinit var pdfImporter: PdfImporter
     private lateinit var fileTransfer: FileTransfer
+    private lateinit var backup: BackupChannel
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -16,6 +17,7 @@ class MainActivity : FlutterActivity() {
         MyScriptOffline(applicationContext, messenger)
         fileTransfer = FileTransfer(this, messenger)
         SecretBox(messenger)
+        backup = BackupChannel(this, messenger)
         // The system "Material You" accent colour (from the wallpaper/theme),
         // so the app can match the tablet's colours.
         MethodChannel(messenger, "writing_recogniser/system").setMethodCallHandler { call, result ->
@@ -43,7 +45,9 @@ class MainActivity : FlutterActivity() {
         val handled = (::pdfImporter.isInitialized &&
             pdfImporter.onActivityResult(requestCode, resultCode, data)) ||
             (::fileTransfer.isInitialized &&
-                fileTransfer.onActivityResult(requestCode, resultCode, data))
+                fileTransfer.onActivityResult(requestCode, resultCode, data)) ||
+            (::backup.isInitialized &&
+                backup.onActivityResult(requestCode, resultCode, data))
         if (!handled) {
             @Suppress("DEPRECATION")
             super.onActivityResult(requestCode, resultCode, data)
