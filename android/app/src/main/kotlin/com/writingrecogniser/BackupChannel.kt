@@ -47,6 +47,13 @@ import javax.crypto.spec.GCMParameterSpec
  *  - discardRestore: forgets an unpacked restore (nothing changes)
  *  - restoreProblem -> why the last restore couldn't be put in place, once,
  *    or null
+ *  - chooseFolder -> the name of a folder picked for automatic backups
+ *    (kept, with permission to write there), or null if cancelled
+ *  - setAuto {every, keep}: every how many days (0 = off), and how many of
+ *    the app's backups to keep in the folder
+ *  - autoStatus -> {folder, every, keep, at, bytes, failedAt, error}
+ *  - backUpToFolder: an automatic backup now ("progress" calls) -> true
+ *    when saved and checked
  */
 class BackupChannel(private val activity: Activity, messenger: BinaryMessenger) {
     private val channel = MethodChannel(messenger, "writing_recogniser/backup")
@@ -55,6 +62,7 @@ class BackupChannel(private val activity: Activity, messenger: BinaryMessenger) 
     private val stop = AtomicBoolean(false)
     private var pendingSave: Pair<Map<String, String>, MethodChannel.Result>? = null
     private var pendingOpen: MethodChannel.Result? = null
+    private var pendingFolder: MethodChannel.Result? = null
 
     init {
         channel.setMethodCallHandler { call, result ->
@@ -66,6 +74,37 @@ class BackupChannel(private val activity: Activity, messenger: BinaryMessenger) 
                 "discardRestore" -> {
                     stagingDir(activity).deleteRecursively()
                     result.success(null)
+                }
+                "chooseFolder" -> {
+                    if (pendingFolder != null) {
+                        result.error("busy", "Already choosing a folder", null)
+                        return@setMethodCallHandler
+                    }
+                    pendingFolder = result
+                    try {
+                        activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQUEST_FOLDER)
+                    } catch (e: Exception) {
+                        pendingFolder = null
+                        result.error("backup", "Android's folder picker couldn't open", null)
+                    }
+                }
+                "setAuto" -> {
+                    val every = call.argument<Int>("every") ?: 0
+                    val keep = call.argument<Int>("keep") ?: 5
+                    work(result) {
+                        AutoBackup.save(activity, AutoBackup.settings(activity).copy(everyDays = every, keep = keep))
+                        null
+                    }
+                }
+                "autoStatus" -> work(result) { autoStatus() }
+                "backUpToFolder" -> {
+                    stop.set(false)
+                    work(result) {
+                        val ok = AutoBackup.run(activity, progress("backup")) { stop.get() }
+                        if (!ok && stop.get()) throw Exception("stopped")
+                        if (!ok) throw Exception(AutoBackup.status(activity)["error"] ?: "It didn't work")
+                        true
+                    }
                 }
                 "restoreProblem" -> {
                     val f = problemFile(activity)
@@ -167,6 +206,28 @@ class BackupChannel(private val activity: Activity, messenger: BinaryMessenger) 
                 else work(result) { backUp(uri, args["created"]!!, args["appBuild"]!!) }
                 return true
             }
+            REQUEST_FOLDER -> {
+                val result = pendingFolder ?: return true
+                pendingFolder = null
+                if (uri == null) {
+                    result.success(null)
+                } else {
+                    work(result) {
+                        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        activity.contentResolver.takePersistableUriPermission(uri, flags)
+                        // Only one folder is kept: let go of the one before.
+                        val before = AutoBackup.settings(activity)
+                        before.folder?.takeIf { it != uri }?.let {
+                            try {
+                                activity.contentResolver.releasePersistableUriPermission(it, flags)
+                            } catch (_: Exception) {}
+                        }
+                        AutoBackup.save(activity, before.copy(folder = uri))
+                        folderName(uri)
+                    }
+                }
+                return true
+            }
             REQUEST_OPEN -> {
                 val result = pendingOpen ?: return true
                 pendingOpen = null
@@ -243,6 +304,37 @@ class BackupChannel(private val activity: Activity, messenger: BinaryMessenger) 
         }
     }
 
+    private fun folderName(tree: Uri): String? = try {
+        val doc = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        activity.contentResolver.query(
+            doc,
+            arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { if (it.moveToFirst()) it.getString(0) else null }
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun autoStatus(): Map<String, Any?> {
+        val s = AutoBackup.settings(activity)
+        val status = AutoBackup.status(activity)
+        // The folder may have been removed, or its permission taken back.
+        val allowed = s.folder != null && activity.contentResolver.persistedUriPermissions.any {
+            it.uri == s.folder && it.isWritePermission
+        }
+        return mapOf(
+            "folder" to if (allowed) folderName(s.folder!!) ?: "the chosen folder" else null,
+            "every" to s.everyDays,
+            "keep" to s.keep,
+            "at" to status["at"],
+            "bytes" to status["bytes"]?.toLongOrNull(),
+            "failedAt" to status["failedAt"],
+            "error" to status["error"],
+        )
+    }
+
     private fun sizeOf(uri: Uri): Long =
         activity.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use {
             if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else -1L
@@ -283,10 +375,12 @@ class BackupChannel(private val activity: Activity, messenger: BinaryMessenger) 
     companion object {
         private const val REQUEST_SAVE = 7301
         private const val REQUEST_OPEN = 7302
+        private const val REQUEST_FOLDER = 7303
         private const val ALIAS = "writing_recogniser.backup"
         private const val READY = "ready"
         private const val DB_NAME = "writing_recogniser.db"
         private const val PREFS = "FlutterSharedPreferences"
+        private val writing = Any()
 
         private fun dir(context: Context) = File(context.filesDir, "backup").apply { mkdirs() }
         private fun lockFile(context: Context) = File(dir(context), "lock.txt")
@@ -387,13 +481,17 @@ class BackupChannel(private val activity: Activity, messenger: BinaryMessenger) 
         ): Long {
             val key = backupKey(context) ?: throw IllegalStateException("Backups aren't set up")
             val lock = lock(context)
-            val tmp = File(context.cacheDir, "backup-tmp").apply { deleteRecursively(); mkdirs() }
-            try {
-                val items = items(context, tmp)
-                open { out -> BackupFile.write(out, items, key, lock, created, appBuild, progress) }
-                return items.sumOf { it.file.length() }
-            } finally {
-                tmp.deleteRecursively()
+            // One backup at a time (one by hand and a scheduled one could
+            // otherwise meet), each with its own temporary folder.
+            synchronized(writing) {
+                val tmp = File(context.cacheDir, "backup-tmp").apply { deleteRecursively(); mkdirs() }
+                try {
+                    val items = items(context, tmp)
+                    open { out -> BackupFile.write(out, items, key, lock, created, appBuild, progress) }
+                    return items.sumOf { it.file.length() }
+                } finally {
+                    tmp.deleteRecursively()
+                }
             }
         }
 

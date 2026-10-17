@@ -1,5 +1,18 @@
 import 'package:flutter/services.dart';
 
+/// Automatic backups: the folder (null if none, or it can't be written to
+/// any more), every how many days (0 = off), how many are kept, and the
+/// last one made or tried.
+typedef AutoBackupStatus = ({
+  String? folder,
+  int everyDays,
+  int keep,
+  DateTime? lastAt,
+  int bytes,
+  DateTime? failedAt,
+  String? error,
+});
+
 /// How a restore ended.
 enum RestoreResult { ready, wrongKey, cancelled }
 
@@ -43,6 +56,17 @@ abstract class BackupService {
 
   /// Why the last restore couldn't be put in place (once), or null.
   Future<String?> restoreProblem();
+
+  /// Asks for the folder for automatic backups; its name, or null.
+  Future<String?> chooseFolder();
+
+  /// Every [everyDays] days (0 = off), keeping the newest [keep].
+  Future<void> setAuto({required int everyDays, required int keep});
+
+  Future<AutoBackupStatus> autoStatus();
+
+  /// An automatic backup now; false if stopped.
+  Future<bool> backUpToFolder({void Function(BackupProgress)? progress});
 }
 
 class AndroidBackupService implements BackupService {
@@ -141,4 +165,40 @@ class AndroidBackupService implements BackupService {
   @override
   Future<String?> restoreProblem() =>
       _channel.invokeMethod<String>('restoreProblem');
+
+  @override
+  Future<String?> chooseFolder() =>
+      _channel.invokeMethod<String>('chooseFolder');
+
+  @override
+  Future<void> setAuto({required int everyDays, required int keep}) => _channel
+      .invokeMethod<void>('setAuto', {'every': everyDays, 'keep': keep});
+
+  @override
+  Future<AutoBackupStatus> autoStatus() async {
+    final m =
+        await _channel.invokeMapMethod<String, Object?>('autoStatus') ??
+        const {};
+    DateTime? time(Object? v) =>
+        v is String ? DateTime.tryParse(v)?.toLocal() : null;
+    return (
+      folder: m['folder'] as String?,
+      everyDays: (m['every'] as num?)?.toInt() ?? 0,
+      keep: (m['keep'] as num?)?.toInt() ?? 5,
+      lastAt: time(m['at']),
+      bytes: (m['bytes'] as num?)?.toInt() ?? 0,
+      failedAt: time(m['failedAt']),
+      error: m['error'] as String?,
+    );
+  }
+
+  @override
+  Future<bool> backUpToFolder({void Function(BackupProgress)? progress}) async {
+    _listen(progress);
+    try {
+      return await _channel.invokeMethod<bool>('backUpToFolder') ?? false;
+    } finally {
+      _progress = null;
+    }
+  }
 }
