@@ -848,3 +848,14 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - **Things that need the words read them anyway**, as before: exporting with searchable text, and converting handwriting to typed text. A word can only be corrected once it's been read.
 - Pages written before, and not changed, keep their saved reading. Only new or changed writing waits.
 - **"Read as I write again"** reads whatever was waiting, in the background.
+
+## 2026-10-17 — Reading scanned PDFs, part 1: the engine and model downloads (owner: "2 yes approved", models chosen by the user, with a quick button)
+
+- **What it's for:** scanned PDFs are pictures of pages, so their text can't be searched, highlighted or written around until it's read. This part adds the reading engine and a place to download its models. Using it on PDFs comes in the next part.
+- **Engine:** PaddleOCR's models (text finding, then text reading), run on the tablet with ONNX Runtime 1.22.0 (Microsoft, MIT licence; it makes no network calls). The steps around the models (preparing the image, finding the boxes, turning the answer into text) are plain Java, tested off the tablet. ONNX Runtime starts only when a page is first read, so opening the app isn't slowed. It uses at most half the cores.
+- **Models (owner-approved download, 2026-10-17):** Settings → "Reading scanned PDFs" lists the models. "Download English (smaller, quicker)" is the quick button; "English (best, larger)" is the other choice (about 85 MB more). Downloads happen only when the user taps, over https, with progress, time left and Stop. Nothing of the user's is sent. Each model can be removed.
+- **Fingerprints:** each file's SHA-256 is pinned in `assets/ocr_models.txt`. The app deletes a file that doesn't match, and won't offer a model until all its files are pinned. CI prints the fingerprints of files not pinned yet; they are checked and pinned in a follow-up commit.
+- **Where the models come from (two steps, owner agreed 2026-10-17):**
+  1. Now: the community's ONNX conversion of PaddleOCR's models (Hugging Face `monkt/paddleocr-onnx`, Apache 2.0), fixed to one commit so the files can't change under us.
+  2. Later: our own conversion from PaddleOCR's official files, published as a release of this repo, so we depend on no one else's copy. That needs a hand-run workflow, which will be asked about first.
+- **English only for now** (other languages are out of scope for the MVP).
