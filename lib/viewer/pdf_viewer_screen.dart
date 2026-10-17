@@ -919,10 +919,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
     // Shown only if it takes more than a moment.
     final work = gather();
-    var shown = false;
+    // Open while gathering; closing it any way (Stop, or Back) stops.
+    var open = false, finishing = false;
     final timer = Timer(const Duration(milliseconds: 400), () {
       if (!mounted) return;
-      shown = true;
+      open = true;
       showDialog<void>(
         context: context,
         barrierDismissible: false,
@@ -934,21 +935,34 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                cancelled = true;
-                Navigator.pop(context);
-              },
+              onPressed: () => Navigator.pop(context),
               child: const Text('Stop'),
             ),
           ],
         ),
-      );
+      ).then((_) {
+        open = false;
+        if (!finishing) cancelled = true;
+      });
     });
-    await work;
-    timer.cancel();
-    if (!mounted) return;
-    if (shown && !cancelled) Navigator.of(context).pop();
-    if (cancelled) return;
+    try {
+      await work;
+    } finally {
+      timer.cancel();
+    }
+    if (!mounted) {
+      progress.dispose();
+      return;
+    }
+    if (open && !cancelled) {
+      // Done: closes the progress box (only it), and carries on.
+      finishing = true;
+      Navigator.of(context).pop();
+    }
+    if (cancelled || !mounted) {
+      progress.dispose();
+      return;
+    }
     final text = highlightsText(widget.title, pages);
     await showModalBottomSheet<void>(
       context: context,
