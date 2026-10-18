@@ -869,3 +869,7 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 - **What's kept:** each line's text and its box (as a share of the page), by the PDF's own page number, in the app database (table `scanned_text`, database version 14). Lines the reader is unsure of (under 50%) are left out. Nothing leaves the tablet. How long pages took (no text) goes into the local event log.
 - **Search:** the home screen's search finds scanned text on pages without real printed text of their own (a page number or stamp doesn't count). Deleting a document deletes its scanned text.
 - **Not in this part:** searching inside the open PDF, highlighting scanned text, and writing around it. They come next.
+
+## 2026-10-18 — Search starts straight away (owner: a progress bar before searching was allowed)
+
+- The home screen's search used to load every document's handwriting and text before showing anything. Now names and tags can be searched as soon as it opens, and each document's handwriting and text join the results as they load. While loading, a line above the results says "Still getting documents ready (x of n), so more may be found", with a progress bar.
