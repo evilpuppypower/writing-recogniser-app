@@ -882,3 +882,9 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 - **Nothing heavy while the pen is down.** When an answer comes back, working out the words and redrawing the labels wait until the pen lifts. They never interrupt a stroke.
 - **No whole-page re-sorting.** When MyScript's writing/drawing sorting couldn't answer and the shape check stood in, that stand-in answer was thrown away, so the next pause sorted the whole page again, every time. Now the stand-in is kept, and those strokes are sorted again only when new ink comes near them, so each pause costs about the same however full the page is.
 - **Diagnostics** now count the reads where the sorting fell back, and why (an error message only), to confirm the cause on the tablet.
+
+## 2026-10-18 — Every pen sample is recorded (owner: "and step 1's sample record too")
+
+- Android gathers pen movement into one event per screen refresh, and Flutter keeps only the newest point of each. So a stroke had about one point per refresh, and the pen's extra samples in between were lost. The app now asks Android to send every pen sample on its own (`requestUnbufferedDispatch` for the stylus). Fingers are unchanged.
+- **Why:** strokes are kept for learning the user's handwriting (CLAUDE.md rule 4), and more points per stroke means smoother ink and better data.
+- **Cost:** more pen events for the app to handle while writing. Each costs little (adding one point), but if writing feels slower on the tablet, this is the change to undo. It's one line in `MainActivity.kt`.

@@ -4,7 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Bundle
 import android.os.PowerManager
+import android.view.InputDevice
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -14,6 +16,15 @@ class MainActivity : FlutterActivity() {
     private lateinit var fileTransfer: FileTransfer
     private lateinit var backup: BackupChannel
     private var powerReceiver: BroadcastReceiver? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Every pen sample, as the pen reports it (owner, 2026-10-18: record
+        // the strokes in full). Android otherwise gathers pen movement into
+        // one event per screen refresh, and only its last point reaches the
+        // app; this sends each sample on its own. Fingers are unchanged.
+        window.decorView.requestUnbufferedDispatch(InputDevice.SOURCE_STYLUS)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
