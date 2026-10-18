@@ -89,6 +89,9 @@ c|C|det.onnx|https://x/det|not-a-hash
         for (final f in m.files) {
           expect(f.url, startsWith('https://huggingface.co/'));
         }
+        // Every file's fingerprint is pinned, so each model can be
+        // downloaded.
+        expect(m.ready, isTrue, reason: m.id);
       }
     });
   });
