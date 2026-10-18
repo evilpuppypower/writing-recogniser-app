@@ -24,6 +24,7 @@ import 'replay_screen.dart';
 import 'stored_copies_screen.dart';
 import 'your_writing_screen.dart';
 import 'backup_screen.dart';
+import 'ocr_models_screen.dart';
 import 'storage_screen.dart';
 import 'dictionary_screen.dart';
 import '../storage/sqlite_page_layout_store.dart';
@@ -598,6 +599,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             value: s.writingBoxButton,
             onChanged: (v) => settings.update(s.copyWith(writingBoxButton: v)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.document_scanner_outlined),
+            title: const Text('Reading scanned PDFs'),
+            subtitle: const Text(
+              'Download a text-reading model, so scanned PDFs can be '
+              'searched and highlighted.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const OcrModelsScreen()),
+            ),
           ),
           SwitchListTile(
             secondary: const Icon(Icons.pause_circle_outline),

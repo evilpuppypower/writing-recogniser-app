@@ -97,4 +97,8 @@ dependencies {
     // MyScript iink offline handwriting engine (owner's licence; see
     // docs/DECISIONS.md). The certificate and recognition files are added by CI.
     implementation("com.myscript:iink:4.5.1")
+    // ONNX Runtime (Microsoft, MIT licence), to run the PaddleOCR models
+    // that read scanned PDFs on the tablet (owner, 2026-10-17). No network
+    // use of its own. See docs/DECISIONS.md.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
 }
