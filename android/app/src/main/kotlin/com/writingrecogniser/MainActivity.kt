@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.PowerManager
 import android.view.InputDevice
+import android.view.MotionEvent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -24,6 +25,56 @@ class MainActivity : FlutterActivity() {
         // app; this sends each sample on its own. Fingers are unchanged.
         // Asked once the window is there, so the request reaches it.
         window.decorView.requestUnbufferedDispatch(InputDevice.SOURCE_STYLUS)
+    }
+
+    /**
+     * Every pen sample reaches the app, even when Android has gathered
+     * several into one event (owner, 2026-10-18: parts of an "o" turned
+     * into straight lines). Flutter reads only the newest point of a
+     * gathered event, so a busy moment lost the curve in between; each
+     * gathered sample is handed on as its own event, with its own time,
+     * place and pressure, before the newest one.
+     */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked != MotionEvent.ACTION_MOVE ||
+            ev.historySize == 0 ||
+            !ev.isFromSource(InputDevice.SOURCE_STYLUS)
+        ) {
+            return super.dispatchTouchEvent(ev)
+        }
+        val n = ev.pointerCount
+        val props = Array(n) { i -> MotionEvent.PointerProperties().also { ev.getPointerProperties(i, it) } }
+        var handled = false
+        for (h in 0..ev.historySize) {
+            val newest = h == ev.historySize
+            val coords = Array(n) { i ->
+                MotionEvent.PointerCoords().also {
+                    if (newest) ev.getPointerCoords(i, it) else ev.getHistoricalPointerCoords(i, h, it)
+                }
+            }
+            val one = MotionEvent.obtain(
+                ev.downTime,
+                if (newest) ev.eventTime else ev.getHistoricalEventTime(h),
+                MotionEvent.ACTION_MOVE,
+                n,
+                props,
+                coords,
+                ev.metaState,
+                ev.buttonState,
+                ev.xPrecision,
+                ev.yPrecision,
+                ev.deviceId,
+                ev.edgeFlags,
+                ev.source,
+                ev.flags,
+            )
+            try {
+                handled = super.dispatchTouchEvent(one) || handled
+            } finally {
+                one.recycle()
+            }
+        }
+        return handled
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -66,6 +117,19 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "mlKitStartError" -> result.success(App.mlKitStartError)
+                // The screen's refresh rate now and the rates it can run at,
+                // and Android's battery saver (diagnostics: measured before
+                // choosing a refresh rate, owner 2026-10-18).
+                "display" -> {
+                    val d = display
+                    result.success(
+                        mapOf(
+                            "hz" to d?.refreshRate?.toDouble(),
+                            "modes" to d?.supportedModes?.map { it.refreshRate.toDouble() }?.distinct()?.sorted(),
+                            "powerSave" to pm.isPowerSaveMode,
+                        ),
+                    )
+                }
                 else -> result.notImplemented()
             }
         }

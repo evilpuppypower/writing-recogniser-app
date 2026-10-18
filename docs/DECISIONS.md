@@ -907,3 +907,11 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
   - If battery saver comes on partway through, reading pauses. Tapping Resume carries on and isn't paused for it again.
   - Time spent paused isn't counted in the time left.
 - **Reader battery use:** ONNX Runtime's threads now sleep while waiting instead of spinning, and it uses XNNPACK (ARM-tuned maths, part of ONNX Runtime 1.22; nothing new is downloaded) where available.
+
+## 2026-10-18 — Measuring pen-to-screen lag; ink drawn ahead of the pen (owner: lag between the pen and the ink; parts of an "o" turning into straight lines)
+
+- **Measured, in the diagnostics ("frames" entries):** how long the newest pen point takes to be drawn (median, 90%, worst), how long the oldest point in a frame waited, the screen's rate while writing, the screen's current and possible refresh rates, Android's battery saver, the app's own battery saver, whether a scan was being read, points per stroke, strokes with gaps between samples, and how often a stroke was straightened by holding the pen still. Pen times and frame times come from the same clock, so the lag is a plain subtraction. Only numbers are kept, never ink.
+- **Refresh rate is only measured, not changed** (owner: decide after seeing numbers with battery saver on and off).
+- **Batched pen samples are split before Flutter sees them.** Android can still bundle several samples into one event; Flutter keeps only the newest, so the samples in between were dropped and a fast curve became straight segments. `MainActivity.kt` now hands each sample to Flutter as its own event (stylus only).
+- **Ink ahead of the pen:** while writing, a short guess of where the pen is going is drawn from the end of the line (a curve through the last 24 ms of points, trusting half the bend so turns don't overshoot; at most 24 pixels; gone after the pen stops sending points). It is never part of the stroke: the saved line is only the real points. Settings → "Ink ahead of the pen", 0–30 ms, default 12 ms; 0 turns it off. How far each guess missed is in the diagnostics, to tune the default.
+- **Not yet:** a native wet-ink layer (androidx.graphics, approved by the owner) to skip Flutter's frame pipeline for the live line. Separate change.

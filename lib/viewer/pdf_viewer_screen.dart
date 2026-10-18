@@ -86,6 +86,7 @@ import 'scanned_pages.dart';
 import 'scanned_reading.dart' show printedCharsOnFirstPages;
 import '../core/scanned_text.dart';
 import '../platform/ocr_channel.dart';
+import '../platform/diagnostics.dart' show displayState;
 import '../settings/ocr_models_screen.dart';
 import '../storage/sqlite_scanned_text_store.dart';
 import 'export_options_dialog.dart';
@@ -3022,6 +3023,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   late final _frames = FrameRecorder(
     onScreen: _onScreenCounts,
     onSummary: (s) => _logDiagnostic('frames', s),
+    display: displayState,
   );
 
   /// Counts of what's on the pages around the one showing (no content).
@@ -3049,6 +3051,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         (n, p) => n + _ink.ink.strokesOn(p).length,
       ),
       if (zoom != null) 'zoom': (zoom * 100).round() / 100,
+      // The app's own battery saver (Android's comes with the screen's
+      // refresh rate).
+      if (_shownSettings case final s?) 'appSaver': _savingBattery(s),
+      // Scanned pages being read meanwhile (it competes for the tablet).
+      'readingScan': _scanned?.running ?? false,
+      // How far ahead of the pen the ink is guessed (0 = off).
+      if (_shownSettings case final s?) 'inkLeadMs': s.inkLeadMs,
     };
   }
 
@@ -3989,6 +3998,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     super.initState();
     // What was read is shown once the pen lifts, never mid-stroke.
     _text.penDown = _ink.penDown;
+    // How long the pen's ink takes to reach the screen (diagnostics).
+    _ink.penTiming = _frames.pen;
     unawaited(_loadScannedText());
     _frames.start();
     _layoutLoaded = _loadLayout();
@@ -4580,8 +4591,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   SettingsController _settingsOf(BuildContext context) =>
       _docSettings ?? SettingsScope.of(context);
 
+  /// The settings the viewer was last built with (for the diagnostics,
+  /// which can be sent while the viewer is closing).
+  AppSettings? _shownSettings;
+
   @override
   Widget build(BuildContext context) {
+    _shownSettings = _docSettings?.value ?? SettingsScope.valueOf(context);
     final page = _buildPage(context);
     // Always the same shape of tree (so the viewer isn't built again when
     // this document's own settings arrive): its own settings once loaded,

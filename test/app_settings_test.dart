@@ -34,6 +34,7 @@ void main() {
     expect(s.pressureOn, isTrue);
     expect(s.pressureRangePercent, 40);
     expect(s.arrowHookMs, 70);
+    expect(s.inkLeadMs, 12);
     expect(s.pressureResponse, const PressureResponse(strength: 1, range: 0.4));
     expect(s.copyWith(pressureOn: false).pressureResponse.factor(1), 1);
     final custom = s.copyWith(pressureRangePercent: 200);
@@ -45,10 +46,12 @@ void main() {
       pressurePercent: 0,
       pressureRangePercent: 999,
       arrowHookMs: -5,
+      inkLeadMs: 99,
     );
     expect(s.pressurePercent, AppSettings.minPressurePercent);
     expect(s.pressureRangePercent, AppSettings.maxPressureRangePercent);
     expect(s.arrowHookMs, 0);
+    expect(s.inkLeadMs, AppSettings.maxInkLeadMs);
   });
 
   test('pressure 0% saved by the previous version means off', () {
@@ -73,6 +76,7 @@ void main() {
       pressurePercent: 30,
       pressureRangePercent: 120,
       arrowHookMs: 0,
+      inkLeadMs: 20,
       keepInkOnDelete: false,
       textLabels: TextLabelPlace.below,
       textPanel: TextPanelPlace.floating,

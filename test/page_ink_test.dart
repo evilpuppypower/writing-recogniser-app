@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/page_coordinates.dart';
 import 'package:writing_recogniser/core/page_ink.dart';
+import 'package:writing_recogniser/core/pen_timing.dart';
 import 'package:writing_recogniser/core/pen_tools.dart';
 import 'package:writing_recogniser/viewer/page_ink_layer.dart';
 
@@ -222,6 +223,35 @@ void main() {
         (ts.first - DateTime.now().millisecondsSinceEpoch).abs(),
         lessThan(60000),
       );
+    });
+
+    testWidgets('the ink drawn ahead of the pen is never saved, and its '
+        'misses are measured', (tester) async {
+      await pump(tester);
+      final pen = PenTiming();
+      ink.penTiming = pen;
+      final topLeft = tester.getTopLeft(find.byType(PageInkLayer));
+      final g = await tester.createGesture(kind: PointerDeviceKind.stylus);
+      await g.down(
+        topLeft + const Offset(100, 100),
+        timeStamp: const Duration(milliseconds: 1000),
+      );
+      for (var i = 1; i <= 20; i++) {
+        await g.moveTo(
+          topLeft + Offset(100.0 + i * 2, 100),
+          timeStamp: Duration(microseconds: 1000000 + i * 4167),
+        );
+        await tester.pump();
+      }
+      await g.up(timeStamp: const Duration(milliseconds: 1090));
+      await tester.pumpAndSettle();
+      final points = ink.ink.strokesOn(4).single.points;
+      // The pen stopped at view x 140 = PDF x 280: nothing past it.
+      final xs = points.map((p) => p.x);
+      expect(xs.reduce((a, b) => a > b ? a : b), closeTo(280, 0.01));
+      expect(points, hasLength(22)); // down, 20 moves, up
+      final s = pen.summary()!;
+      expect(s['leadMissMedianPx'], lessThan(0.5));
     });
 
     testWidgets('the pen writes in PDF page coordinates and does not scroll', (

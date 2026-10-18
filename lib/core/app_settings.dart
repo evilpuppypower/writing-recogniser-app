@@ -132,6 +132,7 @@ class AppSettings {
     this.pressurePercent = defaultPressurePercent,
     this.pressureRangePercent = defaultPressureRangePercent,
     this.arrowHookMs = defaultArrowHookMs,
+    this.inkLeadMs = defaultInkLeadMs,
     this.keepInkOnDelete = true,
     this.twoPages = false,
     this.tidyShapes = true,
@@ -167,6 +168,9 @@ class AppSettings {
 
   static const maxArrowHookMs = 200;
   static const defaultArrowHookMs = 70;
+
+  static const maxInkLeadMs = 30;
+  static const defaultInkLeadMs = 12;
 
   static const minRecognitionPauseMs = 300;
   static const maxRecognitionPauseMs = 2000;
@@ -232,6 +236,11 @@ class AppSettings {
   /// Arrows: how much of the end of the stroke (in milliseconds before the
   /// pen lifted) is checked for a lift-off flick to drop. 0 = never trim.
   final int arrowHookMs;
+
+  /// The ink drawn ahead of the pen while writing, in milliseconds of
+  /// pen movement (owner, 2026-10-18: lag between the pen and the ink).
+  /// Only shown, never saved. 0 = off.
+  final int inkLeadMs;
 
   /// When a stored PDF copy is deleted, keep the ink written on it (it
   /// comes back if the same file is opened again). The delete dialog can
@@ -320,6 +329,7 @@ class AppSettings {
     int? pressurePercent,
     int? pressureRangePercent,
     int? arrowHookMs,
+    int? inkLeadMs,
     bool? keepInkOnDelete,
     bool? twoPages,
     bool? tidyShapes,
@@ -367,6 +377,7 @@ class AppSettings {
     pressureRangePercent: (pressureRangePercent ?? this.pressureRangePercent)
         .clamp(minPressureRangePercent, maxPressureRangePercent),
     arrowHookMs: (arrowHookMs ?? this.arrowHookMs).clamp(0, maxArrowHookMs),
+    inkLeadMs: (inkLeadMs ?? this.inkLeadMs).clamp(0, maxInkLeadMs),
     keepInkOnDelete: keepInkOnDelete ?? this.keepInkOnDelete,
     twoPages: twoPages ?? this.twoPages,
     tidyShapes: tidyShapes ?? this.tidyShapes,
@@ -404,6 +415,7 @@ class AppSettings {
     'pressurePercent': pressurePercent,
     'pressureRangePercent': pressureRangePercent,
     'arrowHookMs': arrowHookMs,
+    'inkLeadMs': inkLeadMs,
     'keepInkOnDelete': keepInkOnDelete,
     'twoPages': twoPages,
     'tidyShapes': tidyShapes,
@@ -447,6 +459,7 @@ class AppSettings {
     final pressureOn = m['pressureOn'];
     final range = m['pressureRangePercent'];
     final hook = m['arrowHookMs'];
+    final lead = m['inkLeadMs'];
     final keepInk = m['keepInkOnDelete'];
     final twoPages = m['twoPages'];
     final tidyShapes = m['tidyShapes'];
@@ -502,6 +515,7 @@ class AppSettings {
           ? range.clamp(minPressureRangePercent, maxPressureRangePercent)
           : d.pressureRangePercent,
       arrowHookMs: hook is int ? hook.clamp(0, maxArrowHookMs) : d.arrowHookMs,
+      inkLeadMs: lead is int ? lead.clamp(0, maxInkLeadMs) : d.inkLeadMs,
       keepInkOnDelete: keepInk is bool ? keepInk : d.keepInkOnDelete,
       twoPages: twoPages is bool ? twoPages : d.twoPages,
       tidyShapes: tidyShapes is bool ? tidyShapes : d.tidyShapes,
@@ -564,6 +578,7 @@ class AppSettings {
       other.pressurePercent == pressurePercent &&
       other.pressureRangePercent == pressureRangePercent &&
       other.arrowHookMs == arrowHookMs &&
+      other.inkLeadMs == inkLeadMs &&
       other.keepInkOnDelete == keepInkOnDelete &&
       other.twoPages == twoPages &&
       other.tidyShapes == tidyShapes &&
@@ -599,6 +614,7 @@ class AppSettings {
     pressurePercent,
     pressureRangePercent,
     arrowHookMs,
+    inkLeadMs,
     keepInkOnDelete,
     twoPages,
     tidyShapes,

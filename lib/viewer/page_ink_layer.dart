@@ -17,6 +17,8 @@ import '../core/shapes.dart';
 import '../core/stroke_grouping.dart' show InkBox, levelPoint;
 import '../core/typed_text.dart' show convertedGroups;
 import '../core/writing_guide.dart';
+import '../core/ink_prediction.dart';
+import '../core/pen_timing.dart';
 import '../settings/settings_controller.dart';
 import 'dark_pages.dart';
 
@@ -46,6 +48,9 @@ class DocumentInkController extends ChangeNotifier {
   /// holding the pen is counted: it's up only when all have let go.
   final penDown = ValueNotifier<bool>(false);
   int _pens = 0;
+
+  /// Where pen timings are measured (the diagnostics), if anywhere.
+  PenTiming? penTiming;
 
   void penOn() => penDown.value = ++_pens > 0;
 
@@ -427,6 +432,49 @@ class PageInkLayer extends StatefulWidget {
 
 class _PageInkLayerState extends State<PageInkLayer> {
   final _active = ValueNotifier<List<PageInkPoint>>(const []);
+
+  /// Ink drawn ahead of the pen while writing (the pen's guessed path, see
+  /// [InkPredictor]): only shown, never part of the stroke.
+  final _tip = ValueNotifier<List<PageInkPoint>>(const []);
+  final _predictor = InkPredictor();
+  Timer? _tipHide;
+
+  /// How far ahead the tip goes for this stroke (see AppSettings.inkLeadMs).
+  int _leadMs = 0;
+
+  void _noTip() {
+    _tipHide?.cancel();
+    _predictor.reset();
+    if (_tip.value.isNotEmpty) _tip.value = const [];
+  }
+
+  /// A real pen point [e] was added to the stroke: guesses the tip again.
+  void _guessAhead(PointerEvent e) {
+    _predictor.add(
+      e.localPosition.dx,
+      e.localPosition.dy,
+      e.timeStamp.inMicroseconds,
+    );
+    if (_leadMs <= 0 || _active.value.isEmpty) return;
+    final guess = _predictor.predict(_leadMs * 1000);
+    final last = _active.value.last;
+    _tip.value = [
+      for (final (x, y) in guess)
+        () {
+          final p = widget.geometry.toPdf(ViewPoint(x, y), widget.viewWidth);
+          return PageInkPoint(p.x, p.y, last.t, last.pressure);
+        }(),
+    ];
+    _tipHide?.cancel();
+    // The pen stopped sending points (held still): the guess goes.
+    if (guess.isNotEmpty) {
+      _tipHide = Timer(
+        Duration(milliseconds: _leadMs + 30),
+        () => _tip.value = const [],
+      );
+    }
+  }
+
   final _picture = _InkPicture();
   bool _erasing = false;
 
@@ -531,6 +579,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
       if (shape != null &&
           (widget.tidyShape?.call(shape.kind, shape.error) ?? true)) {
         _snapped = true;
+        _noTip();
         _shape = shape.points;
         _shapeKind = (shape.kind, shape.error);
         _active.value = shape.points;
@@ -542,7 +591,9 @@ class _PageInkLayerState extends State<PageInkLayer> {
     final dy = (pts.last.y - pts.first.y) * _pixelsPerPoint;
     if (math.sqrt(dx * dx + dy * dy) < snapMinLengthPixels) return;
     _snapped = true;
+    _noTip();
     _active.value = straightLine(pts.first, pts.last);
+    widget.controller.penTiming?.straightened();
     HapticFeedback.selectionClick();
   }
 
@@ -559,6 +610,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
     final pressure = range <= 0
         ? 0.5
         : ((e.pressure - e.pressureMin) / range).clamp(0.0, 1.0);
+    widget.controller.penTiming?.point(e.timeStamp.inMicroseconds);
     return PageInkPoint(
       p.x,
       p.y,
@@ -725,6 +777,14 @@ class _PageInkLayerState extends State<PageInkLayer> {
     } else {
       _guideHide?.cancel(); // stays while writing
       _active.value = [_pointOf(e)];
+      _noTip();
+      _leadMs = SettingsScope.valueOf(context).inkLeadMs;
+      _predictor.onError = widget.controller.penTiming?.guessed;
+      _predictor.add(
+        e.localPosition.dx,
+        e.localPosition.dy,
+        e.timeStamp.inMicroseconds,
+      );
       _snapped = false;
       _shape = null;
       _shapeKind = null;
@@ -825,6 +885,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
       _lastErase = null;
       widget.controller.beginGesture(widget.pageNumber);
       _active.value = const []; // button pressed mid-stroke: erase instead
+      _noTip();
       _snapTimer?.cancel();
       _erasing = true;
     }
@@ -837,6 +898,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
       _active.value = straightLine(_active.value.first, _pointOf(e));
     } else {
       _active.value = [..._active.value, _pointOf(e)];
+      _guessAhead(e);
       final still = _stillAt;
       if (still == null ||
           (e.localPosition - still).distance > snapStillPixels) {
@@ -883,6 +945,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
 
   void _finishStroke(PointerEvent e) {
     _snapTimer?.cancel();
+    _noTip();
     if (_lassoing) {
       final loop = [..._active.value, _pointOf(e)];
       _lassoing = false;
@@ -903,6 +966,11 @@ class _PageInkLayerState extends State<PageInkLayer> {
         (_snapped
             ? straightLine(_active.value.first, _pointOf(e))
             : [..._active.value, _pointOf(e)]);
+    // The pen's own samples (not a straightened line or tidied shape), for
+    // the diagnostics' count of missing samples.
+    final sampled = shape == null && !_snapped
+        ? [for (final p in points) p.t]
+        : null;
     if (_style.arrow && !_snapped) {
       // Drop the flick as the pen lifts, so the head points along the line.
       points = trimLiftHook(
@@ -961,6 +1029,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
       return;
     }
     _drawHeld(); // keep the order the strokes were written in
+    if (sampled != null) widget.controller.penTiming?.stroke(sampled);
     widget.controller.add(widget.pageNumber, stroke);
     final tidied = _shapeKind;
     _shapeKind = null;
@@ -1031,6 +1100,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
     if (_endSelectionDrag()) return;
     _fadeGuideLater();
     _snapTimer?.cancel();
+    _noTip();
     _snapped = false;
     _shape = null;
     _shapeKind = null;
@@ -1086,6 +1156,8 @@ class _PageInkLayerState extends State<PageInkLayer> {
     _snapTimer?.cancel();
     _eraserHide?.cancel();
     _active.dispose();
+    _tipHide?.cancel();
+    _tip.dispose();
     _eraserAt.dispose();
     _picture.close();
     _guideHide?.cancel();
@@ -1169,6 +1241,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
             child: CustomPaint(
               painter: _ActiveInkPainter(
                 active: _active,
+                tip: _tip,
                 geometry: widget.geometry,
                 viewWidth: widget.viewWidth,
                 activeStyle: () => _style,
@@ -1751,6 +1824,7 @@ class _PageInkPainter extends CustomPainter {
 class _ActiveInkPainter extends CustomPainter {
   _ActiveInkPainter({
     required this.active,
+    this.tip,
     required this.geometry,
     required this.viewWidth,
     required this.activeStyle,
@@ -1759,11 +1833,14 @@ class _ActiveInkPainter extends CustomPainter {
     required this.eraserRadius,
     this.lassoing,
     this.dark = false,
-  }) : super(repaint: Listenable.merge([active, eraserAt]));
+  }) : super(repaint: Listenable.merge([active, eraserAt, tip]));
 
   final bool dark;
 
   final ValueNotifier<List<PageInkPoint>> active;
+
+  /// Drawn on from the end of [active]: where the pen is guessed to be.
+  final ValueListenable<List<PageInkPoint>>? tip;
   final PageGeometry geometry;
   final double viewWidth;
   final PenStyle Function() activeStyle;
@@ -1781,7 +1858,12 @@ class _ActiveInkPainter extends CustomPainter {
     if (lassoing?.call() ?? false) {
       ink.drawLasso(canvas, active.value);
     } else {
-      ink.draw(canvas, active.value, activeStyle());
+      final ahead = tip?.value ?? const [];
+      ink.draw(
+        canvas,
+        ahead.isEmpty ? active.value : [...active.value, ...ahead],
+        activeStyle(),
+      );
     }
     final at = eraserAt.value;
     if (at != null) {
