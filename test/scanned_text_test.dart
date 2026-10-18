@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -186,6 +187,117 @@ void main() {
       expect((await store.load('d')).keys, [1]);
       r.dispose();
     });
+  });
+
+  group('a 400-page scan (owner: pause and resume a big scan)', () {
+    test(
+      'pausing holds it; resuming carries on; nothing lost or repeated',
+      () async {
+        final store = MemoryScannedTextStore();
+        final reader = _Reader({});
+        final r = ScannedPagesReader(
+          documentId: 'big',
+          store: store,
+          reader: reader,
+        );
+        final pages = await r.pagesLeft(400);
+        expect(pages, hasLength(400));
+        var drawn = 0;
+        var over = false;
+        final run = r.run(pages, 'm', (p) async {
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+          drawn++;
+          // Page 123 can't be drawn (a damaged page): tried again next time.
+          return p == 123 ? null : _image(100);
+        });
+        unawaited(run.whenComplete(() => over = true));
+        // Pause after about 50 pages.
+        while (!over && (r.progress.value?.done ?? 0) < 50) {
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+        }
+        expect(over, isFalse);
+        r.pause();
+        final heldAt = r.progress.value!.done;
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        expect(r.progress.value!.done, lessThanOrEqualTo(heldAt + 1));
+        final drawnWhilePaused = drawn;
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        expect(drawn, drawnWhilePaused, reason: 'nothing drawn while paused');
+        r.resume();
+        final result = await run;
+        expect(result.finished, isFalse, reason: 'page 123 is still to read');
+        expect(result.read, 400);
+        expect(reader.reads, hasLength(399));
+        final kept = await store.pagesRead('big');
+        expect(kept, hasLength(399));
+        expect(kept.contains(123), isFalse);
+        // Next time only the page that failed is read.
+        expect(await r.pagesLeft(400), [123]);
+        r.dispose();
+      },
+    );
+
+    test('Stop while paused ends it at once', () async {
+      final r = ScannedPagesReader(
+        documentId: 'big',
+        store: MemoryScannedTextStore(),
+        reader: _Reader({}),
+      );
+      final run = r.run(List.generate(400, (i) => i + 1), 'm', (_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        return _image(100);
+      });
+      while ((r.progress.value?.done ?? 0) < 5) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      r.pause();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      r.stop();
+      final result = await run.timeout(const Duration(seconds: 2));
+      expect(result.finished, isFalse);
+      expect(result.read, lessThan(20));
+      r.dispose();
+    });
+
+    test('closing the PDF mid-way stops it without errors', () async {
+      final r = ScannedPagesReader(
+        documentId: 'big',
+        store: MemoryScannedTextStore(),
+        reader: _Reader({}),
+      );
+      final run = r.run(List.generate(400, (i) => i + 1), 'm', (_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        return _image(100);
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      r.dispose();
+      final result = await run.timeout(const Duration(seconds: 2));
+      expect(result.finished, isFalse);
+      expect(result.error, isNull);
+    });
+  });
+
+  testWidgets('the card offers Pause, then Resume', (tester) async {
+    var paused = false;
+    Widget card() => MaterialApp(
+      home: Scaffold(
+        body: ScannedProgressCard(
+          progress: (done: 16, total: 400, left: const Duration(minutes: 9)),
+          paused: paused,
+          onPause: () => paused = true,
+          onResume: () => paused = false,
+          onStop: () {},
+        ),
+      ),
+    );
+    await tester.pumpWidget(card());
+    expect(find.textContaining('16 of 400'), findsOneWidget);
+    await tester.tap(find.text('Pause'));
+    await tester.pumpWidget(card());
+    expect(find.textContaining('Paused'), findsOneWidget);
+    expect(find.text('Resume'), findsOneWidget);
+    await tester.tap(find.text('Resume'));
+    expect(paused, isFalse);
   });
 
   group('SQLite store', () {

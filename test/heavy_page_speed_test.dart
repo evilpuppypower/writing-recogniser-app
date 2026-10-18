@@ -167,6 +167,57 @@ void main() {
         expect(ink.eraseAt(1, p.x, p.y, 0.5), isNotEmpty);
       });
 
+      testWidgets('every pen sample of a long fast stroke is kept, quickly '
+          '(240 a second for 3 seconds)', (tester) async {
+        final ctl = DocumentInkController(
+          DocumentInk()..setPage(1, [...strokes]),
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: 612,
+                height: 792,
+                child: PageInkLayer(
+                  pageNumber: 1,
+                  geometry: PageGeometry(width: 612, height: 792),
+                  viewWidth: 612,
+                  controller: ctl,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 300));
+        final pen = await tester.createGesture(kind: PointerDeviceKind.stylus);
+        const samples = 720;
+        await pen.down(
+          const Offset(100, 400),
+          timeStamp: const Duration(milliseconds: 1000),
+        );
+        final sw = Stopwatch()..start();
+        for (var i = 1; i <= samples; i++) {
+          // A long looping scribble.
+          await pen.moveTo(
+            Offset(100 + i * 0.5, 400 + 30 * math.sin(i / 8)),
+            timeStamp: Duration(milliseconds: 1000 + (i * 25) ~/ 6),
+          );
+          // A frame about every 2 samples (120 Hz screen, 240 Hz pen).
+          if (i.isEven) await tester.pump(const Duration(milliseconds: 8));
+        }
+        sw.stop();
+        await pen.up();
+        await tester.pump(const Duration(milliseconds: 16));
+        final perSample = sw.elapsedMicroseconds / samples / 1000;
+        report('each pen sample of a long stroke', n, perSample);
+        final kept = ctl.ink.strokesOn(1).last;
+        expect(kept.points.length, greaterThanOrEqualTo(samples));
+        expect(tester.takeException(), isNull);
+        // Well under the 4 ms between samples, even unoptimised.
+        expect(perSample, lessThan(4));
+      });
+
       testWidgets('writing one more stroke doesn\'t redraw the page', (
         tester,
       ) async {

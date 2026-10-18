@@ -91,6 +91,10 @@ class ScannedPagesReader {
   final TextReaderService reader;
 
   final progress = ValueNotifier<ScanProgress?>(null);
+
+  /// Paused by the user (owner, 2026-10-18: pause and resume reading a
+  /// big scan): it waits before the next page until resumed.
+  final paused = ValueNotifier<bool>(false);
   var _stop = false;
   var _disposed = false;
 
@@ -118,7 +122,10 @@ class ScannedPagesReader {
       return (read: 0, finished: pages.isEmpty, error: null);
     }
     _stop = false;
+    paused.value = false;
     final started = DateTime.now();
+    // Time spent paused isn't counted in the time left.
+    var pausedFor = Duration.zero;
     final estimate = TransferEstimator(totalBytes: pages.length);
     var read = 0;
     progress.value = (done: 0, total: pages.length, left: null);
@@ -131,13 +138,21 @@ class ScannedPagesReader {
         modelId: modelId,
         render: render,
         stop: () => _stop || _disposed,
-        pause: pause,
+        pause: () async {
+          await pause?.call();
+          if (!paused.value) return;
+          final from = DateTime.now();
+          while (paused.value && !_stop && !_disposed) {
+            await Future<void>.delayed(const Duration(milliseconds: 200));
+          }
+          pausedFor += DateTime.now().difference(from);
+        },
         onPage: (done, total, took) {
           read = done;
           onPageTook?.call(took);
           estimate.update(
             bytesDone: done,
-            elapsed: DateTime.now().difference(started),
+            elapsed: DateTime.now().difference(started) - pausedFor,
           );
           if (!_disposed) {
             progress.value = (
@@ -160,10 +175,15 @@ class ScannedPagesReader {
 
   void stop() => _stop = true;
 
+  void pause() => paused.value = true;
+
+  void resume() => paused.value = false;
+
   void dispose() {
     _disposed = true;
     _stop = true;
     progress.dispose();
+    paused.dispose();
   }
 }
 
@@ -171,16 +191,22 @@ class ScannedPagesReader {
 Future<PageImage?> Function(int page) renderPagesOf(PdfDocument document) =>
     (page) => renderForReading(document, page);
 
-/// "Reading scanned pages: 3 of 20 · about 1 min left", with Stop.
+/// "Reading scanned pages: 3 of 20 · about 1 min left", with Pause (or
+/// Resume) and Stop.
 class ScannedProgressCard extends StatelessWidget {
   const ScannedProgressCard({
     super.key,
     required this.progress,
     required this.onStop,
+    this.paused = false,
+    this.onPause,
+    this.onResume,
   });
 
   final ScanProgress progress;
   final VoidCallback onStop;
+  final bool paused;
+  final VoidCallback? onPause, onResume;
 
   @override
   Widget build(BuildContext context) {
@@ -198,9 +224,12 @@ class ScannedProgressCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Reading scanned pages: ${progress.done} of '
-                      '${progress.total}'
-                      '${left == null ? '' : ' · ${formatRemaining(left)}'}',
+                      paused
+                          ? 'Paused: ${progress.done} of ${progress.total} '
+                                'scanned pages read'
+                          : 'Reading scanned pages: ${progress.done} of '
+                                '${progress.total}'
+                                '${left == null ? '' : ' · ${formatRemaining(left)}'}',
                     ),
                     const SizedBox(height: 6),
                     LinearProgressIndicator(
@@ -212,6 +241,10 @@ class ScannedProgressCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
+              if (paused && onResume != null)
+                TextButton(onPressed: onResume, child: const Text('Resume'))
+              else if (onPause != null)
+                TextButton(onPressed: onPause, child: const Text('Pause')),
               TextButton(onPressed: onStop, child: const Text('Stop')),
             ],
           ),

@@ -235,7 +235,19 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
         val env = OrtEnvironment.getEnvironment()
         OrtSession.SessionOptions().use { options ->
             // Half the cores at most, so the screen stays smooth.
-            options.setIntraOpNumThreads(maxOf(1, Runtime.getRuntime().availableProcessors() / 2))
+            val threads = maxOf(1, Runtime.getRuntime().availableProcessors() / 2)
+            options.setIntraOpNumThreads(threads)
+            // Threads sleep between pages instead of spinning while they wait
+            // (spinning keeps cores busy for nothing: owner, 2026-10-18, big
+            // scans use a lot of battery).
+            options.addConfigEntry("session.intra_op.allow_spinning", "0")
+            options.addConfigEntry("session.inter_op.allow_spinning", "0")
+            // ARM-tuned maths (XNNPACK, part of ONNX Runtime) when the tablet
+            // supports it; otherwise as before.
+            try {
+                options.addXnnpack(mapOf("intra_op_num_threads" to threads.toString()))
+            } catch (_: Exception) {
+            }
             det = env.createSession(File(dir, "det.onnx").path, options)
             rec = env.createSession(File(dir, "rec.onnx").path, options)
         }
