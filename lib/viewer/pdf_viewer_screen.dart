@@ -942,6 +942,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         } catch (_) {
           // A page without readable printed text: just the notes.
         }
+        // A scanned page: the text read from it (owner, 2026-10-17).
+        if (_isScannedPage(chars.map((c) => c.char).join())) {
+          final size = _pageSizeOf(doc, page);
+          final scanned = _scannedOn(page);
+          if (size != null && scanned.isNotEmpty) {
+            chars = scannedChars(scanned, size.width, size.height);
+          }
+        }
         final h = PageHighlights(
           page: page,
           highlights: highlightedText(strokes, chars),
@@ -1676,6 +1684,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// edited), the rest by the words read.
   List<SearchWord> _searchWords() {
     final out = <SearchWord>[];
+    PdfDocument? doc;
+    try {
+      doc = _controller.isReady ? _controller.document : null;
+    } catch (_) {}
     for (var page = 1; page <= (_pageCount ?? 0); page++) {
       final strokes = _ink.ink.strokesOn(page);
       final converted = convertedStrokeIds(strokes);
@@ -1708,6 +1720,19 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             .whereType<int>()
             .fold(1 << 20, math.min);
         out.add((page: page, line: line, box: t.box, text: t.text));
+      }
+      // Text read from a scanned page (PDFium's search can't see it).
+      final scanned = _scannedOn(page);
+      final size = scanned.isEmpty ? null : _pageSizeOf(doc, page);
+      if (size != null) {
+        for (final w in scannedWords(scanned, size.width, size.height)) {
+          out.add((
+            page: page,
+            line: (1 << 21) + w.line,
+            box: w.box,
+            text: w.text,
+          ));
+        }
       }
     }
     return out;
@@ -2142,6 +2167,64 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   final _printed = <int, PrintedText>{};
   final _printedLoading = <int>{};
 
+  /// Text read from this PDF's scanned pages (owner, 2026-10-17), by its
+  /// own page number: searched, highlighted and written around like
+  /// printed text.
+  Map<int, List<ScannedLine>> _scannedText = const {};
+
+  Future<void> _loadScannedText() async {
+    try {
+      final store = await widget.openScannedText();
+      final read = await store.load(widget.documentId);
+      if (!mounted || read.isEmpty) return;
+      setState(() => _scannedText = read);
+      _scannedChanged(null);
+    } catch (_) {
+      // Not found by search this time.
+    }
+  }
+
+  /// A scanned page was just read ([own], or every page if null): its
+  /// printed text is worked out again, and search sees it.
+  void _scannedChanged(int? own) {
+    for (final shown in [..._printed.keys, ..._printedLoading]) {
+      if (own == null || _ownPageOf(shown) == own) {
+        _printed.remove(shown);
+        _printedLoading.remove(shown);
+      }
+    }
+    _refreshHandHits();
+  }
+
+  void _scannedPageRead(int own, List<ScannedLine> lines) {
+    if (!mounted) return;
+    _scannedText = {..._scannedText, own: lines};
+    _scannedChanged(own);
+  }
+
+  /// The PDF's own page shown at [shown] (null for a page of our own).
+  int? _ownPageOf(int shown) {
+    final layout = _layout;
+    if (layout == null) return shown;
+    if (shown < 1 || shown > layout.length) return null;
+    return layout.at(shown).sourcePage;
+  }
+
+  List<ScannedLine> _scannedOn(int shown) {
+    final own = _ownPageOf(shown);
+    return own == null ? const [] : _scannedText[own] ?? const [];
+  }
+
+  /// A page whose own printed text is next to nothing (a scan).
+  static bool _isScannedPage(String printed) =>
+      textChars(printed) < scannedPageTextChars;
+
+  static Size? _pageSizeOf(PdfDocument? doc, int shown) {
+    if (doc == null || shown < 1 || shown > doc.pages.length) return null;
+    final p = doc.pages[shown - 1];
+    return p.width > 0 && p.height > 0 ? Size(p.width, p.height) : null;
+  }
+
   PrintedText? _printedOf(int page) {
     final known = _printed[page];
     if (known != null || !_printedLoading.add(page)) return known;
@@ -2162,6 +2245,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         }
         final text = raw.fullText, rects = raw.charRects;
         final sameLength = text.length == rects.length;
+        // A scanned page: its lines as read (owner: writing around printed
+        // text works on scans too).
+        final size = _pageSizeOf(doc, page);
+        final scanned = _isScannedPage(text) && size != null
+            ? [
+                for (final l in _scannedOn(page))
+                  scannedBox(l, size.width, size.height),
+              ]
+            : const <InkBox>[];
         _printed[page] = PrintedText([
           for (var i = 0; i < rects.length; i++)
             if (!sameLength || text.codeUnitAt(i) > 0x20)
@@ -2171,6 +2263,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                 rects[i].right,
                 rects[i].top,
               ),
+          ...scanned,
         ]);
       } catch (_) {
         _printed[page] = PrintedText.none; // grouped from the ink alone
@@ -3208,7 +3301,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     }
     final reader = ScannedPagesReader(
       documentId: widget.documentId,
-      store: store,
+      store: TellingScannedTextStore(store, _scannedPageRead),
       reader: widget.textReader,
     );
     _scanned?.dispose();
@@ -3799,6 +3892,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     super.initState();
     // What was read is shown once the pen lifts, never mid-stroke.
     _text.penDown = _ink.penDown;
+    unawaited(_loadScannedText());
     _frames.start();
     _layoutLoaded = _loadLayout();
     _viewLoaded = _loadView();

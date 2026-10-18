@@ -888,3 +888,12 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 - Android gathers pen movement into one event per screen refresh, and Flutter keeps only the newest point of each. So a stroke had about one point per refresh, and the pen's extra samples in between were lost. The app now asks Android to send every pen sample on its own (`requestUnbufferedDispatch` for the stylus). Fingers are unchanged.
 - **Why:** strokes are kept for learning the user's handwriting (CLAUDE.md rule 4), and more points per stroke means smoother ink and better data.
 - **Cost:** more pen events for the app to handle while writing. Each costs little (adding one point), but if writing feels slower on the tablet, this is the change to undo. It's one line in `MainActivity.kt`.
+
+## 2026-10-18 — Reading scanned PDFs, part 3: scanned text in the open PDF
+
+- **Search in the PDF** finds words on scanned pages (PDFium's own search can't see them) and highlights each word where it is on the page, among the other matches.
+- **Highlights summary:** highlighter strokes over scanned text pick out its words, like printed text.
+- **Writing around printed text** treats the lines on a scanned page as printed lines.
+- Scanned text joins as each page is read, without reopening the PDF.
+- The reader gives whole lines, so each character is placed evenly across its line. That's close enough to highlight and find words, but a box can be slightly off within a line.
+- Only on pages without real printed text of their own (fewer than 20 letters or digits), so a PDF with text keeps PDFium's exact positions.

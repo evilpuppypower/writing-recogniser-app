@@ -5,6 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:writing_recogniser/core/app_settings.dart';
 import 'package:writing_recogniser/core/document_view.dart';
+import 'package:writing_recogniser/core/handwriting_search.dart';
+import 'package:writing_recogniser/core/highlights.dart';
+import 'package:writing_recogniser/core/page_ink.dart';
+import 'package:writing_recogniser/core/printed_text.dart';
+import 'package:writing_recogniser/core/stroke_grouping.dart' show InkBox;
 import 'package:writing_recogniser/core/page_layout.dart';
 import 'package:writing_recogniser/core/printed_text_store.dart';
 import 'package:writing_recogniser/core/scanned_text.dart';
@@ -280,5 +285,61 @@ void main() {
     await tester.tap(find.text('Get a reader'));
     await tester.pumpAndSettle();
     expect(answer, (read: true, same: true));
+  });
+
+  group('scanned text in the open PDF', () {
+    // A 600 x 800 pt page; a line across the middle of its top half.
+    const line = (
+      left: 0.1,
+      top: 0.25,
+      right: 0.5,
+      bottom: 0.275,
+      text: 'cells divide',
+      confidence: 0.9,
+    );
+
+    test('a line\'s box in PDF page coordinates', () {
+      final b = scannedBox(line, 600, 800);
+      expect(b.left, closeTo(60, 1e-9));
+      expect(b.right, closeTo(300, 1e-9));
+      expect(b.top, closeTo(600, 1e-9));
+      expect(b.bottom, closeTo(580, 1e-9));
+    });
+
+    test('characters share the line, with a break between lines', () {
+      final chars = scannedChars([line, line], 600, 800);
+      expect(chars.map((c) => c.char).join(), 'cells divide\ncells divide');
+      expect(chars.first.box.left, closeTo(60, 1e-9));
+      expect(chars[11].box.right, closeTo(300, 1e-9));
+      expect(chars[12].box.width, 0);
+    });
+
+    test('words for search, each with its own part of the line', () {
+      final words = scannedWords([line], 600, 800);
+      expect(words.map((w) => w.text), ['cells', 'divide']);
+      expect(words.first.box.right, lessThan(words.last.box.left));
+      final hits = searchHandwriting([
+        for (final w in words)
+          (page: 3, line: w.line, box: w.box, text: w.text),
+      ], 'divide');
+      expect(hits.single.page, 3);
+      expect(hits.single.box.left, greaterThan(150));
+    });
+
+    test('a highlighter stroke over scanned text picks out its words', () {
+      final chars = scannedChars([line], 600, 800);
+      // Across "divide" only.
+      final mark = PageStroke(
+        tool: InkTool.highlighter,
+        points: [PageInkPoint(190, 590, 0), PageInkPoint(300, 590, 10)],
+      );
+      expect(highlightedText([mark], chars).single, 'divide');
+    });
+
+    test('writing goes round scanned lines like printed ones', () {
+      final printed = PrintedText([scannedBox(line, 600, 800)]);
+      expect(printed.within(const InkBox(100, 585, 120, 595)), isNotEmpty);
+      expect(printed.within(const InkBox(400, 585, 420, 595)), isEmpty);
+    });
   });
 }
