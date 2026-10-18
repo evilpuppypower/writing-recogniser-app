@@ -30,9 +30,14 @@ class SqliteInkStore implements InkStore {
   final int pieceChars;
 
   /// Page [page]'s saved ink as text, read in pieces (see [pieceChars]).
-  Future<String> _strokesText(String documentId, int page, int length) async {
+  Future<String> _strokesText(
+    DatabaseExecutor db,
+    String documentId,
+    int page,
+    int length,
+  ) async {
     if (length <= pieceChars) {
-      final r = await _db.query(
+      final r = await db.query(
         'page_ink',
         columns: ['strokes'],
         where: 'document_id = ? AND page = ?',
@@ -42,7 +47,7 @@ class SqliteInkStore implements InkStore {
     }
     final out = StringBuffer();
     for (var start = 1; start <= length; start += pieceChars) {
-      final r = await _db.rawQuery(
+      final r = await db.rawQuery(
         'SELECT substr(strokes, ?, ?) AS piece FROM page_ink '
         'WHERE document_id = ? AND page = ?',
         [start, pieceChars, documentId, page],
@@ -55,10 +60,11 @@ class SqliteInkStore implements InkStore {
 
   /// Each saved page of [documentId] (all PDFs if null), with its length,
   /// without reading the ink itself.
-  Future<List<({String document, int page, int length})>> _pages([
+  Future<List<({String document, int page, int length})>> _pages(
+    DatabaseExecutor db, [
     String? documentId,
   ]) async => [
-    for (final r in await _db.rawQuery(
+    for (final r in await db.rawQuery(
       'SELECT document_id, page, length(strokes) AS n FROM page_ink '
       '${documentId == null ? '' : 'WHERE document_id = ? '}'
       'ORDER BY document_id, page',
@@ -79,12 +85,22 @@ class SqliteInkStore implements InkStore {
   static Expando<int> _rowsOf(String documentId, int page) =>
       _rows['$page/$documentId'] ??= Expando<int>();
 
+  /// Rows that couldn't be read (damaged), per document page: kept as they
+  /// are, never deleted by a save, in case they can be read one day.
+  static final _unreadable = <String, Set<int>>{};
+
+  static Set<int> _unreadableOf(String documentId, int page) =>
+      _unreadable['$page/$documentId'] ??= <int>{};
+
   /// The ink saved on [documentId]'s pages before strokes were saved one
   /// by one (each page moves to [_newPages] when the PDF is opened).
-  Future<Map<int, List<PageStroke>>> _oldPages(String documentId) async {
+  Future<Map<int, List<PageStroke>>> _oldPages(
+    DatabaseExecutor db,
+    String documentId,
+  ) async {
     final out = <int, List<PageStroke>>{};
-    for (final p in await _pages(documentId)) {
-      final text = await _strokesText(documentId, p.page, p.length);
+    for (final p in await _pages(db, documentId)) {
+      final text = await _strokesText(db, documentId, p.page, p.length);
       out[p.page] = [
         for (final s in jsonDecode(text) as List)
           PageStroke.fromJson((s as Map).cast<String, Object?>()),
@@ -94,8 +110,11 @@ class SqliteInkStore implements InkStore {
   }
 
   /// The ink saved stroke by stroke: each page's strokes in order.
-  Future<Map<int, List<PageStroke>>> _newPages(String documentId) async {
-    final order = await _db.query(
+  Future<Map<int, List<PageStroke>>> _newPages(
+    DatabaseExecutor db,
+    String documentId,
+  ) async {
+    final order = await db.query(
       'ink_pages',
       columns: ['page', 'stroke_ids'],
       where: 'document_id = ?',
@@ -105,8 +124,7 @@ class SqliteInkStore implements InkStore {
     final out = <int, List<PageStroke>>{};
     for (final o in order) {
       final page = o['page']! as int;
-      final ids = _idsOf(o['stroke_ids']! as Uint8List);
-      final rows = await _db.query(
+      final rows = await db.query(
         'ink_strokes',
         columns: ['id', 'data'],
         where: 'document_id = ? AND page = ?',
@@ -115,7 +133,11 @@ class SqliteInkStore implements InkStore {
       final byId = {
         for (final r in rows) r['id']! as int: r['data']! as Uint8List,
       };
+      // A damaged order row: the strokes in the order they were saved.
+      final ids =
+          _idsOf(o['stroke_ids']! as Uint8List) ?? (byId.keys.toList()..sort());
       final known = _rowsOf(documentId, page);
+      final unreadable = _unreadableOf(documentId, page)..clear();
       final strokes = <PageStroke>[];
       for (final id in ids) {
         final data = byId[id];
@@ -124,7 +146,9 @@ class SqliteInkStore implements InkStore {
         try {
           s = decodeStroke(data);
         } on FormatException {
-          continue; // a damaged stroke: the rest of the page still opens
+          // A damaged stroke: the rest of the page still opens.
+          unreadable.add(id);
+          continue;
         }
         known[s] = id;
         strokes.add(s);
@@ -137,58 +161,75 @@ class SqliteInkStore implements InkStore {
   static Uint8List _bytesOf(List<int> ids) =>
       Int64List.fromList(ids).buffer.asUint8List();
 
-  static List<int> _idsOf(Uint8List bytes) => bytes.length % 8 == 0
+  static List<int>? _idsOf(Uint8List bytes) => bytes.length % 8 == 0
       ? Int64List.sublistView(Uint8List.fromList(bytes))
-      : const [];
+      : null;
 
   @override
   Future<DocumentInk> load(String documentId) async {
-    final ink = DocumentInk();
-    final pages = await _newPages(documentId);
-    final old = await _oldPages(documentId);
-    for (final e in old.entries) {
-      if (pages.containsKey(e.key)) continue;
+    // Read as one snapshot, so a save meanwhile can't give half of each.
+    final read = await _db.transaction(
+      (txn) async => (
+        pages: await _newPages(txn, documentId),
+        old: await _oldPages(txn, documentId),
+      ),
+    );
+    final pages = read.pages;
+    for (final e in read.old.entries) {
       // Moved to the new form now, in one go: if it's interrupted the old
-      // row is still there.
-      pages[e.key] = await _moveOld(documentId, e.key, e.value);
+      // row is still there. A page in both forms was written by an older
+      // build after it moved (that build couldn't see the moved ink): the
+      // two are put together, so nothing is lost.
+      pages[e.key] = await _moveOld(
+        documentId,
+        e.key,
+        _together(pages[e.key] ?? const [], e.value),
+      );
     }
+    final ink = DocumentInk();
     for (final e in pages.entries) {
-      ink.setPage(e.key, e.value);
+      if (e.value.isNotEmpty) ink.setPage(e.key, e.value);
     }
     return ink;
   }
 
-  /// Moves [page]'s ink from the old form ([strokes], as read) to the new
-  /// one, unless something saved the page since it was read (then that is
-  /// what the page holds).
+  /// [saved], then the strokes of [older] that aren't in it already.
+  static List<PageStroke> _together(
+    List<PageStroke> saved,
+    List<PageStroke> older,
+  ) {
+    if (saved.isEmpty) return older;
+    final have = {for (final s in saved) jsonEncode(s.toJson())};
+    return [
+      ...saved,
+      for (final s in older)
+        if (!have.contains(jsonEncode(s.toJson()))) s,
+    ];
+  }
+
+  /// Saves [page] as [strokes] (its ink put together from the old form)
+  /// and removes the old form, unless something saved the page since it
+  /// was read (then that is what the page holds).
   Future<List<PageStroke>> _moveOld(
     String documentId,
     int page,
     List<PageStroke> strokes,
   ) async {
     final moved = await _db.transaction((txn) async {
-      final where = 'document_id = ? AND page = ?';
-      final args = [documentId, page];
-      final already = await txn.query(
-        'ink_pages',
-        columns: ['page'],
-        where: where,
-        whereArgs: args,
-      );
       final old = await txn.query(
         'page_ink',
         columns: ['page'],
-        where: where,
-        whereArgs: args,
+        where: 'document_id = ? AND page = ?',
+        whereArgs: [documentId, page],
       );
-      if (already.isNotEmpty || old.isEmpty) return null;
+      if (old.isEmpty) return null;
       return _write(txn, documentId, page, strokes);
     });
     if (moved != null) {
       _remember(documentId, page, moved);
       return strokes;
     }
-    return (await _newPages(documentId))[page] ?? const [];
+    return (await _newPages(_db, documentId))[page] ?? const [];
   }
 
   @override
@@ -211,7 +252,9 @@ class SqliteInkStore implements InkStore {
     int page,
     List<PageStroke> strokes,
   ) async {
+    strokes = List.of(strokes); // the caller's list may change meanwhile
     final known = _rowsOf(documentId, page);
+    final unreadable = _unreadableOf(documentId, page);
     final added = <(PageStroke, int)>[];
     {
       // The rows saved for the page now (another part of the app may have
@@ -256,6 +299,12 @@ class SqliteInkStore implements InkStore {
           added.add((strokes[fresh[k]], id));
         }
       }
+      // Damaged rows stay, at the end of the page.
+      final kept = [
+        for (final id in unreadable)
+          if (stored.contains(id) && !used.contains(id)) id,
+      ];
+      used.addAll(kept);
       final gone = [
         for (final id in stored)
           if (!used.contains(id)) id,
@@ -271,7 +320,7 @@ class SqliteInkStore implements InkStore {
           whereArgs: part,
         );
       }
-      if (ids.isEmpty) {
+      if (ids.isEmpty && kept.isEmpty) {
         await txn.delete(
           'ink_pages',
           where: 'document_id = ? AND page = ?',
@@ -281,7 +330,7 @@ class SqliteInkStore implements InkStore {
         await txn.insert('ink_pages', {
           'document_id': documentId,
           'page': page,
-          'stroke_ids': _bytesOf([for (final id in ids) id!]),
+          'stroke_ids': _bytesOf([for (final id in ids) id!, ...kept]),
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }

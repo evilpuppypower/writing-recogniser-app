@@ -200,8 +200,12 @@ class AppDatabase {
       // page was rewritten whole after every stroke, and the pen waited).
       // page_ink stays for pages saved before; each moves here when its
       // PDF is next opened.
+      // "If not exists": every build has the same version number, so an
+      // older build can be installed over this one; it sets the database
+      // back to version 14 and leaves these tables, and this step runs
+      // again when a newer build is back.
       await db.execute('''
-        CREATE TABLE ink_strokes (
+        CREATE TABLE IF NOT EXISTS ink_strokes (
           id INTEGER PRIMARY KEY AUTOINCREMENT, -- never reused
           document_id TEXT NOT NULL,   -- library id (as in page_ink)
           page INTEGER NOT NULL,       -- page key (as in page_ink)
@@ -209,10 +213,11 @@ class AppDatabase {
         )
       ''');
       await db.execute(
-        'CREATE INDEX ink_strokes_page ON ink_strokes (document_id, page)',
+        'CREATE INDEX IF NOT EXISTS ink_strokes_page '
+        'ON ink_strokes (document_id, page)',
       );
       await db.execute('''
-        CREATE TABLE ink_pages (
+        CREATE TABLE IF NOT EXISTS ink_pages (
           document_id TEXT NOT NULL,
           page INTEGER NOT NULL,
           stroke_ids BLOB NOT NULL,    -- the page's ink_strokes ids in order (64-bit each)

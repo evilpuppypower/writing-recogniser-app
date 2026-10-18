@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -308,6 +309,81 @@ void main() {
       expect(back, hasLength(634));
       expect(back.first.points, hasLength(280));
     });
+
+    test('an older build installed in between loses nothing', () async {
+      final path =
+          '${await databaseFactoryFfi.getDatabasesPath()}/downgrade.db';
+      await databaseFactoryFfi.deleteDatabase(path);
+      var db15 = await AppDatabase.open(
+        factory: databaseFactoryFfi,
+        path: path,
+      );
+      await SqliteInkStore(db15).savePage('doc', 1, [stroke(1), stroke(2)]);
+      // An older build: sets the version back to 14, can't see the moved
+      // ink, and saves what it was given (one new stroke) the old way.
+      await db15.setVersion(14);
+      await db15.insert('page_ink', {
+        'document_id': 'doc',
+        'page': 1,
+        'strokes': jsonEncode([stroke(3).toJson()]),
+        'updated_at': 0,
+      });
+      await db15.close();
+      // This build again: the database opens, and the page has all three.
+      db15 = await AppDatabase.open(factory: databaseFactoryFfi, path: path);
+      final s = SqliteInkStore(db15);
+      final back = (await s.load('doc')).strokesOn(1);
+      expect(back.map((s) => s.points.first.x), [1, 2, 3]);
+      expect(await db15.query('page_ink'), isEmpty);
+      // Opened again: still three (not added twice).
+      expect(
+        (await SqliteInkStore(db15).load('doc')).strokesOn(1),
+        hasLength(3),
+      );
+      await db15.close();
+      await databaseFactoryFfi.deleteDatabase(path);
+    });
+
+    test(
+      'a damaged stroke is kept through saves; the rest still opens',
+      () async {
+        await store.savePage('doc', 1, [stroke(1), stroke(2)]);
+        final firstId = (await db.query(
+          'ink_strokes',
+          orderBy: 'id',
+        )).first['id'];
+        await db.update(
+          'ink_strokes',
+          {
+            'data': Uint8List.fromList([9, 9, 9]),
+          },
+          where: 'id = ?',
+          whereArgs: [firstId],
+        );
+        final fresh = SqliteInkStore(db);
+        final open = (await fresh.load('doc')).strokesOn(1);
+        expect(open.map((s) => s.points.first.x), [2]);
+        await fresh.savePage('doc', 1, [...open, stroke(5)]);
+        expect(
+          await db.query('ink_strokes', where: 'id = ?', whereArgs: [firstId]),
+          hasLength(1),
+          reason: 'not deleted',
+        );
+        expect((await fresh.load('doc')).strokesOn(1), hasLength(2));
+      },
+    );
+
+    test(
+      'a damaged order row still opens the strokes in saved order',
+      () async {
+        await store.savePage('doc', 1, [stroke(1), stroke(2), stroke(3)]);
+        await db.update('ink_pages', {
+          'stroke_ids': Uint8List.fromList([1, 2, 3]),
+        });
+        final back = (await SqliteInkStore(db).load('doc')).strokesOn(1);
+        expect(back.map((s) => s.points.first.x), [1, 2, 3]);
+      },
+    );
 
     test('saving a page again replaces it; an empty page is removed', () async {
       await store.savePage('doc', 2, [stroke(1), stroke(2)]);
