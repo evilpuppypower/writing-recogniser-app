@@ -41,7 +41,8 @@ class MyScriptInkClassifier implements InkClassifier, ExplainsFallback {
         problem = null;
         return kinds;
       }
-      problem = "MyScript's answer couldn't be read";
+      problem =
+          "MyScript's answer couldn't be read (${jiix == null ? 'none' : describeJiix(jiix)})";
     } on PlatformException catch (e) {
       problem = e.message ?? e.code;
     } on MissingPluginException {
@@ -64,12 +65,26 @@ List<InkStroke> pageInkForEngine(List<PageStroke> strokes) {
     if (b.top > top) top = b.top;
     if (b.left < left) left = b.left;
   }
+  // Points under half a unit apart (a letter is about 50) add nothing for
+  // sorting: since every pen sample is kept there are many (the first and
+  // last of each stroke always stay).
+  const gap = 0.5;
   return [
     for (final s in strokes)
-      InkStroke([
-        for (final p in s.points)
-          InkPoint((p.x - left) * scale, (top - p.y) * scale, p.t, p.pressure),
-      ]),
+      () {
+        final out = <InkPoint>[];
+        final pts = s.points;
+        for (var i = 0; i < pts.length; i++) {
+          final p = pts[i];
+          final x = (p.x - left) * scale, y = (top - p.y) * scale;
+          if (out.isNotEmpty && i < pts.length - 1) {
+            final dx = x - out.last.x, dy = y - out.last.y;
+            if (dx * dx + dy * dy < gap * gap) continue;
+          }
+          out.add(InkPoint(x, y, p.t, p.pressure));
+        }
+        return InkStroke(out);
+      }(),
   ];
 }
 
@@ -148,4 +163,43 @@ List<InkKind>? kindsFromJiix(String jiix, List<InkStroke> ink) {
         return d > w ? InkKind.drawing : InkKind.writing;
       }(),
   ];
+}
+
+/// What an answer looks like, for the diagnostics when it can't be used:
+/// its size, its field names and how many elements of each type it has.
+/// Never its words or positions.
+String describeJiix(String jiix) {
+  Object? root;
+  try {
+    root = jsonDecode(jiix);
+  } on FormatException {
+    return 'not JSON, ${jiix.length} chars';
+  }
+  if (root is! Map) return 'not an object, ${jiix.length} chars';
+  final types = <String, int>{};
+  var boxes = 0;
+  void walk(Object? node, int depth) {
+    if (depth > 12) return;
+    if (node is Map) {
+      final t = node['type'];
+      if (t is String && t.length <= 30) types[t] = (types[t] ?? 0) + 1;
+      if (node['bounding-box'] is Map) boxes++;
+      for (final v in node.values) {
+        walk(v, depth + 1);
+      }
+    } else if (node is List) {
+      for (final v in node) {
+        walk(v, depth + 1);
+      }
+    }
+  }
+
+  walk(root, 0);
+  final keys = [
+    for (final k in root.keys)
+      if ('$k'.length <= 30) '$k',
+  ]..sort();
+  final kinds = [for (final e in types.entries) '${e.key} ${e.value}'];
+  return '${jiix.length} chars; boxes: $boxes; '
+      'types: ${kinds.take(6).join(', ')}; fields: ${keys.take(8).join(', ')}';
 }

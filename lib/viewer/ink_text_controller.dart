@@ -1096,7 +1096,7 @@ class InkTextController extends ChangeNotifier {
 
   /// An error message cut short for the diagnostic log.
   static String? _short(String? s) =>
-      s == null || s.length <= 120 ? s : '${s.substring(0, 120)}…';
+      s == null || s.length <= 240 ? s : '${s.substring(0, 240)}…';
 
   @override
   void dispose() {

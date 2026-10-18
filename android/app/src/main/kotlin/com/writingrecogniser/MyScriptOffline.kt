@@ -57,7 +57,7 @@ class MyScriptOffline(private val context: Context, messenger: BinaryMessenger) 
                         main.post { result.success(status) }
                     }
                     "recognize" -> {
-                        val strokes = call.argument<List<List<Number>>>("strokes") ?: emptyList()
+                        val strokes = flatStrokes(call.argument<List<Any?>>("strokes"))
                         worker.execute {
                             try {
                                 val problem = ensureReady()
@@ -73,7 +73,7 @@ class MyScriptOffline(private val context: Context, messenger: BinaryMessenger) 
                         }
                     }
                     "classify" -> {
-                        val strokes = call.argument<List<List<Number>>>("strokes") ?: emptyList()
+                        val strokes = flatStrokes(call.argument<List<Any?>>("strokes"))
                         worker.execute {
                             try {
                                 val problem = ensureReady()
@@ -181,10 +181,21 @@ class MyScriptOffline(private val context: Context, messenger: BinaryMessenger) 
         }
     }
 
-    /** Each stroke is a flat list of x, y, t (ms), pressure, repeated. */
-    private fun recognize(strokes: List<List<Number>>): String = feed(recognizer!!, strokes)
+    /**
+     * Each stroke is a flat list of x, y, t (ms), pressure, repeated: raw
+     * numbers from the app (a DoubleArray), or a list of numbers.
+     */
+    private fun flatStrokes(arg: List<Any?>?): List<DoubleArray> = arg.orEmpty().map { s ->
+        when (s) {
+            is DoubleArray -> s
+            is List<*> -> DoubleArray(s.size) { i -> (s[i] as Number).toDouble() }
+            else -> DoubleArray(0)
+        }
+    }
 
-    private fun feed(r: Recognizer, strokes: List<List<Number>>): String {
+    private fun recognize(strokes: List<DoubleArray>): String = feed(recognizer!!, strokes)
+
+    private fun feed(r: Recognizer, strokes: List<DoubleArray>): String {
         r.clear()
         r.waitForIdle()
         for (s in strokes) {
