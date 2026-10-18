@@ -148,6 +148,40 @@ void main() {
     }
   }
 
+  testWidgets('buttons hidden in "More" can\'t be reached with a keyboard', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(600, 960);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          appBar: AppBar(
+            leading: const BackButton(),
+            title: const Text('Doc'),
+            actions: [AdaptiveActions(items: _items([]))],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    // The last item ("400%") doesn't fit: it's kept from the keyboard.
+    expect(find.text('400%').hitTestable(), findsNothing);
+    expect(
+      find.ancestor(of: find.text('400%'), matching: find.byType(ExcludeFocus)),
+      findsOneWidget,
+    );
+    expect(
+      find.ancestor(
+        of: find.byTooltip('Search'),
+        matching: find.byType(ExcludeFocus),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('the real viewer\'s title bar fits in portrait', (tester) async {
     tester.view.physicalSize = const Size(720, 1152);
     tester.view.devicePixelRatio = 1;

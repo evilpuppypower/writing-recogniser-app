@@ -52,15 +52,36 @@ class _AdaptiveActionsState extends State<AdaptiveActions> {
   /// How many items were on the bar at the last layout.
   int _shown = 0;
 
+  /// The same, as last built: the hidden ones can't be reached with a
+  /// keyboard either.
+  int _focusable = 1 << 30;
+
+  void _laidOut(int n) {
+    _shown = n;
+    if (n == _focusable) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _shown != _focusable) {
+        setState(() => _focusable = _shown);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) => _FitRow(
-    reserve: AdaptiveActions.leading + widget.minTitle,
+    // The back button, room for the title, the bar's own edges (and the
+    // screen's, e.g. a camera cut-out in landscape).
+    reserve:
+        AdaptiveActions.leading +
+        widget.minTitle +
+        8 +
+        MediaQuery.paddingOf(context).horizontal,
     // A title bar lets its buttons be as wide as they like: the screen's
     // width is what there is.
     screenWidth: MediaQuery.sizeOf(context).width,
-    onShown: (n) => _shown = n,
+    onShown: _laidOut,
     children: [
-      for (final i in widget.items) i.bar,
+      for (final (n, i) in widget.items.indexed)
+        n < _focusable ? i.bar : ExcludeFocus(child: i.bar),
       PopupMenuButton<VoidCallback>(
         tooltip: 'More',
         icon: const Icon(Icons.more_vert),

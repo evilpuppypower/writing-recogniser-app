@@ -1723,10 +1723,16 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         out.add((page: page, line: line, box: t.box, text: t.text));
       }
       // Text read from a scanned page (PDFium's search can't see it).
+      final own = _ownPageOf(page);
       final scanned = _scannedOn(page);
       final size = scanned.isEmpty ? null : _pageSizeOf(doc, page);
-      if (size != null) {
-        for (final w in scannedWords(scanned, size.width, size.height)) {
+      if (size != null && own != null) {
+        final words = _scannedWords[own] ??= scannedWords(
+          scanned,
+          size.width,
+          size.height,
+        );
+        for (final w in words) {
           out.add((
             page: page,
             line: (1 << 21) + w.line,
@@ -2173,6 +2179,9 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// printed text.
   Map<int, List<ScannedLine>> _scannedText = const {};
 
+  /// Each scanned page's words for search, worked out once.
+  final _scannedWords = <int, List<({int line, InkBox box, String text})>>{};
+
   Future<void> _loadScannedText() async {
     try {
       final store = await widget.openScannedText();
@@ -2188,6 +2197,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// A scanned page was just read ([own], or every page if null): its
   /// printed text is worked out again, and search sees it.
   void _scannedChanged(int? own) {
+    if (own == null) {
+      _scannedWords.clear();
+    } else {
+      _scannedWords.remove(own);
+    }
     for (final shown in [..._printed.keys, ..._printedLoading]) {
       if (own == null || _ownPageOf(shown) == own) {
         _printed.remove(shown);
@@ -3332,8 +3346,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// Resume, Read now or Read it): not paused for it again.
   var _readDespiteSaver = false;
 
+  /// The last pause was for battery saver (not the user's own).
+  var _pausedForSaver = false;
+
   Future<void> _quietMoment() async {
     while (mounted &&
+        !(_scanned?.stopped ?? true) &&
         (DateTime.now().difference(_lastBusy) <
                 const Duration(milliseconds: 1500) ||
             _writingBox.value != null)) {
@@ -3343,6 +3361,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     if (!mounted || reader == null || reader.paused.value) return;
     final settings = _docSettings?.value ?? SettingsScope.valueOf(context);
     if (_savingBattery(settings) && !_readDespiteSaver) {
+      _pausedForSaver = true;
       reader.pause();
       _scannedMessage(
         'Reading the scanned pages is paused while battery saver is on. '
@@ -4617,502 +4636,533 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               // Fits the screen (owner: in portrait the buttons covered the
               // back button and the title): the most used stay, the rest
               // are in "More".
-              AdaptiveActions(
-                items: [
-                  BarItem(
-                    bar: IconButton(
-                      tooltip: 'Search the PDF and your handwriting',
-                      icon: const Icon(Icons.search),
-                      // Once the PDF is open (its text can't be searched before).
-                      onPressed: _pageCount == null
-                          ? null
-                          : (_searchOpen ? _closeSearch : _openSearch),
-                    ),
-                    menu: () => [
-                      _menuItem(
-                        Icons.search,
-                        _searchOpen ? 'Close search' : 'Search',
-                        _pageCount == null
+              // Built again when the ink changes (typed text, the clipboard)
+              // or Android's battery saver does.
+              ListenableBuilder(
+                listenable: Listenable.merge([_ink, systemBatterySaver]),
+                builder: (context, _) => AdaptiveActions(
+                  items: [
+                    BarItem(
+                      bar: IconButton(
+                        tooltip: 'Search the PDF and your handwriting',
+                        icon: const Icon(Icons.search),
+                        // Once the PDF is open (its text can't be searched before).
+                        onPressed: _pageCount == null
                             ? null
                             : (_searchOpen ? _closeSearch : _openSearch),
                       ),
-                    ],
-                  ),
-                  BarItem(
-                    bar: ListenableBuilder(
-                      listenable: _ink,
-                      builder: (context, _) => Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: 'Undo',
-                            icon: const Icon(Icons.undo),
-                            onPressed: _ink.canUndo ? _ink.undo : null,
-                          ),
-                          IconButton(
-                            tooltip: 'Redo',
-                            icon: const Icon(Icons.redo),
-                            onPressed: _ink.canRedo ? _ink.redo : null,
-                          ),
-                        ],
-                      ),
-                    ),
-                    menu: () => [
-                      _menuItem(
-                        Icons.undo,
-                        'Undo',
-                        _ink.canUndo ? _ink.undo : null,
-                      ),
-                      _menuItem(
-                        Icons.redo,
-                        'Redo',
-                        _ink.canRedo ? _ink.redo : null,
-                      ),
-                    ],
-                  ),
-                  if (_clipboard != null)
-                    BarItem(
-                      bar: IconButton(
-                        tooltip: 'Paste the copied ink on this page',
-                        icon: const Icon(Icons.content_paste),
-                        onPressed: _paste,
-                      ),
                       menu: () => [
                         _menuItem(
-                          Icons.content_paste,
-                          'Paste the copied ink',
-                          _paste,
+                          Icons.search,
+                          _searchOpen ? 'Close search' : 'Search',
+                          _pageCount == null
+                              ? null
+                              : (_searchOpen ? _closeSearch : _openSearch),
                         ),
                       ],
                     ),
-                  BarItem(
-                    bar: ValueListenableBuilder(
-                      valueListenable: _pageNumber,
-                      builder: (context, page, _) =>
-                          page == null || _pageCount == null
-                          ? const SizedBox.shrink()
-                          : Tooltip(
-                              message: 'Go to a page',
-                              child: TextButton.icon(
-                                icon: const Icon(Icons.find_in_page_outlined),
-                                label: Text('Page $page / $_pageCount'),
-                                onPressed: _askForPage,
-                              ),
+                    BarItem(
+                      bar: ListenableBuilder(
+                        listenable: _ink,
+                        builder: (context, _) => Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Undo',
+                              icon: const Icon(Icons.undo),
+                              onPressed: _ink.canUndo ? _ink.undo : null,
                             ),
-                    ),
-                    menu: () => [
-                      _menuItem(
-                        Icons.find_in_page_outlined,
-                        'Go to a page',
-                        _pageCount == null ? null : _askForPage,
+                            IconButton(
+                              tooltip: 'Redo',
+                              icon: const Icon(Icons.redo),
+                              onPressed: _ink.canRedo ? _ink.redo : null,
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
-                  ),
-                  BarItem(
-                    bar: ValueListenableBuilder(
-                      valueListenable: _pageNumber,
-                      builder: (context, page, _) => ValueListenableBuilder(
-                        valueListenable: _bookmarked,
-                        builder: (context, bookmarks, _) {
-                          // Two pages showing (owner: bookmarks work in two-page
-                          // view): a choice of either.
-                          final pair =
-                              page != null && _twoPages && _pageCount != null
-                              ? _pairOf(page)
-                              : const <int>[];
-                          if (pair.length == 2) {
-                            final any = pair.any(bookmarks.contains);
-                            return PopupMenuButton<int>(
-                              tooltip: 'Bookmark page ${pair[0]} or ${pair[1]}',
-                              icon: Icon(
-                                any ? Icons.bookmark : Icons.bookmark_border,
-                              ),
-                              onSelected: _toggleBookmark,
-                              itemBuilder: (context) => [
-                                for (final p in pair)
-                                  CheckedPopupMenuItem(
-                                    value: p,
-                                    checked: bookmarks.contains(p),
-                                    child: Text('Bookmark page $p'),
+                      menu: () => [
+                        _menuItem(
+                          Icons.undo,
+                          'Undo',
+                          _ink.canUndo ? _ink.undo : null,
+                        ),
+                        _menuItem(
+                          Icons.redo,
+                          'Redo',
+                          _ink.canRedo ? _ink.redo : null,
+                        ),
+                      ],
+                    ),
+                    if (_clipboard != null)
+                      BarItem(
+                        bar: IconButton(
+                          tooltip: 'Paste the copied ink on this page',
+                          icon: const Icon(Icons.content_paste),
+                          onPressed: _paste,
+                        ),
+                        menu: () => [
+                          _menuItem(
+                            Icons.content_paste,
+                            'Paste the copied ink',
+                            _paste,
+                          ),
+                        ],
+                      ),
+                    BarItem(
+                      bar: ValueListenableBuilder(
+                        valueListenable: _pageNumber,
+                        builder: (context, page, _) =>
+                            page == null || _pageCount == null
+                            ? const SizedBox.shrink()
+                            : Tooltip(
+                                message: 'Go to a page',
+                                child: TextButton.icon(
+                                  icon: const Icon(Icons.find_in_page_outlined),
+                                  // As wide for every page (figure spaces, digits
+                                  // of one width), so the bar doesn't rearrange
+                                  // while scrolling.
+                                  label: Text(
+                                    'Page ${'$page'.padLeft('$_pageCount'.length, '\u2007')}'
+                                    ' / $_pageCount',
+                                    style: const TextStyle(
+                                      fontFeatures: [
+                                        FontFeature.tabularFigures(),
+                                      ],
+                                    ),
                                   ),
-                              ],
+                                  onPressed: _askForPage,
+                                ),
+                              ),
+                      ),
+                      menu: () => [
+                        _menuItem(
+                          Icons.find_in_page_outlined,
+                          'Go to a page',
+                          _pageCount == null ? null : _askForPage,
+                        ),
+                      ],
+                    ),
+                    BarItem(
+                      bar: ValueListenableBuilder(
+                        valueListenable: _pageNumber,
+                        builder: (context, page, _) => ValueListenableBuilder(
+                          valueListenable: _bookmarked,
+                          builder: (context, bookmarks, _) {
+                            // Two pages showing (owner: bookmarks work in two-page
+                            // view): a choice of either.
+                            final pair =
+                                page != null && _twoPages && _pageCount != null
+                                ? _pairOf(page)
+                                : const <int>[];
+                            if (pair.length == 2) {
+                              final any = pair.any(bookmarks.contains);
+                              return PopupMenuButton<int>(
+                                tooltip:
+                                    'Bookmark page ${pair[0]} or ${pair[1]}',
+                                icon: Icon(
+                                  any ? Icons.bookmark : Icons.bookmark_border,
+                                ),
+                                onSelected: _toggleBookmark,
+                                itemBuilder: (context) => [
+                                  for (final p in pair)
+                                    CheckedPopupMenuItem(
+                                      value: p,
+                                      checked: bookmarks.contains(p),
+                                      child: Text('Bookmark page $p'),
+                                    ),
+                                ],
+                              );
+                            }
+                            final marked =
+                                page != null && bookmarks.contains(page);
+                            return IconButton(
+                              tooltip: marked
+                                  ? 'Remove the bookmark on this page'
+                                  : 'Bookmark this page',
+                              icon: Icon(
+                                marked ? Icons.bookmark : Icons.bookmark_border,
+                              ),
+                              onPressed: page == null || _pageCount == null
+                                  ? null
+                                  : () => _toggleBookmark(page),
                             );
-                          }
-                          final marked =
-                              page != null && bookmarks.contains(page);
+                          },
+                        ),
+                      ),
+                      menu: _bookmarkMenu,
+                    ),
+                    BarItem(
+                      bar: IconButton(
+                        tooltip: 'All pages',
+                        icon: const Icon(Icons.grid_view),
+                        onPressed: _pageCount == null ? null : _showPages,
+                      ),
+                      menu: () => [
+                        _menuItem(
+                          Icons.grid_view,
+                          'All pages',
+                          _pageCount == null ? null : _showPages,
+                        ),
+                      ],
+                    ),
+                    BarItem(
+                      bar: IconButton(
+                        tooltip: 'Contents and bookmarks',
+                        icon: const Icon(Icons.toc),
+                        onPressed: _pageCount == null ? null : _showContents,
+                      ),
+                      menu: () => [
+                        _menuItem(
+                          Icons.toc,
+                          'Contents and bookmarks',
+                          _pageCount == null ? null : _showContents,
+                        ),
+                      ],
+                    ),
+                    BarItem(
+                      bar: IconButton(
+                        tooltip:
+                            "Convert this page's handwriting to typed text",
+                        icon: const Icon(Icons.keyboard),
+                        onPressed: _convertPage,
+                      ),
+                      menu: () => [
+                        _menuItem(
+                          Icons.keyboard,
+                          "Convert this page's handwriting to typed text",
+                          _convertPage,
+                        ),
+                      ],
+                    ),
+                    if (_hasTyped)
+                      BarItem(
+                        bar: TypedSwitchButton(showTyped: _showTyped),
+                        menu: () => [
+                          _menuItem(
+                            _showTyped.value
+                                ? Icons.gesture
+                                : Icons.text_snippet,
+                            _showTyped.value
+                                ? 'Show my handwriting'
+                                : 'Show the typed text',
+                            () => _showTyped.value = !_showTyped.value,
+                          ),
+                        ],
+                      ),
+                    BarItem(
+                      bar: ValueListenableBuilder(
+                        valueListenable: _labelsShown,
+                        builder: (context, awake, _) {
+                          final labels =
+                              SettingsScope.valueOf(context).textLabels !=
+                              TextLabelPlace.off;
                           return IconButton(
-                            tooltip: marked
-                                ? 'Remove the bookmark on this page'
-                                : 'Bookmark this page',
-                            icon: Icon(
-                              marked ? Icons.bookmark : Icons.bookmark_border,
-                            ),
-                            onPressed: page == null || _pageCount == null
-                                ? null
-                                : () => _toggleBookmark(page),
+                            tooltip: !labels
+                                ? 'Show recognised text over the ink'
+                                : awake
+                                ? 'Hide recognised text over the ink'
+                                : 'Bring back the recognised text (it '
+                                      'fades while you\'re not writing)',
+                            isSelected: labels,
+                            icon: const Icon(Icons.text_fields),
+                            onPressed: _toggleLabels,
                           );
                         },
                       ),
-                    ),
-                    menu: _bookmarkMenu,
-                  ),
-                  BarItem(
-                    bar: IconButton(
-                      tooltip: 'All pages',
-                      icon: const Icon(Icons.grid_view),
-                      onPressed: _pageCount == null ? null : _showPages,
-                    ),
-                    menu: () => [
-                      _menuItem(
-                        Icons.grid_view,
-                        'All pages',
-                        _pageCount == null ? null : _showPages,
-                      ),
-                    ],
-                  ),
-                  BarItem(
-                    bar: IconButton(
-                      tooltip: 'Contents and bookmarks',
-                      icon: const Icon(Icons.toc),
-                      onPressed: _pageCount == null ? null : _showContents,
-                    ),
-                    menu: () => [
-                      _menuItem(
-                        Icons.toc,
-                        'Contents and bookmarks',
-                        _pageCount == null ? null : _showContents,
-                      ),
-                    ],
-                  ),
-                  BarItem(
-                    bar: IconButton(
-                      tooltip: "Convert this page's handwriting to typed text",
-                      icon: const Icon(Icons.keyboard),
-                      onPressed: _convertPage,
-                    ),
-                    menu: () => [
-                      _menuItem(
-                        Icons.keyboard,
-                        "Convert this page's handwriting to typed text",
-                        _convertPage,
-                      ),
-                    ],
-                  ),
-                  if (_hasTyped)
-                    BarItem(
-                      bar: TypedSwitchButton(showTyped: _showTyped),
                       menu: () => [
                         _menuItem(
-                          _showTyped.value ? Icons.gesture : Icons.text_snippet,
-                          _showTyped.value
-                              ? 'Show my handwriting'
-                              : 'Show the typed text',
-                          () => _showTyped.value = !_showTyped.value,
+                          Icons.text_fields,
+                          _settingsOf(context).value.textLabels !=
+                                  TextLabelPlace.off
+                              ? 'Hide recognised text over the ink'
+                              : 'Show recognised text over the ink',
+                          _toggleLabels,
                         ),
                       ],
                     ),
-                  BarItem(
-                    bar: ValueListenableBuilder(
-                      valueListenable: _labelsShown,
-                      builder: (context, awake, _) {
-                        final labels =
-                            SettingsScope.valueOf(context).textLabels !=
-                            TextLabelPlace.off;
-                        return IconButton(
-                          tooltip: !labels
-                              ? 'Show recognised text over the ink'
-                              : awake
-                              ? 'Hide recognised text over the ink'
-                              : 'Bring back the recognised text (it '
-                                    'fades while you\'re not writing)',
-                          isSelected: labels,
-                          icon: const Icon(Icons.text_fields),
-                          onPressed: _toggleLabels,
-                        );
-                      },
-                    ),
-                    menu: () => [
-                      _menuItem(
-                        Icons.text_fields,
-                        SettingsScope.valueOf(context).textLabels !=
-                                TextLabelPlace.off
-                            ? 'Hide recognised text over the ink'
-                            : 'Show recognised text over the ink',
-                        _toggleLabels,
+                    BarItem(
+                      bar: Builder(
+                        builder: (context) {
+                          final panel =
+                              SettingsScope.valueOf(context).textPanel !=
+                              TextPanelPlace.off;
+                          return IconButton(
+                            tooltip: panel
+                                ? 'Close the text panel'
+                                : "Show this page's text in a panel",
+                            isSelected: panel,
+                            icon: const Icon(Icons.notes),
+                            onPressed: _togglePanel,
+                          );
+                        },
                       ),
-                    ],
-                  ),
-                  BarItem(
-                    bar: Builder(
-                      builder: (context) {
-                        final panel =
-                            SettingsScope.valueOf(context).textPanel !=
-                            TextPanelPlace.off;
-                        return IconButton(
-                          tooltip: panel
+                      menu: () => [
+                        _menuItem(
+                          Icons.notes,
+                          _settingsOf(context).value.textPanel !=
+                                  TextPanelPlace.off
                               ? 'Close the text panel'
                               : "Show this page's text in a panel",
-                          isSelected: panel,
-                          icon: const Icon(Icons.notes),
-                          onPressed: _togglePanel,
-                        );
-                      },
-                    ),
-                    menu: () => [
-                      _menuItem(
-                        Icons.notes,
-                        SettingsScope.valueOf(context).textPanel !=
-                                TextPanelPlace.off
-                            ? 'Close the text panel'
-                            : "Show this page's text in a panel",
-                        _togglePanel,
-                      ),
-                    ],
-                  ),
-                  if ((_docSettings?.value ?? SettingsScope.valueOf(context))
-                      .writingBoxButton)
-                    BarItem(
-                      bar: ValueListenableBuilder(
-                        valueListenable: _writingBox,
-                        builder: (context, t, _) => IconButton(
-                          tooltip: t == null
-                              ? 'Writing box: write large, ink lands small'
-                              : 'Close the writing box',
-                          isSelected: t != null,
-                          icon: const Icon(Icons.zoom_in_map),
-                          onPressed: _pageCount == null
-                              ? null
-                              : _toggleWritingBox,
-                        ),
-                      ),
-                      menu: () => [
-                        _menuItem(
-                          Icons.zoom_in_map,
-                          _writingBox.value == null
-                              ? 'Writing box: write large, ink lands small'
-                              : 'Close the writing box',
-                          _pageCount == null ? null : _toggleWritingBox,
+                          _togglePanel,
                         ),
                       ],
                     ),
-                  BarItem(
-                    bar: Builder(
-                      builder: (context) {
-                        final settings = context
-                            .dependOnInheritedWidgetOfExactType<SettingsScope>()
-                            ?.notifier;
-                        if (settings == null) return const SizedBox.shrink();
-                        final two = settings.value.twoPages;
-                        return IconButton(
-                          tooltip: two
-                              ? 'Show one page at a time'
-                              : 'Show two pages side by side',
-                          icon: Icon(
-                            two ? Icons.chrome_reader_mode : Icons.auto_stories,
-                          ),
-                          onPressed: () => settings.update(
-                            settings.value.copyWith(twoPages: !two),
-                          ),
-                        );
-                      },
-                    ),
-                    menu: () {
-                      final settings = context
-                          .getInheritedWidgetOfExactType<SettingsScope>()
-                          ?.notifier;
-                      if (settings == null) return const [];
-                      final t = settings.value.twoPages;
-                      return [
-                        _menuItem(
-                          t ? Icons.chrome_reader_mode : Icons.auto_stories,
-                          t
-                              ? 'Show one page at a time'
-                              : 'Show two pages side by side',
-                          () => settings.update(
-                            settings.value.copyWith(twoPages: !t),
+                    if ((_docSettings?.value ?? SettingsScope.valueOf(context))
+                        .writingBoxButton)
+                      BarItem(
+                        bar: ValueListenableBuilder(
+                          valueListenable: _writingBox,
+                          builder: (context, t, _) => IconButton(
+                            tooltip: t == null
+                                ? 'Writing box: write large, ink lands small'
+                                : 'Close the writing box',
+                            isSelected: t != null,
+                            icon: const Icon(Icons.zoom_in_map),
+                            onPressed: _pageCount == null
+                                ? null
+                                : _toggleWritingBox,
                           ),
                         ),
-                      ];
-                    },
-                  ),
-                  if ((_docSettings?.value ?? SettingsScope.valueOf(context))
-                      .highlightsSummary)
-                    BarItem(
-                      bar: IconButton(
-                        tooltip: 'Highlights and notes, page by page',
-                        icon: const Icon(Icons.summarize_outlined),
-                        onPressed: _pageCount == null ? null : _showHighlights,
-                      ),
-                      menu: () => [
-                        _menuItem(
-                          Icons.summarize_outlined,
-                          'Highlights and notes',
-                          _pageCount == null ? null : _showHighlights,
-                        ),
-                      ],
-                    ),
-                  if (widget.sourcePath != null)
-                    BarItem(
-                      bar: IconButton(
-                        tooltip: 'Add a blank page after this one',
-                        icon: const Icon(Icons.note_add_outlined),
-                        onPressed: _canChangePages
-                            ? () => _addBlankPage()
-                            : null,
-                      ),
-                      menu: () => [
-                        _menuItem(
-                          Icons.note_add_outlined,
-                          'Add a blank page after this one',
-                          _canChangePages ? () => _addBlankPage() : null,
-                        ),
-                      ],
-                    ),
-                  BarItem(
-                    bar: ValueListenableBuilder(
-                      valueListenable: _unread,
-                      builder: (context, unread, _) {
-                        final later = _readLater;
-                        if (!later) {
-                          return IconButton(
-                            tooltip: 'Read my writing later, not as I write',
-                            icon: const Icon(Icons.pause_circle_outline),
-                            onPressed: () => _setReadLater(true),
-                          );
-                        }
-                        return PopupMenuButton<bool>(
-                          tooltip: unread.isEmpty
-                              ? 'Reading later: nothing waiting'
-                              : 'Reading later: ${unread.length} '
-                                    '${unread.length == 1 ? 'page' : 'pages'} waiting',
-                          icon: Badge(
-                            isLabelVisible: unread.isNotEmpty,
-                            label: Text('${unread.length}'),
-                            child: const Icon(Icons.play_circle_outline),
-                          ),
-                          onSelected: (asYouWrite) {
-                            if (asYouWrite) {
-                              _setReadLater(false);
-                            } else {
-                              _readAllNow();
-                            }
-                          },
-                          itemBuilder: (_) => [
-                            PopupMenuItem(
-                              value: false,
-                              enabled: unread.isNotEmpty,
-                              child: Text(
-                                unread.isEmpty
-                                    ? 'Nothing to read yet'
-                                    : 'Read all now (${unread.length} '
-                                          '${unread.length == 1 ? 'page' : 'pages'})',
-                              ),
-                            ),
-                            const PopupMenuItem(
-                              value: true,
-                              child: Text('Read as I write again'),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                    menu: _readLaterMenu,
-                  ),
-                  if (widget.sourcePath != null)
-                    BarItem(
-                      bar: PopupMenuButton<bool>(
-                        tooltip: 'Export a copy of this PDF with your ink',
-                        icon: const Icon(Icons.ios_share),
-                        onSelected: (share) => _export(share: share),
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(
-                            value: false,
-                            child: ListTile(
-                              leading: Icon(Icons.save_alt),
-                              title: Text('Save a copy with my ink…'),
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: true,
-                            child: ListTile(
-                              leading: Icon(Icons.share),
-                              title: Text('Share a copy with my ink…'),
-                            ),
+                        menu: () => [
+                          _menuItem(
+                            Icons.zoom_in_map,
+                            _writingBox.value == null
+                                ? 'Writing box: write large, ink lands small'
+                                : 'Close the writing box',
+                            _pageCount == null ? null : _toggleWritingBox,
                           ),
                         ],
                       ),
-                      menu: () => [
-                        _menuItem(
-                          Icons.save_alt,
-                          'Save a copy with my ink…',
-                          () => _export(share: false),
-                        ),
-                        _menuItem(
-                          Icons.share,
-                          'Share a copy with my ink…',
-                          () => _export(share: true),
-                        ),
-                      ],
+                    BarItem(
+                      bar: Builder(
+                        builder: (context) {
+                          final settings = context
+                              .dependOnInheritedWidgetOfExactType<
+                                SettingsScope
+                              >()
+                              ?.notifier;
+                          if (settings == null) return const SizedBox.shrink();
+                          final two = settings.value.twoPages;
+                          return IconButton(
+                            tooltip: two
+                                ? 'Show one page at a time'
+                                : 'Show two pages side by side',
+                            icon: Icon(
+                              two
+                                  ? Icons.chrome_reader_mode
+                                  : Icons.auto_stories,
+                            ),
+                            onPressed: () => settings.update(
+                              settings.value.copyWith(twoPages: !two),
+                            ),
+                          );
+                        },
+                      ),
+                      menu: () {
+                        final settings = _settingsOf(context);
+                        final t = settings.value.twoPages;
+                        return [
+                          _menuItem(
+                            t ? Icons.chrome_reader_mode : Icons.auto_stories,
+                            t
+                                ? 'Show one page at a time'
+                                : 'Show two pages side by side',
+                            () => settings.update(
+                              settings.value.copyWith(twoPages: !t),
+                            ),
+                          ),
+                        ];
+                      },
                     ),
-                  if (_savingBattery(
-                    _docSettings?.value ?? SettingsScope.valueOf(context),
-                  ))
+                    if ((_docSettings?.value ?? SettingsScope.valueOf(context))
+                        .highlightsSummary)
+                      BarItem(
+                        bar: IconButton(
+                          tooltip: 'Highlights and notes, page by page',
+                          icon: const Icon(Icons.summarize_outlined),
+                          onPressed: _pageCount == null
+                              ? null
+                              : _showHighlights,
+                        ),
+                        menu: () => [
+                          _menuItem(
+                            Icons.summarize_outlined,
+                            'Highlights and notes',
+                            _pageCount == null ? null : _showHighlights,
+                          ),
+                        ],
+                      ),
+                    if (widget.sourcePath != null)
+                      BarItem(
+                        bar: IconButton(
+                          tooltip: 'Add a blank page after this one',
+                          icon: const Icon(Icons.note_add_outlined),
+                          onPressed: _canChangePages
+                              ? () => _addBlankPage()
+                              : null,
+                        ),
+                        menu: () => [
+                          _menuItem(
+                            Icons.note_add_outlined,
+                            'Add a blank page after this one',
+                            _canChangePages ? () => _addBlankPage() : null,
+                          ),
+                        ],
+                      ),
                     BarItem(
                       bar: ValueListenableBuilder(
-                        valueListenable: systemBatterySaver,
-                        builder: (context, _, _) {
-                          final s =
-                              _docSettings?.value ??
-                              SettingsScope.valueOf(context);
-                          if (!_savingBattery(s)) {
-                            return const SizedBox.shrink();
+                        valueListenable: _unread,
+                        builder: (context, unread, _) {
+                          final later = _readLater;
+                          if (!later) {
+                            return IconButton(
+                              tooltip: 'Read my writing later, not as I write',
+                              icon: const Icon(Icons.pause_circle_outline),
+                              onPressed: () => _setReadLater(true),
+                            );
                           }
-                          return IconButton(
-                            tooltip: 'Battery saver is on',
-                            icon: const Icon(Icons.battery_saver),
-                            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
+                          return PopupMenuButton<bool>(
+                            tooltip: unread.isEmpty
+                                ? 'Reading later: nothing waiting'
+                                : 'Reading later: ${unread.length} '
+                                      '${unread.length == 1 ? 'page' : 'pages'} waiting',
+                            icon: Badge(
+                              isLabelVisible: unread.isNotEmpty,
+                              label: Text('${unread.length}'),
+                              child: const Icon(Icons.play_circle_outline),
+                            ),
+                            onSelected: (asYouWrite) {
+                              if (asYouWrite) {
+                                _setReadLater(false);
+                              } else {
+                                _readAllNow();
+                              }
+                            },
+                            itemBuilder: (_) => [
+                              PopupMenuItem(
+                                value: false,
+                                enabled: unread.isNotEmpty,
+                                child: Text(
+                                  unread.isEmpty
+                                      ? 'Nothing to read yet'
+                                      : 'Read all now (${unread.length} '
+                                            '${unread.length == 1 ? 'page' : 'pages'})',
+                                ),
+                              ),
+                              const PopupMenuItem(
+                                value: true,
+                                child: Text('Read as I write again'),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      menu: _readLaterMenu,
+                    ),
+                    if (widget.sourcePath != null)
+                      BarItem(
+                        bar: PopupMenuButton<bool>(
+                          tooltip: 'Export a copy of this PDF with your ink',
+                          icon: const Icon(Icons.ios_share),
+                          onSelected: (share) => _export(share: share),
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                              value: false,
+                              child: ListTile(
+                                leading: Icon(Icons.save_alt),
+                                title: Text('Save a copy with my ink…'),
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: true,
+                              child: ListTile(
+                                leading: Icon(Icons.share),
+                                title: Text('Share a copy with my ink…'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        menu: () => [
+                          _menuItem(
+                            Icons.save_alt,
+                            'Save a copy with my ink…',
+                            () => _export(share: false),
+                          ),
+                          _menuItem(
+                            Icons.share,
+                            'Share a copy with my ink…',
+                            () => _export(share: true),
+                          ),
+                        ],
+                      ),
+                    if (_savingBattery(
+                      _docSettings?.value ?? SettingsScope.valueOf(context),
+                    ))
+                      BarItem(
+                        bar: ValueListenableBuilder(
+                          valueListenable: systemBatterySaver,
+                          builder: (context, _, _) {
+                            final s =
+                                _docSettings?.value ??
+                                SettingsScope.valueOf(context);
+                            if (!_savingBattery(s)) {
+                              return const SizedBox.shrink();
+                            }
+                            return IconButton(
+                              tooltip: 'Battery saver is on',
+                              icon: const Icon(Icons.battery_saver),
+                              onPressed: () =>
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Battery saver is on'
+                                        '${s.batterySaver ? '' : ' (with Android\'s)'}: '
+                                        'writing is read after you pause for '
+                                        '${savingPauseMs ~/ 1000} seconds. Change it '
+                                        'in Settings → Battery saver.',
+                                      ),
+                                    ),
+                                  ),
+                            );
+                          },
+                        ),
+                        menu: () => [
+                          _menuItem(
+                            Icons.battery_saver,
+                            'Battery saver is on',
+                            () => ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
                                 content: Text(
-                                  'Battery saver is on'
-                                  '${s.batterySaver ? '' : ' (with Android\'s)'}: '
-                                  'writing is read after you pause for '
-                                  '${savingPauseMs ~/ 1000} seconds. Change it '
-                                  'in Settings → Battery saver.',
+                                  'Battery saver is on: writing is read after '
+                                  'a longer pause. Change it in Settings → '
+                                  'Battery saver.',
                                 ),
                               ),
                             ),
-                          );
-                        },
+                          ),
+                        ],
                       ),
-                      menu: () => [
-                        _menuItem(
-                          Icons.battery_saver,
-                          'Battery saver is on',
-                          () => ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Battery saver is on: writing is read after '
-                                'a longer pause. Change it in Settings → '
-                                'Battery saver.',
-                              ),
-                            ),
+                    BarItem(
+                      // One width whatever the zoom (the bar doesn't
+                      // rearrange while pinching).
+                      bar: SizedBox(
+                        width: 56,
+                        child: ListenableBuilder(
+                          listenable: _controller,
+                          builder: (context, _) => Text(
+                            _controller.isReady
+                                ? '${(_controller.currentZoom * 100).round()}%'
+                                : '',
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
                           ),
                         ),
-                      ],
-                    ),
-                  BarItem(
-                    bar: ListenableBuilder(
-                      listenable: _controller,
-                      builder: (context, _) => Text(
-                        _controller.isReady
-                            ? '${(_controller.currentZoom * 100).round()}%'
-                            : '',
                       ),
+                      // Shown only when there's room (pinch to zoom).
+                      menu: () => const [],
                     ),
-                    // Shown only when there's room (pinch to zoom).
-                    menu: () => const [],
-                  ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(width: 4),
             ],
@@ -5182,9 +5232,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                                     ScannedProgressCard(
                                       progress: p,
                                       paused: paused,
-                                      onPause: reader.pause,
+                                      onPause: () {
+                                        _pausedForSaver = false;
+                                        reader.pause();
+                                      },
                                       onResume: () {
-                                        _readDespiteSaver = true;
+                                        if (_pausedForSaver) {
+                                          _readDespiteSaver = true;
+                                        }
+                                        _pausedForSaver = false;
                                         reader.resume();
                                       },
                                       onStop: reader.stop,
