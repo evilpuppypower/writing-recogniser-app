@@ -77,6 +77,13 @@ class InkPredictor {
     final fx = _fit(_x), fy = _fit(_y);
     final x0 = _x.last, y0 = _y.last;
     var ahead = aheadMicros.toDouble();
+    // A pen slowing down: the guess stops where it would stop, rather
+    // than turning back on itself.
+    final turn = fx.$1 * fx.$2 + fy.$1 * fy.$2;
+    if (turn < 0) {
+      final stopMs = -(fx.$1 * fx.$1 + fy.$1 * fy.$1) / turn;
+      ahead = math.min(ahead, stopMs * 1000);
+    }
     // Only half the bend is trusted: a full curve overshoots when the pen
     // changes its mind.
     (double, double) at(double dt) {

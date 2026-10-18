@@ -130,7 +130,8 @@ class PenTiming {
       },
       if (_straightened > 0) 'straightened': _straightened,
       if (_guessErrorPx.isNotEmpty) ...{
-        // How far the ink drawn ahead of the pen was off, in pixels.
+        // How far the ink drawn ahead of the pen was off, in pixels of
+        // the page at 100% zoom.
         'leadMissMedianPx': r(at(_guessErrorPx, 0.5)),
         'leadMissP90Px': r(at(_guessErrorPx, 0.9)),
       },

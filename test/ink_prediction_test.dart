@@ -81,6 +81,23 @@ void main() {
     expect(errors[errors.length ~/ 2], lessThan(2.0));
   });
 
+  test('a pen slowing to a stop is not guessed to turn back', () {
+    final p = InkPredictor();
+    // Slowing hard: stops at x = 40 after 40 ms.
+    (double, double) path(double ms) =>
+        (ms < 40 ? 2 * ms - ms * ms / 40 : 40, 0);
+    feed(p, path, ms: 30);
+    final guess = p.predict(30000);
+    var x = path(30).$1;
+    for (final (gx, _) in guess) {
+      expect(gx, greaterThanOrEqualTo(x - 1e-9), reason: 'never back');
+      x = gx;
+    }
+    // Half the slowing is trusted, so it may run a little past the stop
+    // (2.5 px left to go), but not far.
+    expect(x, lessThanOrEqualTo(43.5));
+  });
+
   test('the guess never runs further than its limit', () {
     final p = InkPredictor(maxPixels: 10);
     final t = feed(p, (ms) => (ms * 5, 0)); // a very fast flick

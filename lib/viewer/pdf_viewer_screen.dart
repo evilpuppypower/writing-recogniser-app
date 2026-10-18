@@ -3053,11 +3053,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       if (zoom != null) 'zoom': (zoom * 100).round() / 100,
       // The app's own battery saver (Android's comes with the screen's
       // refresh rate).
-      if (mounted) 'appSaver': _savingBattery(_settingsOf(context).value),
+      if (_shownSettings case final s?) 'appSaver': _savingBattery(s),
       // Scanned pages being read meanwhile (it competes for the tablet).
       'readingScan': _scanned?.running ?? false,
       // How far ahead of the pen the ink is guessed (0 = off).
-      if (mounted) 'inkLeadMs': _settingsOf(context).value.inkLeadMs,
+      if (_shownSettings case final s?) 'inkLeadMs': s.inkLeadMs,
     };
   }
 
@@ -4591,8 +4591,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   SettingsController _settingsOf(BuildContext context) =>
       _docSettings ?? SettingsScope.of(context);
 
+  /// The settings the viewer was last built with (for the diagnostics,
+  /// which can be sent while the viewer is closing).
+  AppSettings? _shownSettings;
+
   @override
   Widget build(BuildContext context) {
+    _shownSettings = _docSettings?.value ?? SettingsScope.valueOf(context);
     final page = _buildPage(context);
     // Always the same shape of tree (so the viewer isn't built again when
     // this document's own settings arrive): its own settings once loaded,

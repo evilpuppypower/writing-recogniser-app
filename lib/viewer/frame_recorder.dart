@@ -68,18 +68,25 @@ class FrameRecorder {
     }
   }
 
-  /// Sends the summary of the frames so far, if any.
-  Future<void> flush() async {
+  /// The summary of the frames so far (and starts again), or null.
+  Map<String, Object?>? _take() {
     final summary = summariseFrames(_frames);
     _frames.clear();
     final writing = pen.summary();
-    if (summary == null && writing == null) return;
-    final screen = onScreen();
+    if (summary == null && writing == null) return null;
+    return {...?summary, ...?writing, ...onScreen()};
+  }
+
+  /// Sends the summary of the frames so far, if any, with the screen's
+  /// refresh rate.
+  Future<void> flush() async {
+    final taken = _take();
+    if (taken == null) return;
     Map<String, Object?> shown = const {};
     try {
       shown = await display?.call() ?? const {};
     } catch (_) {}
-    onSummary({...?summary, ...?writing, ...screen, ...shown});
+    onSummary({...taken, ...shown});
   }
 
   void stop() {
@@ -87,6 +94,8 @@ class FrameRecorder {
     if (identical(_current, this)) _current = null;
     _timer?.cancel();
     SchedulerBinding.instance.removeTimingsCallback(_onTimings);
-    unawaited(flush());
+    // Sent now, while the PDF is closing (no waiting for the refresh rate).
+    final taken = _take();
+    if (taken != null) onSummary(taken);
   }
 }

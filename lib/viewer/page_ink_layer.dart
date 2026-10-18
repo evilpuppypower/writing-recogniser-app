@@ -966,6 +966,11 @@ class _PageInkLayerState extends State<PageInkLayer> {
         (_snapped
             ? straightLine(_active.value.first, _pointOf(e))
             : [..._active.value, _pointOf(e)]);
+    // The pen's own samples (not a straightened line or tidied shape), for
+    // the diagnostics' count of missing samples.
+    final sampled = shape == null && !_snapped
+        ? [for (final p in points) p.t]
+        : null;
     if (_style.arrow && !_snapped) {
       // Drop the flick as the pen lifts, so the head points along the line.
       points = trimLiftHook(
@@ -1024,7 +1029,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
       return;
     }
     _drawHeld(); // keep the order the strokes were written in
-    widget.controller.penTiming?.stroke([for (final p in stroke.points) p.t]);
+    if (sampled != null) widget.controller.penTiming?.stroke(sampled);
     widget.controller.add(widget.pageNumber, stroke);
     final tidied = _shapeKind;
     _shapeKind = null;
