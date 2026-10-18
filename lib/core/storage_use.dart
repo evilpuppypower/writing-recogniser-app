@@ -38,6 +38,8 @@ const storageTables = <String, ({String about, List<String> sums})>{
     about: 'Ink on every page, and the words read from it.',
     sums: [
       'SELECT SUM(LENGTH(strokes)) FROM page_ink',
+      'SELECT SUM(LENGTH(data)) FROM ink_strokes',
+      'SELECT SUM(LENGTH(stroke_ids)) FROM ink_pages',
       'SELECT SUM(LENGTH(words)) FROM page_text',
     ],
   ),
