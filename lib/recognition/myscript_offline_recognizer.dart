@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 
@@ -118,11 +119,38 @@ class MyScriptOfflineRecognizer implements Recognizer, LineRecognizer {
   }
 }
 
-/// Each stroke as one flat list: x, y, t (ms), pressure, repeated. Compact
-/// for the platform channel.
-List<List<num>> encodeStrokesFlat(List<InkStroke> strokes) => [
+/// Each stroke as one flat list of numbers: x, y, t (ms), pressure,
+/// repeated. Sent as raw numbers (quick to pass to Android: a list of
+/// separate numbers took about 0.4 s for a busy page on a desktop, several
+/// times that on the tablet, and the pen waited meanwhile).
+///
+/// Points closer than [minGap] to the last one sent are left out (the
+/// first and last are always kept): since every pen sample is kept, a
+/// stroke has 3–4 times more points than the engine needs. The stored
+/// strokes keep every point.
+List<Float64List> encodeStrokesFlat(
+  List<InkStroke> strokes, {
+  double minGap = 0.5,
+}) => [
   for (final s in strokes)
-    [
-      for (final p in s.points) ...[p.x, p.y, p.t, p.pressure],
-    ],
+    () {
+      final pts = s.points;
+      final out = Float64List(pts.length * 4);
+      var n = 0;
+      double? lx, ly;
+      for (var i = 0; i < pts.length; i++) {
+        final p = pts[i];
+        if (lx != null && i < pts.length - 1) {
+          final dx = p.x - lx, dy = p.y - ly!;
+          if (dx * dx + dy * dy < minGap * minGap) continue;
+        }
+        out[n++] = p.x;
+        out[n++] = p.y;
+        out[n++] = p.t.toDouble();
+        out[n++] = p.pressure;
+        lx = p.x;
+        ly = p.y;
+      }
+      return Float64List.sublistView(out, 0, n);
+    }(),
 ];

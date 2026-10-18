@@ -78,4 +78,20 @@ void main() {
     expect(kinds, [InkKind.writing, InkKind.drawing]);
     expect(c.problem, 'no files');
   });
+
+  test('an unusable answer is described by its shape, never its content', () {
+    final d = describeJiix(
+      '{"type":"Raw Content","elements":[{"type":"Text","label":"secret",'
+      '"words":[{"label":"hello"}]},{"type":"Drawing"}]}',
+    );
+    expect(d, contains('fields: elements, type'));
+    expect(d, contains('Text 1'));
+    expect(d, contains('Drawing 1'));
+    expect(d, contains('boxes: 0'));
+    expect(d, isNot(contains('secret')));
+    expect(d, isNot(contains('hello')));
+    expect(describeJiix('{}'), contains('2 chars'));
+    expect(describeJiix('nope'), 'not JSON, 4 chars');
+    expect(describeJiix('[1]'), 'not an object, 3 chars');
+  });
 }

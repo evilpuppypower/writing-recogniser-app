@@ -36,6 +36,43 @@ void main() {
     ]);
   });
 
+  test('a busy page is packed for the engine quickly (owner: the pen froze '
+      'while a full page was sent)', () {
+    // 523 strokes of 300 samples, as on the owner's busiest page.
+    final page = [
+      for (var i = 0; i < 523; i++)
+        InkStroke([
+          for (var j = 0; j < 300; j++)
+            InkPoint(i * 3.0 + j * 0.6, (j % 50) * 0.8, 1000 + j * 4, 0.5),
+        ]),
+    ];
+    encodeStrokesFlat(page); // warm up
+    final watch = Stopwatch()..start();
+    final flat = encodeStrokesFlat(page);
+    const StandardMethodCodec().encodeMethodCall(
+      MethodCall('classify', {'strokes': flat}),
+    );
+    // About 0.4 s with a plain list of numbers on a desktop.
+    expect(watch.elapsedMilliseconds, lessThan(300));
+  });
+
+  test('points closer than half a unit are left out, never the ends', () {
+    final dense = InkStroke([
+      for (var i = 0; i <= 100; i++) InkPoint(i * 0.1, 0, 1000 + i, 0.5),
+    ]);
+    final flat = encodeStrokesFlat([dense]).single;
+    final xs = [for (var i = 0; i < flat.length; i += 4) flat[i]];
+    expect(xs.first, 0);
+    expect(xs.last, closeTo(10, 1e-9));
+    expect(xs.length, inInclusiveRange(20, 22)); // every 0.5, not 101
+    for (var i = 1; i < xs.length - 1; i++) {
+      expect(xs[i] - xs[i - 1], greaterThanOrEqualTo(0.5 - 1e-9));
+    }
+    // Times and pressure stay with their points.
+    expect(flat[2], 1000);
+    expect(flat[3], 0.5);
+  });
+
   test(
     'ready when the tablet side says so, and remembers the language',
     () async {
