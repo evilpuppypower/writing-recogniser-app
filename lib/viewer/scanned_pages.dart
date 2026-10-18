@@ -220,3 +220,35 @@ class ScannedProgressCard extends StatelessWidget {
     );
   }
 }
+
+/// [inner], also telling [onSaved] about each page kept (so the open PDF
+/// can search it straight away).
+class TellingScannedTextStore implements ScannedTextStore {
+  TellingScannedTextStore(this.inner, this.onSaved);
+
+  final ScannedTextStore inner;
+  final void Function(int page, List<ScannedLine> lines) onSaved;
+
+  @override
+  Future<Map<int, List<ScannedLine>>> load(String documentId) =>
+      inner.load(documentId);
+
+  @override
+  Future<Set<int>> pagesRead(String documentId) => inner.pagesRead(documentId);
+
+  @override
+  Future<void> savePage(
+    String documentId,
+    int page,
+    List<ScannedLine> lines,
+  ) async {
+    await inner.savePage(documentId, page, lines);
+    onSaved(page, lines);
+  }
+
+  @override
+  Future<Set<String>> documents() => inner.documents();
+
+  @override
+  Future<void> forget(String documentId) => inner.forget(documentId);
+}

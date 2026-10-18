@@ -6,6 +6,9 @@ library;
 
 import 'dart:convert';
 
+import 'highlights.dart' show PrintedChar;
+import 'stroke_grouping.dart' show InkBox;
+
 /// A line of text read from a scanned page. Its box is a share (0..1) of
 /// the page's width and height as the page is shown, from the top left.
 typedef ScannedLine = ({
@@ -147,4 +150,72 @@ class MemoryScannedTextStore implements ScannedTextStore {
 
   @override
   Future<void> forget(String documentId) async => _docs.remove(documentId);
+}
+
+/// [l]'s box in PDF page coordinates (points, from the bottom left), on a
+/// page [width] x [height] points as shown.
+InkBox scannedBox(ScannedLine l, double width, double height) => InkBox(
+  l.left * width,
+  (1 - l.bottom) * height,
+  l.right * width,
+  (1 - l.top) * height,
+);
+
+/// [lines] as printed characters, as PDFium gives a page's own text: each
+/// line's characters share its width evenly (the reader gives whole lines;
+/// near enough for highlighting and finding words), and a zero-size line
+/// break comes between lines.
+List<PrintedChar> scannedChars(
+  List<ScannedLine> lines,
+  double width,
+  double height,
+) {
+  final out = <PrintedChar>[];
+  for (final l in lines) {
+    final text = l.text;
+    if (text.isEmpty) continue;
+    if (out.isNotEmpty) out.add((char: '\n', box: const InkBox(0, 0, 0, 0)));
+    final box = scannedBox(l, width, height);
+    final step = box.width / text.length;
+    for (var i = 0; i < text.length; i++) {
+      out.add((
+        char: text[i],
+        box: InkBox(
+          box.left + i * step,
+          box.bottom,
+          box.left + (i + 1) * step,
+          box.top,
+        ),
+      ));
+    }
+  }
+  return out;
+}
+
+/// The words of [lines] with their boxes (as [scannedChars] places them),
+/// and the number of the line each is on, for search.
+List<({int line, InkBox box, String text})> scannedWords(
+  List<ScannedLine> lines,
+  double width,
+  double height,
+) {
+  final out = <({int line, InkBox box, String text})>[];
+  for (final (n, l) in lines.indexed) {
+    final box = scannedBox(l, width, height);
+    if (l.text.isEmpty) continue;
+    final step = box.width / l.text.length;
+    for (final m in RegExp(r'\S+').allMatches(l.text)) {
+      out.add((
+        line: n,
+        box: InkBox(
+          box.left + m.start * step,
+          box.bottom,
+          box.left + m.end * step,
+          box.top,
+        ),
+        text: m.group(0)!,
+      ));
+    }
+  }
+  return out;
 }
