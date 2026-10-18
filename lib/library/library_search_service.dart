@@ -8,9 +8,11 @@ import '../core/ink_store.dart';
 import '../core/library_search.dart';
 import '../core/page_layout.dart';
 import '../core/printed_text_store.dart';
+import '../core/scanned_text.dart';
 import '../storage/sqlite_ink_store.dart';
 import '../storage/sqlite_page_layout_store.dart';
 import '../storage/sqlite_printed_text_store.dart';
+import '../storage/sqlite_scanned_text_store.dart';
 
 /// Reads a PDF's printed text, page by page ([onPage] after each, with the
 /// page count), waiting on [pause] before each page; stops early
@@ -29,6 +31,7 @@ class LibrarySearchService {
     required this.ink,
     required this.layouts,
     required this.printed,
+    this.scanned,
     this.dictionary,
     this.readPdf = readPrintedText,
   });
@@ -46,6 +49,7 @@ class LibrarySearchService {
       ink: await SqliteInkStore.open(),
       layouts: await SqlitePageLayoutStore.open(),
       printed: await SqlitePrintedTextStore.open(),
+      scanned: await SqliteScannedTextStore.open(),
       dictionary: dictionary,
     );
   }
@@ -53,6 +57,10 @@ class LibrarySearchService {
   final InkStore ink;
   final PageLayoutStore layouts;
   final PrintedTextStore printed;
+
+  /// Text read from scanned pages (owner, 2026-10-17), searched like
+  /// printed text where a page has none of its own.
+  final ScannedTextStore? scanned;
   final PersonalDictionary? dictionary;
   final PrintedTextReader readPdf;
 
@@ -97,8 +105,22 @@ class LibrarySearchService {
     final saved = await printed.load(id);
     if (saved == null) return null;
     final layout = await _layout(id, saved: saved);
+    final pages = {...saved.pages};
+    final read =
+        await scanned?.load(id).catchError((_) => <int, List<ScannedLine>>{}) ??
+        const <int, List<ScannedLine>>{};
+    for (final e in read.entries) {
+      final text = tidySearch(scannedPageText(e.value));
+      if (text.isEmpty) continue;
+      final own = pages[e.key] ?? '';
+      // A scan's page number or stamp doesn't hide what was read on it; a
+      // page with real printed text keeps only its own.
+      if (textChars(own) < scannedPageTextChars) {
+        pages[e.key] = own.isEmpty ? text : '$own\n$text';
+      }
+    }
     return [
-      for (final e in printedByPosition(saved.pages, layout).entries)
+      for (final e in printedByPosition(pages, layout).entries)
         (page: e.key, kind: FoundIn.printed, text: e.value),
     ];
   }
@@ -126,6 +148,12 @@ class LibrarySearchService {
   Future<void> keepOnly(Set<String> ids) async {
     for (final id in await printed.documents()) {
       if (!ids.contains(id)) await printed.forget(id);
+    }
+    final s = scanned;
+    if (s != null) {
+      for (final id in await s.documents()) {
+        if (!ids.contains(id)) await s.forget(id);
+      }
     }
   }
 }
