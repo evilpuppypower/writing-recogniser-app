@@ -897,3 +897,13 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 - Scanned text joins as each page is read, without reopening the PDF.
 - The reader gives whole lines, so each character is placed evenly across its line. That's close enough to highlight and find words, but a box can be slightly off within a line.
 - Only on pages without real printed text of their own (fewer than 20 letters or digits), so a PDF with text keeps PDFium's exact positions.
+
+## 2026-10-18 — Title bar fits any screen; pausing and resuming a scan (owner: buttons covered the back button in portrait; a 400-page scan was estimated at 166 minutes)
+
+- **Title bar:** the buttons are measured as they are, and as many as fit go on the bar, most used first: search, undo/redo, page number, bookmark, all pages, contents, convert, then the rest. The others are in "More" (⋮), with their names. The back button and at least 160 points for the title are always kept. Tested at 7 screen sizes (tablet portrait and landscape, a phone, a large screen), at normal and larger text.
+- **Reading a scan:**
+  - The card has Pause/Resume as well as Stop.
+  - Reading waits while the writing box is open, and while the pages are being touched (scrolling, zooming, writing).
+  - If battery saver comes on partway through, reading pauses. Tapping Resume carries on and isn't paused for it again.
+  - Time spent paused isn't counted in the time left.
+- **Reader battery use:** ONNX Runtime's threads now sleep while waiting instead of spinning, and it uses XNNPACK (ARM-tuned maths, part of ONNX Runtime 1.22; nothing new is downloaded) where available.

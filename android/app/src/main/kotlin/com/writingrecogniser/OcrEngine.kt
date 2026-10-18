@@ -233,14 +233,39 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
         val dir = modelDir(id)
         require(File(dir, READY).isFile) { "That model isn't downloaded" }
         val env = OrtEnvironment.getEnvironment()
-        OrtSession.SessionOptions().use { options ->
-            // Half the cores at most, so the screen stays smooth.
-            options.setIntraOpNumThreads(maxOf(1, Runtime.getRuntime().availableProcessors() / 2))
-            det = env.createSession(File(dir, "det.onnx").path, options)
-            rec = env.createSession(File(dir, "rec.onnx").path, options)
+        // ARM-tuned maths (XNNPACK, part of ONNX Runtime) first; if this
+        // tablet can't use it with these models, the models are opened
+        // again the usual way, so reading still works.
+        try {
+            openSessions(env, dir, xnnpack = true)
+        } catch (_: Exception) {
+            unload()
+            openSessions(env, dir, xnnpack = false)
         }
         alphabet = OcrMath.alphabet(File(dir, "dict.txt").readText())
         loaded = id
+    }
+
+    private fun openSessions(env: OrtEnvironment, dir: File, xnnpack: Boolean) {
+        OrtSession.SessionOptions().use { options ->
+            // Half the cores at most, so the screen stays smooth: XNNPACK's
+            // own threads when it's used (and one for the rest, as ONNX
+            // Runtime advises), otherwise ONNX Runtime's.
+            val threads = maxOf(1, Runtime.getRuntime().availableProcessors() / 2)
+            // Threads sleep between pages instead of spinning while they wait
+            // (spinning keeps cores busy for nothing: owner, 2026-10-18, big
+            // scans use a lot of battery).
+            options.addConfigEntry("session.intra_op.allow_spinning", "0")
+            options.addConfigEntry("session.inter_op.allow_spinning", "0")
+            if (xnnpack) {
+                options.setIntraOpNumThreads(1)
+                options.addXnnpack(mapOf("intra_op_num_threads" to threads.toString()))
+            } else {
+                options.setIntraOpNumThreads(threads)
+            }
+            det = env.createSession(File(dir, "det.onnx").path, options)
+            rec = env.createSession(File(dir, "rec.onnx").path, options)
+        }
     }
 
     private fun read(id: String, w: Int, h: Int, bgra: ByteArray): List<Map<String, Any>> {
