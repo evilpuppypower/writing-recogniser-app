@@ -713,6 +713,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          ListTile(
+            title: Text(
+              s.inkLeadMs == 0
+                  ? 'Ink ahead of the pen: off'
+                  : 'Ink ahead of the pen: ${s.inkLeadMs} ms',
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Slider(
+                  value: s.inkLeadMs.toDouble(),
+                  max: AppSettings.maxInkLeadMs.toDouble(),
+                  divisions: AppSettings.maxInkLeadMs ~/ 2,
+                  label: s.inkLeadMs == 0 ? 'Off' : '${s.inkLeadMs} ms',
+                  onChanged: (v) =>
+                      settings.update(s.copyWith(inkLeadMs: v.round())),
+                ),
+                const Text(
+                  'The screen shows ink a moment after the pen gets there. '
+                  'This draws a short guess of where the pen is going, so '
+                  'the ink keeps up. The guess is never saved: the line '
+                  'always follows where the pen really went. Move right if '
+                  'the ink still trails the pen, left if the end of the '
+                  'line wobbles or overshoots. 0 turns it off.',
+                ),
+              ],
+            ),
+          ),
           const Divider(),
           const _Header('Recognised text'),
           ListTile(
