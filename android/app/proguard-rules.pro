@@ -25,3 +25,9 @@
 # "MissingPluginException ... vision#manageInkModels".
 -keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
 -keep class com.google.mlkit.**.*Registrar { <init>(); }
+
+# ONNX Runtime (reading scanned PDFs): its native code looks up its own Java
+# classes and fields by name. The shrinker renamed them, so the first page
+# read stopped the app ("JNI DETECTED ERROR ... java_class == null ... in
+# OrtSession.run").
+-keep class ai.onnxruntime.** { *; }
