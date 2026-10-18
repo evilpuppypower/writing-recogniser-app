@@ -915,3 +915,9 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 - **Batched pen samples are split before Flutter sees them.** Android can still bundle several samples into one event; Flutter keeps only the newest, so the samples in between were dropped and a fast curve became straight segments. `MainActivity.kt` now hands each sample to Flutter as its own event (stylus only).
 - **Ink ahead of the pen:** while writing, a short guess of where the pen is going is drawn from the end of the line (a curve through the last 24 ms of points, trusting half the bend so turns don't overshoot; at most 24 pixels; gone after the pen stops sending points). It is never part of the stroke: the saved line is only the real points. Settings → "Ink ahead of the pen", 0–30 ms, default 12 ms; 0 turns it off. How far each guess missed is in the diagnostics, to tune the default.
 - **Not yet:** a native wet-ink layer (androidx.graphics, approved by the owner) to skip Flutter's frame pipeline for the live line. Separate change.
+
+## 2026-10-18 — Big pages of ink are read back in pieces (owner: "the ink was completely wiped from one of the pdfs")
+
+- **What happened:** each PDF page's ink is saved as one entry in the app's database. Since every pen sample is kept, a busy page is several MB (a one-page PDF with 633 strokes). Saving it worked, but Android can't read back an entry over about 2 MB in one go, so opening the PDF failed and it showed no ink. Because the ink couldn't be read, the app didn't save over it, so the old ink stayed in the database. Ink written on that PDF while it showed as empty wasn't saved.
+- **Fix:** a page's ink is read back 500,000 characters at a time and joined up, so any size of page opens. This also covers the learning screen's training file, which reads every page.
+- **Tested** with a page of 650 strokes of 300 samples (over 2 MB), and with tiny pieces to check the joins.

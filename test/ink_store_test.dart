@@ -99,6 +99,73 @@ void main() {
       expect(await store.documentsWithInk(), {'doc', 'other'});
     });
 
+    test('a page too big to read in one go comes back whole', () async {
+      // Android can't read a row over about 2 MB at once; here pieces of
+      // 37 characters stand in for that limit.
+      final small = SqliteInkStore(db, pieceChars: 37);
+      final busy = [
+        for (var i = 0; i < 40; i++)
+          PageStroke(
+            points: [
+              for (var j = 0; j < 30; j++)
+                PageInkPoint(i + j * 0.5, j * 1.25, 1000 + j * 4, 0.5),
+            ],
+          ),
+      ];
+      await small.savePage('doc', 1, busy);
+      await small.savePage('doc', 2, [stroke(5)]); // shorter than a piece
+      await small.savePage('other', 3, busy);
+      final back = await small.load('doc');
+      expect(back.strokesOn(1).map((s) => s.toJson()), [
+        for (final s in busy) s.toJson(),
+      ]);
+      expect(back.strokesOn(2), hasLength(1));
+      // The same ink as reading it in one go.
+      final whole = await store.load('doc');
+      expect(
+        back.strokesOn(1).map((s) => s.toJson()).toList(),
+        whole.strokesOn(1).map((s) => s.toJson()).toList(),
+      );
+      final all = await small.allInk();
+      expect(all.map((e) => e.document), ['doc', 'doc', 'other']);
+      expect(all, everyElement(isA<({String document, String json})>()));
+      expect(
+        all.first.json,
+        (await store.allInk()).first.json,
+        reason: 'pieces joined back exactly',
+      );
+    });
+
+    test(
+      'a busy page of fast writing (over 2 MB) is saved and read back',
+      () async {
+        // 650 strokes of 300 samples: a full page since every sample is kept.
+        final page = [
+          for (var i = 0; i < 650; i++)
+            PageStroke(
+              points: [
+                for (var j = 0; j < 300; j++)
+                  PageInkPoint(
+                    100 + i * 0.731 + j * 0.0137,
+                    200 + j * 0.219,
+                    1760000000000 + i * 2000 + j * 4,
+                    (j % 100) / 100,
+                  ),
+              ],
+            ),
+        ];
+        await store.savePage('doc', 1, page);
+        final n =
+            (await db.rawQuery('SELECT length(strokes) AS n FROM page_ink'))
+                    .single['n']!
+                as int;
+        expect(n, greaterThan(2 * 1024 * 1024));
+        final back = (await store.load('doc')).strokesOn(1);
+        expect(back, hasLength(650));
+        expect(back.last.points, hasLength(300));
+      },
+    );
+
     test('saving a page again replaces it; an empty page is removed', () async {
       await store.savePage('doc', 2, [stroke(1), stroke(2)]);
       await store.savePage('doc', 2, [stroke(3)]);
