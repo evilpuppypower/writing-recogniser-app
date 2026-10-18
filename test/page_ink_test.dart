@@ -113,6 +113,31 @@ void main() {
     });
   });
 
+  test('the pen stays down until every page holding it lets go', () async {
+    final c = DocumentInkController();
+    c.penOn();
+    c.penOn(); // two pages under the pen
+    c.penOff();
+    await Future<void>.delayed(Duration.zero);
+    expect(c.penDown.value, isTrue);
+    c.penOff();
+    c.penOff(); // a page that never had the pen: no harm
+    await Future<void>.delayed(Duration.zero);
+    expect(c.penDown.value, isFalse);
+  });
+
+  test('pen times stay in order after a busy moment', () {
+    final c = DocumentInkController();
+    // Events reported 10 ms apart but handled at once (a busy moment):
+    // the later event never gets an earlier time.
+    var last = c.timeOf(const Duration(milliseconds: 1000));
+    for (var t = 1010; t <= 1100; t += 10) {
+      final now = c.timeOf(Duration(milliseconds: t));
+      expect(now, greaterThanOrEqualTo(last));
+      last = now;
+    }
+  });
+
   group('PageInkLayer', () {
     late DocumentInkController ink;
     late TransformationController view;

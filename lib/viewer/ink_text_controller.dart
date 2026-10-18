@@ -213,23 +213,33 @@ class InkTextController extends ChangeNotifier {
   /// held up mid-way (owner: gaps in strokes after 100+ words).
   ValueListenable<bool>? penDown;
 
-  /// Waits until the pen is off the page (at most a few seconds, in case
-  /// a lift was missed).
-  Future<void> _penUp() async {
+  /// Waits until the pen is off the page, and still off once this code
+  /// carries on (at most half a minute in all, in case a lift was
+  /// missed). Time spent waiting is added to [_penWaitMs].
+  Future<void> _penUp({bool counted = true}) async {
     final pen = penDown;
     if (pen == null || !pen.value) return;
-    final lifted = Completer<void>();
-    void check() {
-      if (!pen.value && !lifted.isCompleted) lifted.complete();
-    }
+    const limit = Duration(seconds: 30);
+    final watch = Stopwatch()..start();
+    while (pen.value && watch.elapsed < limit) {
+      final lifted = Completer<void>();
+      void check() {
+        if (!pen.value && !lifted.isCompleted) lifted.complete();
+      }
 
-    pen.addListener(check);
-    try {
-      await lifted.future.timeout(const Duration(seconds: 5), onTimeout: () {});
-    } finally {
-      pen.removeListener(check);
+      pen.addListener(check);
+      try {
+        await lifted.future.timeout(limit - watch.elapsed, onTimeout: () {});
+      } finally {
+        pen.removeListener(check);
+      }
     }
+    if (counted) _penWaitMs += watch.elapsedMilliseconds;
   }
+
+  /// Time the current read spent waiting for the pen (left out of its
+  /// reading time in the diagnostics).
+  int _penWaitMs = 0;
 
   /// Where corrections are saved (null: kept only while the PDF is open).
   CorrectionStore? corrections;
@@ -644,6 +654,7 @@ class InkTextController extends ChangeNotifier {
     }
     _running.add(page);
     final watch = Stopwatch()..start();
+    _penWaitMs = 0;
     var sortMs = 0, engineCalls = 0;
     var dirty = false;
     var complete = true; // every word was read (none failed)
@@ -913,7 +924,8 @@ class InkTextController extends ChangeNotifier {
             _ => null,
           }),
         'engineCalls': engineCalls,
-        'totalMs': watch.elapsedMilliseconds,
+        'totalMs': watch.elapsedMilliseconds - _penWaitMs,
+        if (_penWaitMs > 0) 'penWaitMs': _penWaitMs,
         'queued': _again.contains(page),
       });
       if (_again.remove(page) && !_disposed) unawaited(_run(page));
@@ -1070,7 +1082,7 @@ class InkTextController extends ChangeNotifier {
       if (_notifyHeld) return;
       _notifyHeld = true;
       unawaited(
-        _penUp().then((_) {
+        _penUp(counted: false).then((_) {
           _notifyHeld = false;
           if (!_disposed) notifyListeners();
         }),

@@ -75,11 +75,14 @@ void main() {
       final more = [...page, letter(40.0 + 18 * 30, 760)];
       await c.classify(more);
       expect(engine.sent.last, lessThan(page.length ~/ 4));
-      // Once the engine works again, what it sorts is kept for good.
+      // Once the engine works again, what it sorts is kept, and every
+      // stand-in is sorted again once (so none stays wrong).
       ok = true;
       final again = [...more, letter(40.0 + 19 * 30, 760)];
       await c.classify(again);
       expect(c.lastFellBack, isFalse);
+      await c.classify(again);
+      expect(engine.sent.last, greaterThan(page.length ~/ 2));
       final sentBefore = engine.sent.length;
       await c.classify(again);
       expect(engine.sent.length, sentBefore);

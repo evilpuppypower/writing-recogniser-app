@@ -40,10 +40,41 @@ class DocumentInkController extends ChangeNotifier {
   /// save, task 1.3).
   void Function(int page)? onChanged;
 
-  /// The pen is on the page (writing, erasing or drawing a loop): other
+  /// The pen is on a page (writing, erasing or drawing a loop): other
   /// work (showing what was read) waits until it lifts, so a stroke is
-  /// never held up (owner: gaps in the middle of strokes).
+  /// never held up (owner: gaps in the middle of strokes). Each page
+  /// holding the pen is counted: it's up only when all have let go.
   final penDown = ValueNotifier<bool>(false);
+  int _pens = 0;
+
+  void penOn() => penDown.value = ++_pens > 0;
+
+  void penOff() {
+    if (_pens > 0) _pens--;
+    if (_pens == 0 && penDown.value) {
+      // Not while a page is being taken down (listeners may be going).
+      scheduleMicrotask(() {
+        if (_pens == 0) penDown.value = false;
+      });
+    }
+  }
+
+  /// The wall-clock time of a pen event's own timestamp (when the pen was
+  /// there, not when the app got to it), one clock for every page so
+  /// strokes stay in order. The smallest delay seen lines the two clocks
+  /// up; a much larger one (the tablet slept, and the event clock paused)
+  /// lines them up again.
+  int timeOf(Duration timeStamp) {
+    final at = timeStamp.inMilliseconds;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (at == 0) return now;
+    final lag = now - at;
+    final o = _clockOffset;
+    if (o == null || lag < o || lag > o + 1000) _clockOffset = lag;
+    return _clockOffset! + at;
+  }
+
+  int? _clockOffset;
 
   static const maxHistory = 200;
   final _undo = <_InkEdit>[];
@@ -528,21 +559,22 @@ class _PageInkLayerState extends State<PageInkLayer> {
     final pressure = range <= 0
         ? 0.5
         : ((e.pressure - e.pressureMin) / range).clamp(0.0, 1.0);
-    return PageInkPoint(p.x, p.y, _timeOf(e), pressure.toDouble());
+    return PageInkPoint(
+      p.x,
+      p.y,
+      widget.controller.timeOf(e.timeStamp),
+      pressure.toDouble(),
+    );
   }
 
-  /// The wall-clock time of [e]'s own timestamp (when the pen was there,
-  /// not when the app got to it: a busy moment no longer shows as a gap
-  /// between points). Lined up with the clock at each pen down.
-  int _timeOf(PointerEvent e) {
-    final at = e.timeStamp.inMilliseconds;
-    if (e is PointerDownEvent || _clockOffset == null || at == 0) {
-      _clockOffset = DateTime.now().millisecondsSinceEpoch - at;
-    }
-    return _clockOffset! + at;
-  }
+  /// This page has the pen (see [DocumentInkController.penDown]).
+  var _hasPen = false;
 
-  int? _clockOffset;
+  void _penOff() {
+    if (!_hasPen) return;
+    _hasPen = false;
+    widget.controller.penOff();
+  }
 
   /// Side button held (stylus primary or secondary), or the eraser end.
   static bool _isEraser(PointerEvent e) =>
@@ -616,7 +648,10 @@ class _PageInkLayerState extends State<PageInkLayer> {
   static const handleRadius = 14.0;
 
   void _down(PointerEvent e) {
-    widget.controller.penDown.value = true;
+    if (!_hasPen) {
+      _hasPen = true;
+      widget.controller.penOn();
+    }
     _lastErase = null;
     _downAt = e.localPosition;
     _downMs = DateTime.now().millisecondsSinceEpoch;
@@ -811,7 +846,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   }
 
   void _up(PointerEvent e) {
-    widget.controller.penDown.value = false;
+    _penOff();
     if (_textTap) {
       _textTap = false;
       if (_moved <= _textTapReach) {
@@ -991,7 +1026,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   static const _textTapReach = 12.0;
 
   void _cancel() {
-    widget.controller.penDown.value = false;
+    _penOff();
     _textTap = false;
     if (_endSelectionDrag()) return;
     _fadeGuideLater();
@@ -1028,7 +1063,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
 
   @override
   void dispose() {
-    widget.controller.penDown.value = false;
+    _penOff();
     widget.controller.removeFlusher(_drawHeld);
     widget.wordsRead?.removeListener(_wordsRead);
     _guideLater?.cancel();

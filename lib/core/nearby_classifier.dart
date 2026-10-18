@@ -19,8 +19,9 @@ class NearbyClassifier implements InkClassifier {
   final InkClassifier inner;
 
   /// Whether [inner]'s last answer can be kept (an engine that hit an
-  /// error and answered with a fallback says no): if not, those strokes
-  /// are sorted again next time instead of keeping a stand-in answer.
+  /// error and answered with a fallback says no): if not, the answer is
+  /// kept as a stand-in, sorted again with new ink near it, and once
+  /// [inner] works again, every stand-in is sorted again once.
   final bool Function()? trusted;
 
   /// How far round the new strokes is sorted again with them, in letter
@@ -37,6 +38,7 @@ class NearbyClassifier implements InkClassifier {
   /// so after a fallback every pause sorted the whole page again and
   /// writing slowed as the page filled (owner, 2026-10-18).
   final _standIn = Expando<InkKind>();
+  var _hadFallback = false, _recover = false;
 
   /// How many strokes the last call sent to [inner], and whether its
   /// answer was a stand-in (for the diagnostic log).
@@ -50,10 +52,14 @@ class NearbyClassifier implements InkClassifier {
     List<PageStroke> strokes, {
     PrintedText? printed,
   }) async {
+    // [inner] works again after giving stand-ins: they're sorted again
+    // this once.
+    final recover = _recover;
+    _recover = false;
     final fresh = [
       for (var i = 0; i < strokes.length; i++)
         if (_kinds[strokes[i]] == null &&
-            _standIn[strokes[i]] == null &&
+            (recover || _standIn[strokes[i]] == null) &&
             strokes[i].points.isNotEmpty)
           i,
     ];
@@ -160,6 +166,12 @@ class NearbyClassifier implements InkClassifier {
     final kinds = await inner.classify(strokes);
     final kept = trusted?.call() ?? true;
     lastFellBack = !kept;
+    if (!kept) {
+      _hadFallback = true;
+    } else if (_hadFallback) {
+      _hadFallback = false;
+      _recover = true;
+    }
     for (var i = 0; i < strokes.length && i < kinds.length; i++) {
       if (kept) {
         _kinds[strokes[i]] = kinds[i];
