@@ -167,6 +167,38 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    testWidgets('points keep the time the pen was there, and the pen is '
+        'known to be down while writing', (tester) async {
+      await pump(tester);
+      final topLeft = tester.getTopLeft(find.byType(PageInkLayer));
+      final g = await tester.createGesture(kind: PointerDeviceKind.stylus);
+      await g.down(
+        topLeft + const Offset(100, 100),
+        timeStamp: const Duration(milliseconds: 1000),
+      );
+      expect(ink.penDown.value, isTrue);
+      for (var i = 1; i <= 4; i++) {
+        await g.moveTo(
+          topLeft + Offset(100.0 + i * 8, 100),
+          timeStamp: Duration(milliseconds: 1000 + i * 4),
+        );
+        // A busy moment between points: the times don't change.
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+      await g.up(timeStamp: const Duration(milliseconds: 1020));
+      await tester.pumpAndSettle();
+      expect(ink.penDown.value, isFalse);
+      final ts = ink.ink.strokesOn(4).single.points.map((p) => p.t).toList();
+      final gaps = [for (var i = 1; i < ts.length; i++) ts[i] - ts[i - 1]];
+      expect(gaps, everyElement(4));
+      // Still a clock time (ms since 1970), not time since the tablet
+      // started.
+      expect(
+        (ts.first - DateTime.now().millisecondsSinceEpoch).abs(),
+        lessThan(60000),
+      );
+    });
+
     testWidgets('the pen writes in PDF page coordinates and does not scroll', (
       tester,
     ) async {

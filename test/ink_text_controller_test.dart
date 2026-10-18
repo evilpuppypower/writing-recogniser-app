@@ -94,6 +94,28 @@ void main() {
     c.dispose();
   });
 
+  testWidgets('what was read is shown once the pen lifts, not mid-stroke', (
+    tester,
+  ) async {
+    final engine = FakeEngine();
+    final pen = ValueNotifier<bool>(false);
+    final c = InkTextController(engine: engine)..penDown = pen;
+    var told = 0;
+    c.addListener(() => told++);
+    c.inkChanged(1, word(100, 700, 3, 0), pause);
+    // The next stroke starts before the answer is used.
+    pen.value = true;
+    await tester.pump(pause);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(told, 0);
+    expect(c.wordsOn(1), isEmpty);
+    pen.value = false;
+    await tester.pumpAndSettle();
+    expect(told, greaterThan(0));
+    expect(c.wordsOn(1).map((w) => w.text), ['w3']);
+    c.dispose();
+  });
+
   testWidgets('only the changed word is sent again', (tester) async {
     final engine = FakeEngine();
     final c = InkTextController(engine: engine);

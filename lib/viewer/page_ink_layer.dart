@@ -40,6 +40,11 @@ class DocumentInkController extends ChangeNotifier {
   /// save, task 1.3).
   void Function(int page)? onChanged;
 
+  /// The pen is on the page (writing, erasing or drawing a loop): other
+  /// work (showing what was read) waits until it lifts, so a stroke is
+  /// never held up (owner: gaps in the middle of strokes).
+  final penDown = ValueNotifier<bool>(false);
+
   static const maxHistory = 200;
   final _undo = <_InkEdit>[];
   final _redo = <_InkEdit>[];
@@ -523,13 +528,21 @@ class _PageInkLayerState extends State<PageInkLayer> {
     final pressure = range <= 0
         ? 0.5
         : ((e.pressure - e.pressureMin) / range).clamp(0.0, 1.0);
-    return PageInkPoint(
-      p.x,
-      p.y,
-      DateTime.now().millisecondsSinceEpoch,
-      pressure.toDouble(),
-    );
+    return PageInkPoint(p.x, p.y, _timeOf(e), pressure.toDouble());
   }
+
+  /// The wall-clock time of [e]'s own timestamp (when the pen was there,
+  /// not when the app got to it: a busy moment no longer shows as a gap
+  /// between points). Lined up with the clock at each pen down.
+  int _timeOf(PointerEvent e) {
+    final at = e.timeStamp.inMilliseconds;
+    if (e is PointerDownEvent || _clockOffset == null || at == 0) {
+      _clockOffset = DateTime.now().millisecondsSinceEpoch - at;
+    }
+    return _clockOffset! + at;
+  }
+
+  int? _clockOffset;
 
   /// Side button held (stylus primary or secondary), or the eraser end.
   static bool _isEraser(PointerEvent e) =>
@@ -603,6 +616,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   static const handleRadius = 14.0;
 
   void _down(PointerEvent e) {
+    widget.controller.penDown.value = true;
     _lastErase = null;
     _downAt = e.localPosition;
     _downMs = DateTime.now().millisecondsSinceEpoch;
@@ -797,6 +811,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   }
 
   void _up(PointerEvent e) {
+    widget.controller.penDown.value = false;
     if (_textTap) {
       _textTap = false;
       if (_moved <= _textTapReach) {
@@ -976,6 +991,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
   static const _textTapReach = 12.0;
 
   void _cancel() {
+    widget.controller.penDown.value = false;
     _textTap = false;
     if (_endSelectionDrag()) return;
     _fadeGuideLater();
@@ -1012,6 +1028,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
 
   @override
   void dispose() {
+    widget.controller.penDown.value = false;
     widget.controller.removeFlusher(_drawHeld);
     widget.wordsRead?.removeListener(_wordsRead);
     _guideLater?.cancel();

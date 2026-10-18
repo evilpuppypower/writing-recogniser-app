@@ -240,3 +240,9 @@ class _BoxIndex {
     }
   }
 }
+
+/// A classifier that can answer with a fallback, and says why it did (an
+/// error message, for the diagnostic log).
+abstract interface class ExplainsFallback {
+  String? get problem;
+}

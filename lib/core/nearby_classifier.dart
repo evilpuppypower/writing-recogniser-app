@@ -32,9 +32,16 @@ class NearbyClassifier implements InkClassifier {
   /// sorted again).
   final _kinds = Expando<InkKind>();
 
-  /// How many strokes the last call sent to [inner] (for the diagnostic
-  /// log).
+  /// Stand-in answers (from a fallback, see [trusted]): used until the
+  /// stroke is next sorted with new ink near it. They used to be dropped,
+  /// so after a fallback every pause sorted the whole page again and
+  /// writing slowed as the page filled (owner, 2026-10-18).
+  final _standIn = Expando<InkKind>();
+
+  /// How many strokes the last call sent to [inner], and whether its
+  /// answer was a stand-in (for the diagnostic log).
   int lastSent = 0;
+  bool lastFellBack = false;
 
   /// [printed]: the page's printed text, so lines are found as reading
   /// finds them (see groupStrokes).
@@ -45,11 +52,17 @@ class NearbyClassifier implements InkClassifier {
   }) async {
     final fresh = [
       for (var i = 0; i < strokes.length; i++)
-        if (_kinds[strokes[i]] == null && strokes[i].points.isNotEmpty) i,
+        if (_kinds[strokes[i]] == null &&
+            _standIn[strokes[i]] == null &&
+            strokes[i].points.isNotEmpty)
+          i,
     ];
     lastSent = 0;
+    lastFellBack = false;
     if (fresh.isEmpty) {
-      return [for (final s in strokes) _kinds[s] ?? InkKind.writing];
+      return [
+        for (final s in strokes) _kinds[s] ?? _standIn[s] ?? InkKind.writing,
+      ];
     }
     // Mostly new (a page opened for the first time): the whole page.
     if (fresh.length * 2 >= strokes.length) {
@@ -60,7 +73,9 @@ class NearbyClassifier implements InkClassifier {
           strokes[i],
       ]);
     }
-    return [for (final s in strokes) _kinds[s] ?? _stand[s] ?? InkKind.writing];
+    return [
+      for (final s in strokes) _kinds[s] ?? _standIn[s] ?? InkKind.writing,
+    ];
   }
 
   /// The strokes sorted again with the new ones ([fresh], indexes into
@@ -140,22 +155,19 @@ class NearbyClassifier implements InkClassifier {
     return math.sqrt(dx * dx + dy * dy);
   }
 
-  /// This time's answers that aren't kept (see [trusted]).
-  Map<PageStroke, InkKind> _stand = const {};
-
   Future<void> _sort(List<PageStroke> strokes) async {
     lastSent = strokes.length;
     final kinds = await inner.classify(strokes);
-    if (!(trusted?.call() ?? true)) {
-      _stand = {
-        for (var i = 0; i < strokes.length && i < kinds.length; i++)
-          strokes[i]: kinds[i],
-      };
-      return;
-    }
-    _stand = const {};
+    final kept = trusted?.call() ?? true;
+    lastFellBack = !kept;
     for (var i = 0; i < strokes.length && i < kinds.length; i++) {
-      _kinds[strokes[i]] = kinds[i];
+      if (kept) {
+        _kinds[strokes[i]] = kinds[i];
+        _standIn[strokes[i]] = null;
+      } else if (_kinds[strokes[i]] == null) {
+        // Sorted again (by [inner]) only when new ink comes near it.
+        _standIn[strokes[i]] = kinds[i];
+      }
     }
   }
 
@@ -174,7 +186,8 @@ class ReadSummary {
 
   final int every;
   final _total = <int>[], _sort = <int>[];
-  int _strokes = 0, _sorted = 0, _calls = 0, _queued = 0;
+  int _strokes = 0, _sorted = 0, _calls = 0, _queued = 0, _fellBack = 0;
+  String? _problem;
 
   /// Adds one read's timings (see InkTextController.onRead); returns the
   /// summary to log once [every] reads are in, else null.
@@ -187,6 +200,8 @@ class ReadSummary {
         : (t['sorted'] as int?) ?? 0;
     _calls += (t['engineCalls'] as int?) ?? 0;
     if (t['queued'] == true) _queued++;
+    if (t['fellBack'] == true) _fellBack++;
+    _problem = (t['sortProblem'] as String?) ?? _problem;
     if (_total.length < every) return null;
     int median(List<int> v) => ([...v]..sort())[v.length ~/ 2];
     int worst(List<int> v) => v.reduce((a, b) => a > b ? a : b);
@@ -200,10 +215,15 @@ class ReadSummary {
       'strokesOnPage': _strokes,
       'engineCalls': _calls,
       'queued': _queued,
+      // Reads where the writing/drawing sorter fell back to the shape
+      // check, and why (an error message, no words or ink).
+      if (_fellBack > 0) 'fellBack': _fellBack,
+      if (_fellBack > 0 && _problem != null) 'sortProblem': _problem,
     };
     _total.clear();
     _sort.clear();
-    _sorted = _calls = _queued = 0;
+    _sorted = _calls = _queued = _fellBack = 0;
+    _problem = null;
     return out;
   }
 }

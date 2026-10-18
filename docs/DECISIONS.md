@@ -873,3 +873,12 @@ Any PDF can be zoomed out to half of the zoom that fills the screen with the pag
 ## 2026-10-18 — Search starts straight away (owner: a progress bar before searching was allowed)
 
 - The home screen's search used to load every document's handwriting and text before showing anything. Now names and tags can be searched as soon as it opens, and each document's handwriting and text join the results as they load. While loading, a line above the results says "Still getting documents ready (x of n), so more may be found", with a progress bar.
+
+## 2026-10-18 — Smooth writing on full pages (owner: "after 100+ words, things slow down significantly ... spikes in time between pen points")
+
+The owner's diagnostics (counts and timings only) showed reading after each pause taking longer as the page filled (0.08 s at 43 strokes, 0.85 s at 338), with the whole page sorted each time, and short busy moments (up to about 80 ms) on the screen's thread.
+
+- **Point times come from the pen.** Each point's time is the time the tablet recorded it, lined up with the clock at each pen down. Before, it was the time the app got to the point, so any busy moment showed up as a gap inside the stroke. No points were lost; their times were wrong.
+- **Nothing heavy while the pen is down.** When an answer comes back, working out the words and redrawing the labels wait until the pen lifts. They never interrupt a stroke.
+- **No whole-page re-sorting.** When MyScript's writing/drawing sorting couldn't answer and the shape check stood in, that stand-in answer was thrown away, so the next pause sorted the whole page again, every time. Now the stand-in is kept, and those strokes are sorted again only when new ink comes near them, so each pause costs about the same however full the page is.
+- **Diagnostics** now count the reads where the sorting fell back, and why (an error message only), to confirm the cause on the tablet.

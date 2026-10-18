@@ -208,6 +208,29 @@ class InkTextController extends ChangeNotifier {
   /// Re-ranks or swaps the engine's words using the user's corrections.
   final FeedbackLayer feedback;
 
+  /// True while the pen is on the page: the work after an answer comes
+  /// back (and showing it) waits until the pen lifts, so a stroke is never
+  /// held up mid-way (owner: gaps in strokes after 100+ words).
+  ValueListenable<bool>? penDown;
+
+  /// Waits until the pen is off the page (at most a few seconds, in case
+  /// a lift was missed).
+  Future<void> _penUp() async {
+    final pen = penDown;
+    if (pen == null || !pen.value) return;
+    final lifted = Completer<void>();
+    void check() {
+      if (!pen.value && !lifted.isCompleted) lifted.complete();
+    }
+
+    pen.addListener(check);
+    try {
+      await lifted.future.timeout(const Duration(seconds: 5), onTimeout: () {});
+    } finally {
+      pen.removeListener(check);
+    }
+  }
+
   /// Where corrections are saved (null: kept only while the PDF is open).
   CorrectionStore? corrections;
 
@@ -640,6 +663,9 @@ class InkTextController extends ChangeNotifier {
           ? await c.classify(ink, printed: printed)
           : await c.classify(ink);
       sortMs = watch.elapsedMilliseconds;
+      // The rest runs on the screen's own thread: not while a stroke is
+      // being written.
+      await _penUp();
       final allKinds = List.filled(strokes.length, InkKind.drawing);
       for (var k = 0; k < inkOnly.length && k < sorted.length; k++) {
         allKinds[inkOnly[k]] = sorted[k];
@@ -880,6 +906,12 @@ class InkTextController extends ChangeNotifier {
         'strokes': strokes.length,
         'sortMs': sortMs,
         if (c is NearbyClassifier) 'sorted': c.lastSent,
+        if (c is NearbyClassifier && c.lastFellBack) 'fellBack': true,
+        if (c is NearbyClassifier && c.lastFellBack)
+          'sortProblem': _short(switch (c.inner) {
+            final ExplainsFallback e => e.problem,
+            _ => null,
+          }),
         'engineCalls': engineCalls,
         'totalMs': watch.elapsedMilliseconds,
         'queued': _again.contains(page),
@@ -1031,8 +1063,28 @@ class InkTextController extends ChangeNotifier {
   }
 
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    if (penDown?.value ?? false) {
+      // Shown once the pen lifts (redrawing the labels mid-stroke held
+      // the stroke up).
+      if (_notifyHeld) return;
+      _notifyHeld = true;
+      unawaited(
+        _penUp().then((_) {
+          _notifyHeld = false;
+          if (!_disposed) notifyListeners();
+        }),
+      );
+      return;
+    }
+    notifyListeners();
   }
+
+  var _notifyHeld = false;
+
+  /// An error message cut short for the diagnostic log.
+  static String? _short(String? s) =>
+      s == null || s.length <= 120 ? s : '${s.substring(0, 120)}…';
 
   @override
   void dispose() {

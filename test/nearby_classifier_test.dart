@@ -54,21 +54,52 @@ void main() {
   });
 
   test(
-    'an answer given after an engine error is used once, not kept',
+    'after an engine error, the stand-in answer is kept and sorted again '
+    'only with new ink near it (owner: slower and slower after 100 words)',
     () async {
       final engine = _Counting();
       var ok = false;
       final c = NearbyClassifier(engine, trusted: () => ok);
-      final page = [for (var k = 0; k < 10; k++) letter(40.0 + k * 30, 700)];
+      // 30 lines of 18 letters.
+      final page = [
+        for (var l = 0; l < 30; l++)
+          for (var k = 0; k < 18; k++) letter(40.0 + k * 30, 760.0 - l * 24),
+      ];
       await c.classify(page);
+      expect(c.lastFellBack, isTrue);
+      // Nothing new: nothing sent again.
       await c.classify(page);
-      expect(engine.sent, [10, 10], reason: 'sorted again: not kept');
+      expect(engine.sent, [page.length]);
+      // One more letter on the top line: only its line and the ink near
+      // it are sent, not the whole page.
+      final more = [...page, letter(40.0 + 18 * 30, 760)];
+      await c.classify(more);
+      expect(engine.sent.last, lessThan(page.length ~/ 4));
+      // Once the engine works again, what it sorts is kept for good.
       ok = true;
-      await c.classify(page);
-      await c.classify(page);
-      expect(engine.sent, [10, 10, 10], reason: 'kept once it worked');
+      final again = [...more, letter(40.0 + 19 * 30, 760)];
+      await c.classify(again);
+      expect(c.lastFellBack, isFalse);
+      final sentBefore = engine.sent.length;
+      await c.classify(again);
+      expect(engine.sent.length, sentBefore);
     },
   );
+
+  test('the summary counts reads that fell back, and why', () {
+    final r = ReadSummary(every: 2);
+    expect(
+      r.add({'totalMs': 5, 'sortMs': 2, 'fellBack': true, 'sortProblem': 'x'}),
+      isNull,
+    );
+    final out = r.add({'totalMs': 5, 'sortMs': 2})!;
+    expect(out['fellBack'], 1);
+    expect(out['sortProblem'], 'x');
+    expect(
+      r.add({'totalMs': 5, 'sortMs': 2}) ?? r.add({'totalMs': 5, 'sortMs': 2})!,
+      isNot(contains('fellBack')),
+    );
+  });
 
   test('reading times are logged as one summary every 20 reads', () {
     final r = ReadSummary();

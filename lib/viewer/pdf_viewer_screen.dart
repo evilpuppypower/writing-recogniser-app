@@ -3797,6 +3797,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   @override
   void initState() {
     super.initState();
+    // What was read is shown once the pen lifts, never mid-stroke.
+    _text.penDown = _ink.penDown;
     _frames.start();
     _layoutLoaded = _loadLayout();
     _viewLoaded = _loadView();
