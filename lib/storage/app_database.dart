@@ -7,7 +7,7 @@ class AppDatabase {
   AppDatabase._();
 
   static const fileName = 'writing_recogniser.db';
-  static const version = 14;
+  static const version = 15;
 
   /// Opens (and creates or upgrades) the database. [factory] and [path] can
   /// be overridden for tests.
@@ -191,6 +191,32 @@ class AppDatabase {
           document_id TEXT NOT NULL,    -- library id (as in page_ink)
           page INTEGER NOT NULL,        -- the PDF's own page number
           lines TEXT NOT NULL,          -- JSON: [[left, top, right, bottom, text, confidence], ...], shares of the page
+          PRIMARY KEY (document_id, page)
+        )
+      ''');
+    }
+    if (from < 15) {
+      // Ink saved stroke by stroke, compactly (owner, 2026-10-18: a busy
+      // page was rewritten whole after every stroke, and the pen waited).
+      // page_ink stays for pages saved before; each moves here when its
+      // PDF is next opened.
+      await db.execute('''
+        CREATE TABLE ink_strokes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, -- never reused
+          document_id TEXT NOT NULL,   -- library id (as in page_ink)
+          page INTEGER NOT NULL,       -- page key (as in page_ink)
+          data BLOB NOT NULL           -- one stroke, see encodeStroke
+        )
+      ''');
+      await db.execute(
+        'CREATE INDEX ink_strokes_page ON ink_strokes (document_id, page)',
+      );
+      await db.execute('''
+        CREATE TABLE ink_pages (
+          document_id TEXT NOT NULL,
+          page INTEGER NOT NULL,
+          stroke_ids BLOB NOT NULL,    -- the page's ink_strokes ids in order (64-bit each)
+          updated_at INTEGER NOT NULL, -- ms since epoch
           PRIMARY KEY (document_id, page)
         )
       ''');

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:writing_recogniser/core/ink_store.dart';
@@ -112,9 +114,17 @@ void main() {
             ],
           ),
       ];
-      await small.savePage('doc', 1, busy);
-      await small.savePage('doc', 2, [stroke(5)]); // shorter than a piece
-      await small.savePage('other', 3, busy);
+      // Saved as builds before version 15 did: one row per page.
+      Future<void> old(String doc, int page, List<PageStroke> strokes) =>
+          db.insert('page_ink', {
+            'document_id': doc,
+            'page': page,
+            'strokes': jsonEncode([for (final s in strokes) s.toJson()]),
+            'updated_at': 0,
+          });
+      await old('doc', 1, busy);
+      await old('doc', 2, [stroke(5)]); // shorter than a piece
+      await old('other', 3, busy);
       final back = await small.load('doc');
       expect(back.strokesOn(1).map((s) => s.toJson()), [
         for (final s in busy) s.toJson(),
@@ -154,17 +164,150 @@ void main() {
               ],
             ),
         ];
-        await store.savePage('doc', 1, page);
-        final n =
-            (await db.rawQuery('SELECT length(strokes) AS n FROM page_ink'))
-                    .single['n']!
-                as int;
-        expect(n, greaterThan(2 * 1024 * 1024));
+        // Saved as builds before version 15 did: one row, over 2 MB.
+        final json = jsonEncode([for (final s in page) s.toJson()]);
+        expect(json.length, greaterThan(2 * 1024 * 1024));
+        await db.insert('page_ink', {
+          'document_id': 'doc',
+          'page': 1,
+          'strokes': json,
+          'updated_at': 0,
+        });
         final back = (await store.load('doc')).strokesOn(1);
         expect(back, hasLength(650));
         expect(back.last.points, hasLength(300));
       },
     );
+
+    test(
+      'a save writes only the new strokes; erased ones are removed',
+      () async {
+        final a = stroke(1), b = stroke(2), c = stroke(3);
+        await store.savePage('doc', 1, [a, b]);
+        Future<Set<int>> rows() async => {
+          for (final r in await db.query('ink_strokes', columns: ['id']))
+            r['id']! as int,
+        };
+        final first = await rows();
+        expect(first, hasLength(2));
+        await store.savePage('doc', 1, [a, b, c]);
+        final second = await rows();
+        expect(second, hasLength(3));
+        expect(
+          second.containsAll(first),
+          isTrue,
+          reason: 'a and b not rewritten',
+        );
+        await store.savePage('doc', 1, [a, c]); // b rubbed out
+        expect(await rows(), hasLength(2));
+        // Order is kept, also when it changes.
+        await store.savePage('doc', 1, [c, a]);
+        final back = (await store.load('doc')).strokesOn(1);
+        expect(back.map((s) => s.points.first.x), [3, 1]);
+        // A new store (the app reopened) knows nothing, and still saves right.
+        final again = SqliteInkStore(db);
+        final loaded = (await again.load('doc')).strokesOn(1);
+        await again.savePage('doc', 1, [...loaded, stroke(4)]);
+        expect(await rows(), hasLength(3));
+        expect(
+          (await again.load('doc')).strokesOn(1).map((s) => s.points.first.x),
+          [3, 1, 4],
+        );
+      },
+    );
+
+    test('a row changed elsewhere is never trusted from memory', () async {
+      final a = stroke(1), b = stroke(2);
+      await store.savePage('doc', 1, [a, b]);
+      // Another part of the app rewrites the page: the old rows are gone.
+      await db.delete('ink_strokes');
+      await store.savePage('doc', 1, [a, b]);
+      final back = (await SqliteInkStore(db).load('doc')).strokesOn(1);
+      expect(back.map((s) => s.points.first.x), [1, 2]);
+    });
+
+    test('old pages move to the new form once, and stay the same', () async {
+      final strokes = [stroke(5), stroke(80, arrow: true)];
+      await db.insert('page_ink', {
+        'document_id': 'doc',
+        'page': 4,
+        'strokes': jsonEncode([for (final s in strokes) s.toJson()]),
+        'updated_at': 0,
+      });
+      final back = await store.load('doc');
+      expect(back.strokesOn(4).map((s) => s.toJson()), [
+        for (final s in strokes) s.toJson(),
+      ]);
+      expect(await db.query('page_ink'), isEmpty, reason: 'moved');
+      expect(await db.query('ink_strokes'), hasLength(2));
+      expect(await store.documentsWithInk(), {'doc'});
+      expect(await store.hasInkOn('doc', 4), isTrue);
+      final again = await SqliteInkStore(db).load('doc');
+      expect(again.strokesOn(4), hasLength(2));
+    });
+
+    test(
+      'an old page saved over meanwhile is not moved over the new ink',
+      () async {
+        await db.insert('page_ink', {
+          'document_id': 'doc',
+          'page': 1,
+          'strokes': jsonEncode([stroke(5).toJson()]),
+          'updated_at': 0,
+        });
+        // The viewer saves the page (new form) while something else is
+        // still reading the old one.
+        final reading = SqliteInkStore(db).load('doc');
+        await store.savePage('doc', 1, [stroke(5), stroke(6)]);
+        await reading;
+        final saved = (await SqliteInkStore(db).load('doc')).strokesOn(1);
+        expect(saved, hasLength(2), reason: 'the newer save is kept');
+      },
+    );
+
+    test('deleting a PDF removes all of its ink', () async {
+      await store.savePage('doc', 1, [stroke(1)]);
+      await db.insert('page_ink', {
+        'document_id': 'doc',
+        'page': 2,
+        'strokes': jsonEncode([stroke(2).toJson()]),
+        'updated_at': 0,
+      });
+      await store.savePage('other', 1, [stroke(3)]);
+      await store.deleteDocument('doc');
+      expect((await store.load('doc')).isEmpty, isTrue);
+      expect(await store.documentsWithInk(), {'other'});
+      expect(
+        await db.query('ink_strokes', where: "document_id = 'doc'"),
+        isEmpty,
+      );
+    });
+
+    test('adding a stroke to a busy page is quick (owner: the pen waited '
+        'while the page was saved)', () async {
+      final page = [
+        for (var i = 0; i < 633; i++)
+          PageStroke(
+            points: [
+              for (var j = 0; j < 280; j++)
+                PageInkPoint(
+                  i * 0.7 + j * 0.01,
+                  j * 0.2,
+                  1000 + i * 9000 + j * 4,
+                  0.5,
+                ),
+            ],
+          ),
+      ];
+      await store.savePage('doc', 1, page);
+      final watch = Stopwatch()..start();
+      await store.savePage('doc', 1, [...page, stroke(1)]);
+      // About 200-280 ms on a desktop when the whole page was rewritten.
+      expect(watch.elapsedMilliseconds, lessThan(60));
+      final back = (await store.load('doc')).strokesOn(1);
+      expect(back, hasLength(634));
+      expect(back.first.points, hasLength(280));
+    });
 
     test('saving a page again replaces it; an empty page is removed', () async {
       await store.savePage('doc', 2, [stroke(1), stroke(2)]);
@@ -227,7 +370,15 @@ void main() {
           factory: databaseFactoryFfi,
           path: path,
         );
-        await SqliteInkStore(v7).savePage('doc', 1, [stroke(1)]);
+        // Ink as builds before version 15 saved it: one row per page.
+        await v7.insert('page_ink', {
+          'document_id': 'doc',
+          'page': 1,
+          'strokes': jsonEncode([stroke(1).toJson()]),
+          'updated_at': 0,
+        });
+        await v7.execute('DROP TABLE ink_strokes');
+        await v7.execute('DROP TABLE ink_pages');
         await v7.execute('DROP TABLE page_text');
         await v7.execute('DROP TABLE bookmarks');
         await v7.execute('DROP TABLE document_colours');
