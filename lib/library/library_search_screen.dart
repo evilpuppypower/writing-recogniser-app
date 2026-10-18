@@ -124,10 +124,24 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
       });
       return;
     }
+    // Names and tags can be searched straight away (owner: no waiting
+    // before searching); each document's writing and text join as loaded.
+    for (final e in widget.entries) {
+      _docs.putIfAbsent(e.id, () => _doc(e, const []));
+    }
+    if (mounted) setState(_search);
     final toRead = <SearchEntry>[];
+    var shown = DateTime.now();
     for (final e in widget.entries) {
       if (!mounted) return;
-      setState(() => _loaded++);
+      _loaded++;
+      // Results (and the count) refreshed a few times a second, not after
+      // every document.
+      final now = DateTime.now();
+      if (now.difference(shown) > const Duration(milliseconds: 300)) {
+        shown = now;
+        setState(_search);
+      }
       final hand = await service
           .handwriting(e.id)
           .catchError((_) => <PageText>[]);
@@ -366,8 +380,28 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
     );
   }
 
+  /// "Still getting documents ready", above results found so far.
+  Widget _stillLoading(ThemeData theme) {
+    final n = widget.entries.length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Still getting documents ready ($_loaded of $n), so more may '
+            'be found.',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 4),
+          LinearProgressIndicator(value: n == 0 ? null : _loaded / n),
+        ],
+      ),
+    );
+  }
+
   Widget _body(ThemeData theme) {
-    if (_loading) {
+    if (_loading && _query.isEmpty) {
       final n = widget.entries.length;
       return Center(
         child: Padding(
@@ -375,7 +409,11 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Getting your documents ready… ($_loaded of $n)'),
+              Text(
+                'Getting your documents ready… ($_loaded of $n). You can '
+                'type to search now.',
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 12),
               LinearProgressIndicator(value: n == 0 ? null : _loaded / n),
             ],
@@ -397,12 +435,26 @@ class _LibrarySearchScreenState extends State<LibrarySearchScreen> {
       );
     }
     if (_results.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.all(24),
-        child: Text('Nothing found for “$_query”.'),
+      return ListView(
+        children: [
+          if (_loading) _stillLoading(theme),
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              _loading
+                  ? 'Nothing found for “$_query” yet.'
+                  : 'Nothing found for “$_query”.',
+            ),
+          ),
+        ],
       );
     }
-    return ListView(children: [for (final m in _results) ..._result(theme, m)]);
+    return ListView(
+      children: [
+        if (_loading) _stillLoading(theme),
+        for (final m in _results) ..._result(theme, m),
+      ],
+    );
   }
 
   List<Widget> _result(ThemeData theme, DocumentMatch m) {

@@ -198,6 +198,56 @@ void main() {
     });
   });
 
+  testWidgets('search screen: names can be searched while loading', (
+    tester,
+  ) async {
+    final slow = Completer<void>();
+    late LibrarySearchService service;
+    await tester.runAsync(() async {
+      final db = await AppDatabase.open(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      service = _SlowService(SqliteInkStore(db), slow.future);
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LibrarySearchScreen(
+          service: () async => service,
+          entries: const [
+            SearchEntry(id: 'a', name: 'Biology.pdf'),
+            SearchEntry(id: 'b', name: 'History.pdf'),
+          ],
+          onOpen: (id, page, q) async {},
+        ),
+      ),
+    );
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(find.textContaining('You can type to search now'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'biology');
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('Biology.pdf'), findsOneWidget);
+    expect(
+      find.textContaining('Still getting documents ready'),
+      findsOneWidget,
+    );
+    slow.complete();
+    for (
+      var i = 0;
+      i < 20 &&
+          find.textContaining('Still getting documents').evaluate().isNotEmpty;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(find.textContaining('Still getting documents'), findsNothing);
+    expect(find.text('Biology.pdf'), findsOneWidget);
+  });
+
   testWidgets('search screen: reads printed text once, finds, opens', (
     tester,
   ) async {
@@ -273,4 +323,22 @@ void main() {
       () => Future<void>.delayed(const Duration(milliseconds: 50)),
     );
   });
+}
+
+/// Each document's handwriting takes until [wait] completes.
+class _SlowService extends LibrarySearchService {
+  _SlowService(SqliteInkStore ink, this.wait)
+    : super(
+        ink: ink,
+        layouts: MemoryPageLayoutStore(),
+        printed: MemoryPrintedTextStore(),
+      );
+
+  final Future<void> wait;
+
+  @override
+  Future<List<PageText>> handwriting(String id) async {
+    await wait;
+    return const [];
+  }
 }
