@@ -13,7 +13,7 @@ import 'myscript_offline_recognizer.dart' show encodeStrokesFlat;
 /// can't answer (files missing from the build, an error), so recognition
 /// always has an answer. No MyScript imports here: it talks to
 /// MyScriptOffline.kt over the same channel as the recognizer.
-class MyScriptInkClassifier implements InkClassifier {
+class MyScriptInkClassifier implements InkClassifier, ExplainsFallback {
   MyScriptInkClassifier({
     this.fallback = const ShapeInkClassifier(),
     MethodChannel? channel,
@@ -25,6 +25,7 @@ class MyScriptInkClassifier implements InkClassifier {
   final MethodChannel channel;
 
   /// Why MyScript isn't sorting (so the shape check is used), if so.
+  @override
   String? problem;
 
   @override

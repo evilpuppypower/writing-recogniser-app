@@ -113,6 +113,31 @@ void main() {
     });
   });
 
+  test('the pen stays down until every page holding it lets go', () async {
+    final c = DocumentInkController();
+    c.penOn();
+    c.penOn(); // two pages under the pen
+    c.penOff();
+    await Future<void>.delayed(Duration.zero);
+    expect(c.penDown.value, isTrue);
+    c.penOff();
+    c.penOff(); // a page that never had the pen: no harm
+    await Future<void>.delayed(Duration.zero);
+    expect(c.penDown.value, isFalse);
+  });
+
+  test('pen times stay in order after a busy moment', () {
+    final c = DocumentInkController();
+    // Events reported 10 ms apart but handled at once (a busy moment):
+    // the later event never gets an earlier time.
+    var last = c.timeOf(const Duration(milliseconds: 1000));
+    for (var t = 1010; t <= 1100; t += 10) {
+      final now = c.timeOf(Duration(milliseconds: t));
+      expect(now, greaterThanOrEqualTo(last));
+      last = now;
+    }
+  });
+
   group('PageInkLayer', () {
     late DocumentInkController ink;
     late TransformationController view;
@@ -166,6 +191,38 @@ void main() {
       await g.up();
       await tester.pumpAndSettle();
     }
+
+    testWidgets('points keep the time the pen was there, and the pen is '
+        'known to be down while writing', (tester) async {
+      await pump(tester);
+      final topLeft = tester.getTopLeft(find.byType(PageInkLayer));
+      final g = await tester.createGesture(kind: PointerDeviceKind.stylus);
+      await g.down(
+        topLeft + const Offset(100, 100),
+        timeStamp: const Duration(milliseconds: 1000),
+      );
+      expect(ink.penDown.value, isTrue);
+      for (var i = 1; i <= 4; i++) {
+        await g.moveTo(
+          topLeft + Offset(100.0 + i * 8, 100),
+          timeStamp: Duration(milliseconds: 1000 + i * 4),
+        );
+        // A busy moment between points: the times don't change.
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+      await g.up(timeStamp: const Duration(milliseconds: 1020));
+      await tester.pumpAndSettle();
+      expect(ink.penDown.value, isFalse);
+      final ts = ink.ink.strokesOn(4).single.points.map((p) => p.t).toList();
+      final gaps = [for (var i = 1; i < ts.length; i++) ts[i] - ts[i - 1]];
+      expect(gaps, everyElement(4));
+      // Still a clock time (ms since 1970), not time since the tablet
+      // started.
+      expect(
+        (ts.first - DateTime.now().millisecondsSinceEpoch).abs(),
+        lessThan(60000),
+      );
+    });
 
     testWidgets('the pen writes in PDF page coordinates and does not scroll', (
       tester,

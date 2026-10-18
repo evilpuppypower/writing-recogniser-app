@@ -208,6 +208,39 @@ class InkTextController extends ChangeNotifier {
   /// Re-ranks or swaps the engine's words using the user's corrections.
   final FeedbackLayer feedback;
 
+  /// True while the pen is on the page: the work after an answer comes
+  /// back (and showing it) waits until the pen lifts, so a stroke is never
+  /// held up mid-way (owner: gaps in strokes after 100+ words).
+  ValueListenable<bool>? penDown;
+
+  /// Waits until the pen is off the page, and still off once this code
+  /// carries on (at most half a minute in all, in case a lift was
+  /// missed). Time spent waiting is added to [_penWaitMs].
+  Future<void> _penUp({bool counted = true}) async {
+    final pen = penDown;
+    if (pen == null || !pen.value) return;
+    const limit = Duration(seconds: 30);
+    final watch = Stopwatch()..start();
+    while (pen.value && watch.elapsed < limit) {
+      final lifted = Completer<void>();
+      void check() {
+        if (!pen.value && !lifted.isCompleted) lifted.complete();
+      }
+
+      pen.addListener(check);
+      try {
+        await lifted.future.timeout(limit - watch.elapsed, onTimeout: () {});
+      } finally {
+        pen.removeListener(check);
+      }
+    }
+    if (counted) _penWaitMs += watch.elapsedMilliseconds;
+  }
+
+  /// Time the current read spent waiting for the pen (left out of its
+  /// reading time in the diagnostics).
+  int _penWaitMs = 0;
+
   /// Where corrections are saved (null: kept only while the PDF is open).
   CorrectionStore? corrections;
 
@@ -621,6 +654,7 @@ class InkTextController extends ChangeNotifier {
     }
     _running.add(page);
     final watch = Stopwatch()..start();
+    _penWaitMs = 0;
     var sortMs = 0, engineCalls = 0;
     var dirty = false;
     var complete = true; // every word was read (none failed)
@@ -640,6 +674,9 @@ class InkTextController extends ChangeNotifier {
           ? await c.classify(ink, printed: printed)
           : await c.classify(ink);
       sortMs = watch.elapsedMilliseconds;
+      // The rest runs on the screen's own thread: not while a stroke is
+      // being written.
+      await _penUp();
       final allKinds = List.filled(strokes.length, InkKind.drawing);
       for (var k = 0; k < inkOnly.length && k < sorted.length; k++) {
         allKinds[inkOnly[k]] = sorted[k];
@@ -880,8 +917,15 @@ class InkTextController extends ChangeNotifier {
         'strokes': strokes.length,
         'sortMs': sortMs,
         if (c is NearbyClassifier) 'sorted': c.lastSent,
+        if (c is NearbyClassifier && c.lastFellBack) 'fellBack': true,
+        if (c is NearbyClassifier && c.lastFellBack)
+          'sortProblem': _short(switch (c.inner) {
+            final ExplainsFallback e => e.problem,
+            _ => null,
+          }),
         'engineCalls': engineCalls,
-        'totalMs': watch.elapsedMilliseconds,
+        'totalMs': watch.elapsedMilliseconds - _penWaitMs,
+        if (_penWaitMs > 0) 'penWaitMs': _penWaitMs,
         'queued': _again.contains(page),
       });
       if (_again.remove(page) && !_disposed) unawaited(_run(page));
@@ -1031,8 +1075,28 @@ class InkTextController extends ChangeNotifier {
   }
 
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    if (penDown?.value ?? false) {
+      // Shown once the pen lifts (redrawing the labels mid-stroke held
+      // the stroke up).
+      if (_notifyHeld) return;
+      _notifyHeld = true;
+      unawaited(
+        _penUp(counted: false).then((_) {
+          _notifyHeld = false;
+          if (!_disposed) notifyListeners();
+        }),
+      );
+      return;
+    }
+    notifyListeners();
   }
+
+  var _notifyHeld = false;
+
+  /// An error message cut short for the diagnostic log.
+  static String? _short(String? s) =>
+      s == null || s.length <= 120 ? s : '${s.substring(0, 120)}…';
 
   @override
   void dispose() {
