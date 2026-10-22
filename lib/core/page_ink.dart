@@ -55,6 +55,7 @@ class PageStroke {
     this.typedGroup,
     this.typedText,
     this.manualWord,
+    this.manualLine,
   });
 
   final List<PageInkPoint> points;
@@ -83,6 +84,11 @@ class PageStroke {
   /// writing. Also a lesson for a future word-finding model.
   final String? manualWord;
 
+  /// The user said these strokes are one sentence ("Read as a sentence"
+  /// under the selection's More, owner 2026-10-22): strokes sharing it are
+  /// one line, read by the engine all together.
+  final String? manualLine;
+
   /// Identifies the stroke on its page: when it started and how many
   /// points it has (stable across saving and reopening).
   String get id => '${points.first.t}/${points.length}';
@@ -93,6 +99,7 @@ class PageStroke {
     int? colorArgb,
     double? width,
     Object? manualWord = _keep,
+    Object? manualLine = _keep,
   }) => PageStroke(
     points: points ?? this.points,
     colorArgb: colorArgb ?? this.colorArgb,
@@ -105,6 +112,9 @@ class PageStroke {
     manualWord: identical(manualWord, _keep)
         ? this.manualWord
         : manualWord as String?,
+    manualLine: identical(manualLine, _keep)
+        ? this.manualLine
+        : manualLine as String?,
   );
 
   static const _keep = Object();
@@ -121,6 +131,7 @@ class PageStroke {
     typedGroup: group,
     typedText: group == null ? null : text,
     manualWord: manualWord,
+    manualLine: manualLine,
   );
 
   Map<String, Object?> toJson() => {
@@ -132,6 +143,7 @@ class PageStroke {
     'typedGroup': ?typedGroup,
     'typedText': ?typedText,
     'manualWord': ?manualWord,
+    'manualLine': ?manualLine,
     'points': [for (final p in points) p.toJson()],
   };
 
@@ -144,6 +156,7 @@ class PageStroke {
     typedGroup: j['typedGroup'] as String?,
     typedText: j['typedText'] as String?,
     manualWord: j['manualWord'] as String?,
+    manualLine: j['manualLine'] as String?,
     points: [
       for (final p in (j['points'] as List? ?? const []))
         PageInkPoint.fromJson(p as List<dynamic>),
@@ -549,6 +562,25 @@ class DocumentInk {
     return changed;
   }
 
+  /// The user says strokes [ids] on [page] are one sentence: they're one
+  /// line, read all together, as writing.
+  bool markSentence(int page, Set<String> ids) {
+    if (ids.isEmpty) return false;
+    final line = (ids.toList()..sort()).join(',');
+    var changed = false;
+    _pages[page] = [
+      for (final s in strokesOn(page))
+        if (ids.contains(s.id) && (s.manualLine != line || s.notWriting))
+          () {
+            changed = true;
+            return s.copyWith(manualLine: line, notWriting: false);
+          }()
+        else
+          s,
+    ];
+    return changed;
+  }
+
   /// Replaces all of [page]'s strokes (used by undo and redo).
   void setPage(int page, List<PageStroke> strokes) {
     _pages[page] = strokes;
@@ -660,6 +692,7 @@ class DocumentInk {
             // Only one piece keeps the text, so it isn't shown twice.
             typedText: pieces.isEmpty ? s.typedText : null,
             manualWord: s.manualWord,
+            manualLine: s.manualLine,
           ),
         );
       }

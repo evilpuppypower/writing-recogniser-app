@@ -67,6 +67,52 @@ void main() {
     expect(words.single.box.right, 146);
   });
 
+  test('"Read as a sentence" is saved and keeps the strokes on one line, '
+      'words left to right', () {
+    // A word above and to the right: a line of its own as written.
+    final up = letter(160, 730, 600);
+    ink.add(1, up);
+    final before = groupStrokes(ink.strokesOn(1)).length;
+    expect(ink.markSentence(1, {a.id, b.id, up.id}), isTrue);
+    expect(
+      ink.markSentence(1, {a.id, b.id, up.id}),
+      isFalse,
+      reason: 'no change',
+    );
+    final back = DocumentInk.fromJson(ink.toJson());
+    final lines = groupStrokes(back.strokesOn(1));
+    expect(lines, hasLength(before - 1));
+    final words = lines.firstWhere((l) => l.words.length > 1).words;
+    expect(words, hasLength(2));
+    expect(words.last.strokes.single, 3, reason: 'the raised word last');
+    expect(back.strokesOn(1).where((s) => s.manualLine != null), hasLength(3));
+  });
+
+  test('a sentence carried on to the next row reads in writing order', () {
+    final page = DocumentInk();
+    // Row 1: words at x 100 and 200; row 2 (below): words at x 100, 160.
+    final w1 = letter(100, 700, 0), w2 = letter(200, 700, 1000);
+    final w3 = letter(100, 660, 2000), w4 = letter(160, 660, 3000);
+    for (final s in [w1, w2, w3, w4]) {
+      page.add(1, s);
+    }
+    page.markSentence(1, {w1.id, w2.id, w3.id, w4.id});
+    final lines = groupStrokes(page.strokesOn(1));
+    expect(lines, hasLength(1));
+    expect([for (final w in lines.single.words) ...w.strokes], [0, 1, 2, 3]);
+  });
+
+  test('a stroke marked as a sentence keeps the mark when rubbed in two', () {
+    expect(ink.markSentence(1, {a.id}), isTrue);
+    final mark = ink.strokesOn(1).first.manualLine;
+    expect(mark, isNotNull);
+    ink.eraseArea(1, 103, 710, 0.5);
+    expect(
+      ink.strokesOn(1).where((s) => s.manualLine == mark).length,
+      greaterThanOrEqualTo(1),
+    );
+  });
+
   test('undo takes a whole drag back in one step', () {
     final c2 = DocumentInkController(ink);
     c2.beginGesture(1);
@@ -299,6 +345,7 @@ void main() {
           body: SelectionBar(
             count: 2,
             onOneWord: () => done.add('word'),
+            onSentence: () => done.add('sentence'),
             onConvert: () => done.add('convert'),
             onColour: () => done.add('colour'),
             onCopy: () => done.add('copy'),
@@ -315,7 +362,7 @@ void main() {
         ),
       ),
     );
-    for (final label in ['One word', 'Convert', 'Copy', 'Delete']) {
+    for (final label in ['One word', 'Sentence', 'Convert', 'Copy', 'Delete']) {
       await tester.tap(find.text(label));
     }
     // The rest are under the three dots.
@@ -337,6 +384,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.close));
     expect(done, [
       'word',
+      'sentence',
       'convert',
       'copy',
       'delete',

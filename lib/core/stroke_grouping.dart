@@ -703,7 +703,58 @@ List<InkLine> _group(
     _applyHints(strokes, boxes, result, hints);
   }
   _joinManualWords(strokes, boxes, result);
+  _joinManualLines(strokes, result);
   return result;
+}
+
+/// Words with strokes the user said are one sentence
+/// ([PageStroke.manualLine]) end up on one line: the one holding most of
+/// them, in order along it.
+void _joinManualLines(List<PageStroke> strokes, List<InkLine> lines) {
+  final groups = <String, Set<InkLine>>{};
+  for (final line in lines) {
+    for (final w in line.words) {
+      for (final i in w.strokes) {
+        final g = strokes[i].manualLine;
+        if (g != null) groups.putIfAbsent(g, () => {}).add(line);
+      }
+    }
+  }
+  for (final e in groups.entries) {
+    if (e.value.length < 2) continue;
+    bool marked(InkWord w) =>
+        w.strokes.any((i) => strokes[i].manualLine == e.key);
+    int count(InkLine l) => l.words.where(marked).length;
+    final target = e.value.reduce((a, b) => count(b) > count(a) ? b : a);
+    // The sentence reads in the order it was written: its words on the
+    // line holding most of it, then the rest in writing order (a sentence
+    // carried on to the next row comes after, not mixed in).
+    final moving = [
+      for (final line in e.value)
+        if (!identical(line, target)) ...line.words.where(marked),
+    ]..sort((a, c) => a.start.compareTo(c.start));
+    for (final line in e.value) {
+      if (!identical(line, target)) line.words.removeWhere(moving.contains);
+    }
+    final firstOwn = target.words
+        .where(marked)
+        .map((w) => w.start)
+        .fold(1 << 62, (a, b) => a < b ? a : b);
+    // Written before the target's part of the sentence: in front of it.
+    final early = [
+      for (final w in moving)
+        if (w.start < firstOwn) w,
+    ];
+    final late = [
+      for (final w in moving)
+        if (w.start >= firstOwn) w,
+    ];
+    final at = target.words.indexWhere(marked);
+    target.words
+      ..insertAll(at < 0 ? 0 : at, early)
+      ..addAll(late);
+  }
+  lines.removeWhere((l) => l.words.isEmpty);
 }
 
 /// Words the engine found earlier ([hints]: stroke id -> word) stay as it

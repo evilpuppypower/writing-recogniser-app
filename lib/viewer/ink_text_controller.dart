@@ -419,6 +419,18 @@ class InkTextController extends ChangeNotifier {
     _notify();
   }
 
+  /// The words with any of [strokeIds] on [page] are read again (their
+  /// strokes were marked as one sentence, so they're read together now):
+  /// words the user fixed keep their text.
+  void readAgain(int page, Set<String> strokeIds) {
+    final words = _words[page];
+    if (words == null) return;
+    words.removeWhere(
+      (key, w) => !w.corrected && key.split(',').any(strokeIds.contains),
+    );
+    _notify();
+  }
+
   static bool _sameBox(InkBox a, InkBox b) =>
       a.left == b.left &&
       a.bottom == b.bottom &&

@@ -1878,6 +1878,23 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     );
   }
 
+  /// "Read as a sentence": the selected strokes are one line, read by the
+  /// engine all together (owner, 2026-10-22).
+  void _readAsSentence(InkSelection sel) {
+    _selection.value = null;
+    _learnKind(sel.page, sel.ids, InkKind.writing);
+    _text.markWriting(sel.page, sel.ids);
+    // Read all together now, even if read before.
+    _text.readAgain(sel.page, sel.ids);
+    _ink.markSentence(sel.page, sel.ids);
+    _logDiagnostic('sentence', {'strokes': sel.ids.length});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('These strokes are read as one sentence now.'),
+      ),
+    );
+  }
+
   /// What this user draws and writes, learned from their marks (owner's
   /// approved idea 7); kept on the tablet as shape numbers only.
   final _inkKinds = PersonalInkKinds();
@@ -3881,11 +3898,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             children: [
               Positioned(
                 // About as wide as the bar, so it stays on the page.
-                left: rect.left.clamp(0, math.max(0, pageRect.width - 520)),
+                left: rect.left.clamp(0, math.max(0, pageRect.width - 620)),
                 top: top,
                 child: SelectionBar(
                   count: sel.ids.length,
                   onOneWord: () => _oneWord(sel),
+                  onSentence: () => _readAsSentence(sel),
                   onConvert: () => _convertSelection(sel),
                   onColour: () => _recolourSelection(sel),
                   onCopy: () => _copySelection(sel),
@@ -5587,6 +5605,7 @@ class SelectionBar extends StatelessWidget {
     super.key,
     required this.count,
     required this.onOneWord,
+    required this.onSentence,
     required this.onConvert,
     required this.onColour,
     required this.onCopy,
@@ -5603,6 +5622,7 @@ class SelectionBar extends StatelessWidget {
 
   final int count;
   final VoidCallback onOneWord,
+      onSentence,
       onConvert,
       onColour,
       onCopy,
@@ -5689,6 +5709,12 @@ class SelectionBar extends StatelessWidget {
               onOneWord,
             ),
             action(
+              Icons.notes,
+              'Sentence',
+              'Read these strokes together, as one sentence',
+              onSentence,
+            ),
+            action(
               Icons.keyboard,
               'Convert',
               'Convert to typed text',
@@ -5715,7 +5741,10 @@ class SelectionBar extends StatelessWidget {
                         children: [
                           Icon(icon, size: 20),
                           const SizedBox(width: 12),
-                          Text(label),
+                          // Fits the menu at any text size.
+                          Flexible(
+                            child: Text(label, overflow: TextOverflow.ellipsis),
+                          ),
                         ],
                       ),
                     ),
