@@ -1499,6 +1499,12 @@ class _InkPicture {
   /// Strokes per piece.
   static const chunkSize = 64;
 
+  /// Finished ink leaves out points under half a pixel apart at [width]
+  /// (see _InkDrawer.minGap); zoomed in past [regrowth] times that, it's
+  /// recorded again so lines stay smooth.
+  static const minGap = 0.5;
+  static const regrowth = 1.5;
+
   int _nextId = 0;
   int newId() => _nextId++;
 
@@ -1650,7 +1656,7 @@ class _PageInkPainter extends CustomPainter {
       geometry.height,
       geometry.quarterTurns,
     );
-    if (cache.key != key) {
+    if (cache.key != key || viewWidth > cache.width * _InkPicture.regrowth) {
       cache
         ..dispose()
         ..key = key
@@ -1768,7 +1774,13 @@ class _PageInkPainter extends CustomPainter {
     // the page (never in the ready-made image).
     final pen = ui.PictureRecorder(), marker = ui.PictureRecorder();
     final penCanvas = Canvas(pen), markerCanvas = Canvas(marker);
-    final ink = _InkDrawer(geometry, cache.width, pressure, dark: dark);
+    final ink = _InkDrawer(
+      geometry,
+      cache.width,
+      pressure,
+      dark: dark,
+      minGap: _InkPicture.minGap,
+    );
     var markers = false;
     for (final s in strokes) {
       final highlight = s.tool == InkTool.highlighter;
@@ -2274,10 +2286,40 @@ double widthStep(double w) {
 
 final _widthStepLog = math.log(1.06);
 
+/// [points] without those closer than [gap] (page points) to the last one
+/// kept; the first and last always stay.
+@visibleForTesting
+List<PageInkPoint> thinnedPoints(List<PageInkPoint> points, double gap) {
+  if (gap <= 0 || points.length < 3) return points;
+  final g2 = gap * gap;
+  final out = <PageInkPoint>[points.first];
+  for (var i = 1; i < points.length - 1; i++) {
+    final p = points[i], l = out.last;
+    final dx = p.x - l.x, dy = p.y - l.y;
+    if (dx * dx + dy * dy >= g2) out.add(p);
+  }
+  out.add(points.last);
+  return out;
+}
+
 /// Draws strokes on a page laid out [viewWidth] pixels wide.
 class _InkDrawer {
-  _InkDrawer(this.geometry, this.viewWidth, this.pressure, {this.dark = false})
-    : scale = viewWidth / geometry.displayWidth;
+  _InkDrawer(
+    this.geometry,
+    this.viewWidth,
+    this.pressure, {
+    this.dark = false,
+    this.minGap = 0,
+  }) : scale = viewWidth / geometry.displayWidth;
+
+  /// Points closer than this (pixels) to the last one drawn are left out,
+  /// for finished ink (owner, 2026-10-21: zoomed-out pages stuttered since
+  /// every pen sample is kept). The first and last of a stroke stay.
+  final double minGap;
+
+  /// [points] without those closer than [minGap] on screen.
+  List<PageInkPoint> _thinned(List<PageInkPoint> points) =>
+      minGap <= 0 ? points : thinnedPoints(points, minGap / scale);
 
   /// Drawing on a dark page: ink colours turned round (see nightArgb).
   final bool dark;
@@ -2337,6 +2379,7 @@ class _InkDrawer {
   void draw(Canvas canvas, List<PageInkPoint> points, PenStyle style) {
     // Text boxes aren't ink: they're shown as typed text.
     if (points.isEmpty || style.tool == InkTool.text) return;
+    points = _thinned(points);
     Offset at(PageInkPoint p) {
       final v = geometry.toView(PdfPagePoint(p.x, p.y), viewWidth);
       return Offset(v.x, v.y);
