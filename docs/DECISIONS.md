@@ -996,5 +996,5 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 
 ## 2026-10-22 — Scanned pages read faster: several lines at a time (owner: "sure")
 
-- After the text on a scanned page is found, its lines are read up to 6 at a time instead of one by one, as PaddleOCR itself does. Lines of a like width go together, so little of each batch is blank padding. The text read is the same; only fewer, larger runs of the reader.
-- If the reader model can't take several lines at once, the app finds out on the first try and goes back to one line at a time for that model, so reading still works.
+- After the text on a scanned page is found, its lines are read up to 6 at a time instead of one by one, as PaddleOCR itself does. Lines of a like width go together, so little of each batch is blank padding. Shorter lines are padded to the widest in their batch, which can change a reading very slightly (PaddleOCR works the same way); otherwise the text is the same, from fewer, larger runs of the reader.
+- If the reader model can't take several lines at once, the app finds out on the first try (when one line at a time then works) and goes back to one line at a time for that model, so reading still works.

@@ -300,15 +300,18 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
         val groups = if (batchOk) OcrMath.batches(lines, REC_BATCH, REC_HEIGHT, REC_MAX_WIDTH)
             else lines.map { listOf(it) }
         for (group in groups) {
+            var batchFailed = false
             if (group.size > 1 && batchOk) {
                 try {
                     recognise(env, argb, w, h, group)
                     continue
                 } catch (_: Exception) {
-                    batchOk = false
+                    batchFailed = true
                 }
             }
             for (line in group) recognise(env, argb, w, h, listOf(line))
+            // Only when one at a time works is it the batching that failed.
+            if (batchFailed) batchOk = false
         }
         return lines.filter { it.text.isNotBlank() }.map {
             mapOf(
