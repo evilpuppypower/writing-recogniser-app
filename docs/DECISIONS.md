@@ -965,3 +965,10 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 
 - Since every pen sample is kept, a stroke has 3–4 times more points, and zoomed out many of them land within the same pixel. Finished ink is recorded once per page at the width it's shown, and now leaves out points under half a pixel apart there (the first and last of a stroke always stay). The ink being written, exports, thumbnails and the saved strokes keep every point.
 - Zoomed in more than 1.5 times past the width it was recorded at, a page's ink is recorded again, so lines stay smooth up close.
+
+## 2026-10-22 — "Show words": which strokes are each word (owner chose outlines on the page)
+
+- A button in the PDF's title bar (or under More) outlines each word the app read, round its strokes, in turning colours (blue, red, green, orange, purple) so neighbouring words stand apart. Readings show above the words while it's on (even if labels are off), and don't fade.
+- A finger tap on an outline opens the word to fix it (the same pop-up as a double-tap on its label). The pen keeps writing through outlines; scrolling works through them too.
+- Off by default and not saved: it's for checking and fixing, then turning off.
+- Next: "Read as a sentence" under the selection's More (owner's choice), and a "Review my writing" screen (owner chose both ways of labelling).
