@@ -21,6 +21,7 @@ import '../storage/sqlite_ink_store.dart';
 import 'learning_screen.dart';
 import 'open_times_screen.dart';
 import 'replay_screen.dart';
+import 'review_writing_screen.dart';
 import 'stored_copies_screen.dart';
 import 'your_writing_screen.dart';
 import 'backup_screen.dart';
@@ -876,6 +877,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const LearningScreen()),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.fact_check_outlined),
+            title: const Text('Review my writing'),
+            subtitle: const Text(
+              'Go through the words read from your PDFs, the unsure ones '
+              'first: say each is right or fix it. Your checked words help '
+              'it learn your handwriting.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const ReviewWritingScreen(),
+              ),
             ),
           ),
           ListTile(

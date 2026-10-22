@@ -82,7 +82,8 @@ List<int> encodeTrainingData({
           'shows now, "engine" what the recognizer read, "candidates" the '
           'recognizer\'s readings, best first (complete only when '
           '"candidatesComplete"; older words have a partial list). '
-          '"corrected" means the user fixed it (so "text" is certain); '
+          '"corrected" means the user fixed it and "checked" that they '
+          'said it was right (either way "text" is certain); '
           'otherwise the user left it as shown (usually right, but not '
           'checked; "autoReplaced" means the app swapped the engine\'s word '
           'for an earlier correction). Ink as for corrections.',
@@ -169,6 +170,7 @@ List<Map<String, Object?>> _pageWords(SavedPageText page, int? document) {
                     }.toList(),
               'candidatesComplete': readings is List,
               'corrected': w['corrected'] == true,
+              'checked': w['checked'] == true,
               'autoReplaced': w['auto'] == true,
               'previousWord': w['prev'] as String? ?? '',
               'document': ?document,

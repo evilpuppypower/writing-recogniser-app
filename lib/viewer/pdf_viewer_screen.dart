@@ -92,6 +92,7 @@ import '../settings/ocr_models_screen.dart';
 import '../storage/sqlite_scanned_text_store.dart';
 import 'export_options_dialog.dart';
 import 'page_text_labels.dart';
+import 'open_document.dart';
 import 'page_word_outlines.dart';
 import 'page_typed_text.dart';
 import 'pen_toolbar.dart';
@@ -4068,6 +4069,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   @override
   void initState() {
     super.initState();
+    openDocument.value = widget.documentId;
     // What was read is shown once the pen lifts, never mid-stroke.
     _text.penDown = _ink.penDown;
     // How long the pen's ink takes to reach the screen (diagnostics).
@@ -4618,6 +4620,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _searcherMade?.dispose();
     _searchField.dispose();
     _frames.stop();
+    if (openDocument.value == widget.documentId) openDocument.value = null;
     _ink.wetInk = null;
     _wet?.disable();
     _textSaver?.flush(); // takes the text now, before it's thrown away
