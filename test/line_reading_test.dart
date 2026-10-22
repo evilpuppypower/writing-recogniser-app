@@ -140,6 +140,30 @@ void main() {
     c.dispose();
   });
 
+  testWidgets('writing already read is read again as one sentence once '
+      'marked', (tester) async {
+    final engine = FakeLineEngine();
+    final c = InkTextController(engine: engine);
+    final page = [
+      ...spaced(100, 2, 0),
+      for (var i = 0; i < 2; i++) letter(100 + i * 14.0, 660, 2000 + i * 200),
+    ];
+    c.inkChanged(1, page, pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    expect(engine.lineCalls.map((l) => l.length), [2, 2]);
+    // Marked as one sentence: the words go and are read again together.
+    final ids = {for (final s in page) s.id};
+    c.readAgain(1, ids);
+    final marked = [for (final s in page) s.copyWith(manualLine: 'm')];
+    c.inkChanged(1, marked, pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    expect(engine.lineCalls.map((l) => l.length), [2, 2, 4]);
+    expect(c.wordsOn(1), hasLength(1));
+    c.dispose();
+  });
+
   test('the engine\'s words are matched to strokes by their boxes', () {
     // Two strokes on the left, one on the right; 0.5 mm per point.
     const strokes = [

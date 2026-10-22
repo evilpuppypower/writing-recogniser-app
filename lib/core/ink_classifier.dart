@@ -144,7 +144,10 @@ List<InkKind> reconcileKinds(
       !strokes[i].notWriting &&
       boxes[i] != null;
   for (var i = 0; i < strokes.length; i++) {
-    if (candidate(i) && strokes[i].manualWord != null) out[i] = InkKind.writing;
+    if (candidate(i) &&
+        (strokes[i].manualWord != null || strokes[i].manualLine != null)) {
+      out[i] = InkKind.writing;
+    }
   }
   // A few rounds, so a word whose strokes touch one after another is
   // taken back whole.

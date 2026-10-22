@@ -726,13 +726,33 @@ void _joinManualLines(List<PageStroke> strokes, List<InkLine> lines) {
         w.strokes.any((i) => strokes[i].manualLine == e.key);
     int count(InkLine l) => l.words.where(marked).length;
     final target = e.value.reduce((a, b) => count(b) > count(a) ? b : a);
+    // The sentence reads in the order it was written: its words on the
+    // line holding most of it, then the rest in writing order (a sentence
+    // carried on to the next row comes after, not mixed in).
+    final moving = [
+      for (final line in e.value)
+        if (!identical(line, target)) ...line.words.where(marked),
+    ]..sort((a, c) => a.start.compareTo(c.start));
     for (final line in e.value) {
-      if (identical(line, target)) continue;
-      final moving = line.words.where(marked).toList();
-      line.words.removeWhere(moving.contains);
-      target.words.addAll(moving);
+      if (!identical(line, target)) line.words.removeWhere(moving.contains);
     }
-    target.words.sort((a, c) => a.box.left.compareTo(c.box.left));
+    final firstOwn = target.words
+        .where(marked)
+        .map((w) => w.start)
+        .fold(1 << 62, (a, b) => a < b ? a : b);
+    // Written before the target's part of the sentence: in front of it.
+    final early = [
+      for (final w in moving)
+        if (w.start < firstOwn) w,
+    ];
+    final late = [
+      for (final w in moving)
+        if (w.start >= firstOwn) w,
+    ];
+    final at = target.words.indexWhere(marked);
+    target.words
+      ..insertAll(at < 0 ? 0 : at, early)
+      ..addAll(late);
   }
   lines.removeWhere((l) => l.words.isEmpty);
 }

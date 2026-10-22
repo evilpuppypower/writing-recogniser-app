@@ -1884,6 +1884,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _selection.value = null;
     _learnKind(sel.page, sel.ids, InkKind.writing);
     _text.markWriting(sel.page, sel.ids);
+    // Read all together now, even if read before.
+    _text.readAgain(sel.page, sel.ids);
     _ink.markSentence(sel.page, sel.ids);
     _logDiagnostic('sentence', {'strokes': sel.ids.length});
     ScaffoldMessenger.of(context).showSnackBar(
@@ -3896,7 +3898,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             children: [
               Positioned(
                 // About as wide as the bar, so it stays on the page.
-                left: rect.left.clamp(0, math.max(0, pageRect.width - 520)),
+                left: rect.left.clamp(0, math.max(0, pageRect.width - 620)),
                 top: top,
                 child: SelectionBar(
                   count: sel.ids.length,
@@ -5653,12 +5655,6 @@ class SelectionBar extends StatelessWidget {
     // scrolling the bar sideways wasn't obvious).
     final more = <(IconData, String, String, VoidCallback)>[
       (
-        Icons.notes,
-        'Read as a sentence',
-        'Read all these strokes together, as one sentence',
-        onSentence,
-      ),
-      (
         Icons.text_snippet_outlined,
         'Copy text',
         'Copy the words read here, to paste in another app',
@@ -5711,6 +5707,12 @@ class SelectionBar extends StatelessWidget {
               'One word',
               'Read these strokes as one word',
               onOneWord,
+            ),
+            action(
+              Icons.notes,
+              'Sentence',
+              'Read these strokes together, as one sentence',
+              onSentence,
             ),
             action(
               Icons.keyboard,

@@ -120,7 +120,12 @@ class PersonalInkKinds {
     final out = [...kinds];
     for (var i = 0; i < page.length; i++) {
       final s = page[i];
-      if (!_counts(s) || s.notWriting || s.manualWord != null) continue;
+      if (!_counts(s) ||
+          s.notWriting ||
+          s.manualWord != null ||
+          s.manualLine != null) {
+        continue;
+      }
       final f = features(s, h);
       if (f == null) continue;
       // The newest close examples, from [agree] separate marks, decide

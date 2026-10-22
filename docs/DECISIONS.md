@@ -973,8 +973,9 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 - Off by default and not saved: it's for checking and fixing, then turning off.
 - Next: "Read as a sentence" under the selection's More (owner's choice), and a "Review my writing" screen (owner chose both ways of labelling).
 
-## 2026-10-22 — "Read as a sentence" (owner: under the selection's More)
+## 2026-10-22 — "Read as a sentence" (owner: a "Sentence" button beside "One word")
 
-- Select strokes, then More → "Read as a sentence": they become one line, read by the engine all at once (it splits the line into words itself, with the words around each other as context). Useful when a sentence was split across lines or read word by word with the wrong words.
+- Select strokes, then "Sentence" on the selection bar: they become one line, read by the engine all at once (it splits the line into words itself, with the words around each other as context). Useful when a sentence was split across lines or read word by word with the wrong words.
 - Kept with the ink (`manualLine` on each stroke, like "One word"'s `manualWord`), so it lasts after reopening, and undo takes it back. The strokes also count as writing from then on.
 - A copy of marked strokes gets a sentence of its own, not joined to the original's.
+- Writing already read is read again at once, all together (words the user fixed keep their text). The sentence's words read in the order they were written, so a sentence carried on to the next row comes after the first row, not mixed into it. Sentence strokes always count as writing, even if they looked like drawings.
