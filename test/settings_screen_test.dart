@@ -371,6 +371,9 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.textContaining('Not set'), findsOneWidget);
+    // Fully on screen (not just at the edge), so the tap lands on it.
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
     await tester.tap(tile);
     await tester.pumpAndSettle();
     await tester.enterText(

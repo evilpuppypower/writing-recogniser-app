@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../core/app_settings.dart' show WritingGuide;
@@ -21,6 +22,7 @@ import '../core/ink_prediction.dart';
 import '../core/pen_timing.dart';
 import '../settings/settings_controller.dart';
 import 'dark_pages.dart';
+import 'wet_ink.dart';
 
 /// One undoable change: a page's strokes before and after.
 class _InkEdit {
@@ -51,6 +53,14 @@ class DocumentInkController extends ChangeNotifier {
 
   /// Where pen timings are measured (the diagnostics), if anywhere.
   PenTiming? penTiming;
+
+  /// Draws the line under the pen ahead of the app (see WetInk); null:
+  /// the app draws it alone.
+  WetInk? wetInk;
+
+  /// Where the pages show on the screen (not under the toolbars), in
+  /// logical pixels; the platform's line is kept inside it.
+  Rect? Function()? wetArea;
 
   void penOn() => penDown.value = ++_pens > 0;
 
@@ -448,6 +458,73 @@ class _PageInkLayerState extends State<PageInkLayer> {
     if (_tip.value.isNotEmpty) _tip.value = const [];
   }
 
+  /// The pen-down time of the stroke the platform is drawing (see
+  /// [DocumentInkController.wetInk]), or null.
+  int? _wetDown;
+
+  /// A pen stroke started: the platform draws it as the pen moves.
+  void _startWet(PointerEvent e) {
+    _wetDown = null;
+    final wet = widget.controller.wetInk;
+    // Not the highlighter (blended with the page) or see-through pens
+    // (their joins would show darker there).
+    if (wet == null ||
+        _style.tool != InkTool.pen ||
+        (_style.colorArgb >>> 24) != 0xFF) {
+      return;
+    }
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize || !box.attached) return;
+    final toScreen = box.getTransformTo(null);
+    final zoom = toScreen.getMaxScaleOnAxis();
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final pressure = SettingsScope.valueOf(context).pressureResponse;
+    var clip = MatrixUtils.transformRect(toScreen, Offset.zero & box.size);
+    final area = widget.controller.wetArea?.call();
+    if (area != null) clip = clip.intersect(area);
+    if (clip.isEmpty) return;
+    final down = e.timeStamp.inMicroseconds;
+    _wetDown = down;
+    wet.start(
+      downMicros: down,
+      colorArgb: darkPagesOf(context)
+          ? nightArgb(_style.colorArgb)
+          : _style.colorArgb,
+      unitPx: _style.width * _pixelsPerPoint * zoom * dpr,
+      spread:
+          pressure.strength.clamp(0.0, 1.0) * pressure.range.clamp(0.0, 10.0),
+      thinnest: PressureResponse.thinnest,
+      clip: clip,
+      devicePixelRatio: dpr,
+    );
+  }
+
+  /// The stroke isn't ink as drawn (straightened, a shape, erasing, a tap):
+  /// the platform's copy goes now.
+  void _cancelWet() {
+    final down = _wetDown;
+    _wetDown = null;
+    if (down != null) widget.controller.wetInk?.cancel(down);
+  }
+
+  /// The stroke is in the page's ink: the platform's copy goes once the
+  /// app's drawing of it is on the screen (the frame after next, so the
+  /// line never blinks).
+  void _releaseWet() {
+    final down = _wetDown;
+    final wet = widget.controller.wetInk;
+    _wetDown = null;
+    if (down == null || wet == null) return;
+    final frames = SchedulerBinding.instance;
+    frames.addPostFrameCallback((_) {
+      frames.addPostFrameCallback(
+        (_) => Timer(const Duration(milliseconds: 20), () => wet.release(down)),
+      );
+      frames.scheduleFrame();
+    });
+    frames.scheduleFrame();
+  }
+
   /// A real pen point [e] was added to the stroke: guesses the tip again.
   void _guessAhead(PointerEvent e) {
     _predictor.add(
@@ -580,6 +657,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
           (widget.tidyShape?.call(shape.kind, shape.error) ?? true)) {
         _snapped = true;
         _noTip();
+        _cancelWet();
         _shape = shape.points;
         _shapeKind = (shape.kind, shape.error);
         _active.value = shape.points;
@@ -592,6 +670,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
     if (math.sqrt(dx * dx + dy * dy) < snapMinLengthPixels) return;
     _snapped = true;
     _noTip();
+    _cancelWet();
     _active.value = straightLine(pts.first, pts.last);
     widget.controller.penTiming?.straightened();
     HapticFeedback.selectionClick();
@@ -780,6 +859,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
       _noTip();
       _leadMs = SettingsScope.valueOf(context).inkLeadMs;
       _predictor.onError = widget.controller.penTiming?.guessed;
+      _startWet(e);
       _predictor.add(
         e.localPosition.dx,
         e.localPosition.dy,
@@ -886,6 +966,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
       widget.controller.beginGesture(widget.pageNumber);
       _active.value = const []; // button pressed mid-stroke: erase instead
       _noTip();
+      _cancelWet();
       _snapTimer?.cancel();
       _erasing = true;
     }
@@ -999,6 +1080,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
         !wasSnapped && PageInkLayer.tapRules.isTap(_moved, now - _downMs);
     final single = isTap ? widget.tapActionAt?.call(_downAt) : null;
     if (single != null) {
+      _cancelWet(); // a tap on a label, not ink
       _drawHeld();
       single();
       return;
@@ -1008,6 +1090,8 @@ class _PageInkLayerState extends State<PageInkLayer> {
         ? widget.doubleTapActionAt?.call(_downAt)
         : null;
     if (hit != null) {
+      // Held back in case it's half of a double-tap: not shown yet.
+      _cancelWet();
       final tap = PenTap(_downAt.dx, _downAt.dy, _downMs, now);
       final held = _held;
       if (held != null &&
@@ -1029,6 +1113,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
       return;
     }
     _drawHeld(); // keep the order the strokes were written in
+    _releaseWet();
     if (sampled != null) widget.controller.penTiming?.stroke(sampled);
     widget.controller.add(widget.pageNumber, stroke);
     final tidied = _shapeKind;
@@ -1101,6 +1186,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
     _fadeGuideLater();
     _snapTimer?.cancel();
     _noTip();
+    _cancelWet();
     _snapped = false;
     _shape = null;
     _shapeKind = null;
@@ -1155,6 +1241,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
     }
     _snapTimer?.cancel();
     _eraserHide?.cancel();
+    _cancelWet();
     _active.dispose();
     _tipHide?.cancel();
     _tip.dispose();

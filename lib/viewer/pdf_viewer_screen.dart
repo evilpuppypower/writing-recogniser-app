@@ -87,6 +87,7 @@ import 'scanned_reading.dart' show printedCharsOnFirstPages;
 import '../core/scanned_text.dart';
 import '../platform/ocr_channel.dart';
 import '../platform/diagnostics.dart' show displayState;
+import '../platform/wet_ink_channel.dart';
 import '../settings/ocr_models_screen.dart';
 import '../storage/sqlite_scanned_text_store.dart';
 import 'export_options_dialog.dart';
@@ -3023,8 +3024,33 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   late final _frames = FrameRecorder(
     onScreen: _onScreenCounts,
     onSummary: (s) => _logDiagnostic('frames', s),
-    display: displayState,
+    display: () async => {...await displayState(), ...?await _wet?.stats()},
   );
+
+  /// The line under the pen drawn by Android (Settings → Fast ink), while
+  /// the PDF is open; null when off or not available.
+  ChannelWetInk? _wet;
+  bool? _wetWanted;
+
+  /// Switches Fast ink to match Settings.
+  void _syncWetInk(bool want) {
+    if (_wetWanted == want) return;
+    _wetWanted = want;
+    if (!want) {
+      _ink.wetInk = null;
+      _wet?.disable();
+      _wet = null;
+      return;
+    }
+    final wet = ChannelWetInk();
+    _wet = wet;
+    unawaited(
+      wet.enable().then((on) {
+        // Still wanted, and the tablet can draw it.
+        if (on && mounted && identical(_wet, wet)) _ink.wetInk = wet;
+      }),
+    );
+  }
 
   /// Counts of what's on the pages around the one showing (no content).
   Map<String, Object?> _onScreenCounts() {
@@ -4000,6 +4026,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _text.penDown = _ink.penDown;
     // How long the pen's ink takes to reach the screen (diagnostics).
     _ink.penTiming = _frames.pen;
+    _ink.wetArea = () {
+      final box = _pageKey.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+      return MatrixUtils.transformRect(
+        box.getTransformTo(null),
+        Offset.zero & box.size,
+      );
+    };
     unawaited(_loadScannedText());
     _frames.start();
     _layoutLoaded = _loadLayout();
@@ -4538,6 +4572,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _searcherMade?.dispose();
     _searchField.dispose();
     _frames.stop();
+    _ink.wetInk = null;
+    _wet?.disable();
     _textSaver?.flush(); // takes the text now, before it's thrown away
     _textSaver?.dispose();
     _text.dispose();
@@ -4598,6 +4634,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   @override
   Widget build(BuildContext context) {
     _shownSettings = _docSettings?.value ?? SettingsScope.valueOf(context);
+    // Only while the PDF is the screen showing (not under Settings).
+    _syncWetInk(
+      _shownSettings!.fastInk && (ModalRoute.of(context)?.isCurrent ?? true),
+    );
     final page = _buildPage(context);
     // Always the same shape of tree (so the viewer isn't built again when
     // this document's own settings arrive): its own settings once loaded,

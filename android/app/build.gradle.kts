@@ -101,4 +101,9 @@ dependencies {
     // that read scanned PDFs on the tablet (owner, 2026-10-17). No network
     // use of its own. See docs/DECISIONS.md.
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
+    // androidx.graphics (Google, Apache 2.0 licence): draws the line under
+    // the pen straight to the screen (front-buffered rendering), so ink
+    // keeps up with the pen (owner approved, 2026-10-18). No network use.
+    // See docs/DECISIONS.md.
+    implementation("androidx.graphics:graphics-core:1.0.2")
 }
