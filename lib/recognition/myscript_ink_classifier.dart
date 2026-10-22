@@ -178,6 +178,9 @@ String describeJiix(String jiix) {
   if (root is! Map) return 'not an object, ${jiix.length} chars';
   final types = <String, int>{};
   var boxes = 0;
+  // How many elements the answer's top level lists (its groups).
+  final top = root['elements'];
+  final groups = top is List ? top.length : -1;
   void walk(Object? node, int depth) {
     if (depth > 12) return;
     if (node is Map) {
@@ -200,6 +203,6 @@ String describeJiix(String jiix) {
       if ('$k'.length <= 30) '$k',
   ]..sort();
   final kinds = [for (final e in types.entries) '${e.key} ${e.value}'];
-  return '${jiix.length} chars; boxes: $boxes; '
+  return '${jiix.length} chars; groups: $groups; boxes: $boxes; '
       'types: ${kinds.take(6).join(', ')}; fields: ${keys.take(8).join(', ')}';
 }

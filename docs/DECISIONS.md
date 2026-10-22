@@ -953,3 +953,10 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 - **Measured:** the diagnostics report whether it's on, strokes drawn and cancelled, and the time from a pen sample to its drawing (`wetMedianMs`, `wetP90Ms`).
 - **Ink ahead of the pen:** the default lead is now 18 ms (was 12): build 108's diagnostics showed guesses off by only 0.2 px (0.4 px for 90%).
 - **Not yet known:** whether the tablet's screen rotation is handled by the library as expected (it says it is); to check on the tablet in both orientations.
+
+## 2026-10-22 — MyScript's writing/drawing sorting: text recognised too
+
+- **Found** (build 108 diagnostics): every one of MyScript's sorting answers had an empty list of groups (`elements`), so the app's own shape check sorted every time.
+- **Change:** MyScript's sorter now also recognises text (`raw-content.recognition.types: text`, was none). The best guess, since MyScript's documentation can't be reached from here: with nothing recognised, its answer seems to hold no groups at all.
+- **Cost:** sorting takes MyScript longer. It runs on MyScript's own thread, not the pen's, but words are read on the same thread, so they may come a little later after a pause. The diagnostics show both (`medianSortMs`, reading times).
+- **Checked next report:** the diagnostics now count the answer's groups (`groups: N`). If they're still 0, this goes back and the shape check stays.

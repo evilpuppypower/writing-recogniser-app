@@ -88,6 +88,11 @@ void main() {
     expect(d, contains('Text 1'));
     expect(d, contains('Drawing 1'));
     expect(d, contains('boxes: 0'));
+    expect(d, contains('groups: 2'));
+    expect(
+      describeJiix('{"type":"Raw Content","elements":[]}'),
+      contains('groups: 0'),
+    );
     expect(d, isNot(contains('secret')));
     expect(d, isNot(contains('hello')));
     expect(describeJiix('{}'), contains('2 chars'));
