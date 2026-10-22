@@ -8,13 +8,25 @@ import 'dart:convert';
 
 import '../viewer/ink_text_controller.dart';
 
-/// One word to look at: where it is and what was read.
+/// One word to look at: where it is and what was read (its ink is read
+/// only when it's shown, see [loadWord]: all of it at once could be too
+/// much for a big library).
 class ReviewItem {
-  const ReviewItem(this.documentId, this.page, this.word);
+  const ReviewItem(
+    this.documentId,
+    this.page,
+    this.key,
+    this.text, {
+    this.unsure = false,
+  });
 
   final String documentId;
   final int page;
-  final RecognizedWord word;
+
+  /// The word's key (see wordKey) and its reading when listed.
+  final String key;
+  final String text;
+  final bool unsure;
 }
 
 /// The words in [texts] (document -> page -> saved words, as
@@ -33,26 +45,39 @@ List<ReviewItem> wordsToReview(
     final pages = texts[doc]!.keys.toList()..sort();
     for (final page in pages) {
       for (final w in _words(texts[doc]![page]!)) {
-        if (w.corrected || w.checked || w.ink.isEmpty) continue;
-        (w.unsure ? unsure : rest).add(ReviewItem(doc, page, w));
+        if (w['corrected'] == true || w['checked'] == true) continue;
+        final ink = w['ink'];
+        if (ink is! List || ink.isEmpty) continue;
+        final item = ReviewItem(
+          doc,
+          page,
+          '${w['key'] ?? ''}',
+          '${w['text'] ?? ''}',
+          unsure: w['unsure'] == true,
+        );
+        (item.unsure ? unsure : rest).add(item);
       }
     }
   }
   return [...unsure, ...rest];
 }
 
-List<RecognizedWord> _words(String json) {
+/// A page's saved words as they are (not turned into words, so their ink
+/// isn't read), in reading order.
+List<Map<Object?, Object?>> _words(String json) {
   try {
     final j = jsonDecode(json);
     if (j is! Map) return const [];
     final words = [
       for (final w in j['words'] as List? ?? const [])
-        RecognizedWord.fromJson((w as Map).cast<String, Object?>()),
+        if (w is Map && w['box'] is List && (w['box'] as List).length == 4) w,
     ];
+    num left(Map w) => (w['box'] as List).first as num;
+    num line(Map w) => (w['line'] as num?) ?? 0;
     words.sort(
-      (a, b) => a.line != b.line
-          ? a.line.compareTo(b.line)
-          : a.box.left.compareTo(b.box.left),
+      (a, b) => line(a) != line(b)
+          ? line(a).compareTo(line(b))
+          : left(a).compareTo(left(b)),
     );
     return words;
   } catch (_) {
@@ -60,10 +85,24 @@ List<RecognizedWord> _words(String json) {
   }
 }
 
+/// Word [key] of [pageJson] in full (with its ink), or null if it's gone.
+RecognizedWord? loadWord(String pageJson, String key) {
+  try {
+    final j = jsonDecode(pageJson);
+    if (j is! Map) return null;
+    for (final w in j['words'] as List? ?? const []) {
+      if (w is Map && w['key'] == key) {
+        return RecognizedWord.fromJson(w.cast<String, Object?>());
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
 /// [pageJson] with the word [key] answered: right as read (when [text] is
 /// null or the same), or really [text]. Null when the word isn't there any
-/// more (the page was read again since).
-String? answerWord(String pageJson, String key, {String? text}) {
+/// more, or no longer reads [shown] (the page was read again since).
+String? answerWord(String pageJson, String key, {String? text, String? shown}) {
   final j = jsonDecode(pageJson);
   if (j is! Map) return null;
   final words = [
@@ -71,7 +110,8 @@ String? answerWord(String pageJson, String key, {String? text}) {
       RecognizedWord.fromJson((w as Map).cast<String, Object?>()),
   ];
   final i = words.indexWhere((w) => w.key == key);
-  if (i < 0) return null;
+  // Gone, or read differently since it was shown ([shown]).
+  if (i < 0 || (shown != null && words[i].text != shown)) return null;
   final w = words[i];
   final t = text?.trim();
   words[i] = t == null || t.isEmpty || t == w.text

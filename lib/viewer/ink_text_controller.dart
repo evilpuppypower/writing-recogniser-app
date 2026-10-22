@@ -431,12 +431,13 @@ class InkTextController extends ChangeNotifier {
 
   /// The words with any of [strokeIds] on [page] are read again (their
   /// strokes were marked as one sentence, so they're read together now):
-  /// words the user fixed keep their text.
+  /// words the user fixed or said were right keep their text.
   void readAgain(int page, Set<String> strokeIds) {
     final words = _words[page];
     if (words == null) return;
     words.removeWhere(
-      (key, w) => !w.corrected && key.split(',').any(strokeIds.contains),
+      (key, w) =>
+          !w.corrected && !w.checked && key.split(',').any(strokeIds.contains),
     );
     _notify();
   }
@@ -743,7 +744,8 @@ class InkTextController extends ChangeNotifier {
             : (keys) {
                 if (_lineFailed.contains(keys.join('|'))) return false;
                 final ws = [for (final k in keys) ?words[k]];
-                return ws.any((w) => !w.byLine) && !ws.any((w) => w.corrected);
+                return ws.any((w) => !w.byLine) &&
+                    !ws.any((w) => w.corrected || w.checked);
               },
         include: (i) =>
             !strokes[i].notWriting &&
@@ -755,6 +757,7 @@ class InkTextController extends ChangeNotifier {
           final old = words[key];
           return old != null &&
               !old.corrected &&
+              !old.checked &&
               _slantChanged(old.slant, w.slant);
         },
       );

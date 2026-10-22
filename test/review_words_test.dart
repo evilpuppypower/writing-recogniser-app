@@ -56,7 +56,14 @@ void main() {
         1: page([word('skip', 'k8', unsure: true)]),
       },
     }, skipDocument: 'open');
-    expect(items.map((i) => i.word.text), ['maybe', 'plain', 'early', 'late']);
+    expect(items.map((i) => i.text), ['maybe', 'plain', 'early', 'late']);
+    expect(items.first.unsure, isTrue);
+    // Its ink is read only when it's shown.
+    final full = loadWord(
+      page([word('maybe', 'k3', unsure: true, left: 40)]),
+      items.first.key,
+    )!;
+    expect(full.ink, isNotEmpty);
     expect(items.first.documentId, 'a');
     expect(items.first.page, 1);
   });
@@ -91,6 +98,9 @@ void main() {
       isTrue,
     );
     expect(answerWord(json, 'gone'), isNull);
+    // Read differently since it was shown: left alone.
+    expect(answerWord(json, 'k1', shown: 'cut'), isNull);
+    expect(answerWord(json, 'k1', shown: 'cat'), isNotNull);
   });
 
   test(

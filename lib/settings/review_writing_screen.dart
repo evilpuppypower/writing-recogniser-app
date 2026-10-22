@@ -6,9 +6,13 @@ import 'package:flutter/material.dart';
 import '../core/feedback/correction.dart';
 import '../core/feedback/correction_store.dart';
 import '../core/ink.dart';
+import '../core/event_log.dart';
 import '../core/ink_store.dart';
+import '../storage/app_database.dart';
 import '../storage/sqlite_correction_store.dart';
+import '../storage/sqlite_event_log.dart';
 import '../storage/sqlite_ink_store.dart';
+import '../viewer/ink_text_controller.dart';
 import '../viewer/open_document.dart';
 import 'review_words.dart';
 
@@ -18,11 +22,17 @@ import 'review_words.dart';
 /// its ink, as fixing it in the PDF does. Checked and fixed words are
 /// certain, so they go into the training data as labelled handwriting.
 class ReviewWritingScreen extends StatefulWidget {
-  const ReviewWritingScreen({super.key, this.openInk, this.openCorrections});
+  const ReviewWritingScreen({
+    super.key,
+    this.openInk,
+    this.openCorrections,
+    this.openEventLog,
+  });
 
   /// For tests; the app's own database otherwise.
   final Future<InkStore> Function()? openInk;
   final Future<CorrectionStore> Function()? openCorrections;
+  final Future<EventLog> Function()? openEventLog;
 
   @override
   State<ReviewWritingScreen> createState() => _ReviewWritingScreenState();
@@ -35,6 +45,17 @@ class _ReviewWritingScreenState extends State<ReviewWritingScreen> {
   var _at = 0;
   var _done = 0;
   final _typed = TextEditingController();
+
+  /// PDFs gathered so far, of how many (for the progress bar).
+  var _read = 0, _of = 0;
+
+  /// The word showing, in full (with its ink), once loaded; null while
+  /// loading.
+  RecognizedWord? _word;
+
+  /// An answer being saved: no other until it's done (a quick double tap
+  /// would skip a word).
+  var _busy = false;
 
   @override
   void initState() {
@@ -51,56 +72,122 @@ class _ReviewWritingScreenState extends State<ReviewWritingScreen> {
   Future<void> _load() async {
     try {
       final ink = await (widget.openInk ?? SqliteInkStore.open)();
-      final texts = <String, Map<int, String>>{};
-      for (final id in await ink.documentsWithInk()) {
-        final t = await ink.loadText(id);
-        if (t.isNotEmpty) texts[id] = t;
+      final docs = (await ink.documentsWithInk()).toList()..sort();
+      final skip = openDocument.value;
+      if (mounted) setState(() => _of = docs.length);
+      final unsure = <ReviewItem>[], rest = <ReviewItem>[];
+      // One PDF at a time, its words read away from the screen's thread,
+      // keeping only what's needed to list them.
+      for (final id in docs) {
+        if (id != skip) {
+          final t = await ink.loadText(id);
+          if (t.isNotEmpty) {
+            for (final item in await compute(_review, (id, t))) {
+              (item.unsure ? unsure : rest).add(item);
+            }
+          }
+        }
+        if (!mounted) return;
+        setState(() => _read++);
       }
-      // Many pages of words: read away from the screen's thread.
-      final items = await compute(_review, (texts, openDocument.value));
       if (!mounted) return;
       setState(() {
         _ink = ink;
-        _items = items;
+        _items = [...unsure, ...rest];
       });
+      await _show();
     } catch (e) {
       if (mounted) setState(() => _error = e);
     }
   }
 
-  static List<ReviewItem> _review((Map<String, Map<int, String>>, String?) a) =>
-      wordsToReview(a.$1, skipDocument: a.$2);
+  static List<ReviewItem> _review((String, Map<int, String>) a) =>
+      wordsToReview({a.$1: a.$2});
+
+  /// Loads the word at [_at] in full; words gone since (the page was read
+  /// again) are passed over.
+  Future<void> _show() async {
+    final items = _items, ink = _ink;
+    if (items == null || ink == null) return;
+    setState(() => _word = null);
+    while (_at < items.length) {
+      final item = items[_at];
+      final json = (await ink.loadText(item.documentId))[item.page];
+      final w = json == null ? null : loadWord(json, item.key);
+      if (!mounted) return;
+      if (w != null && w.text == item.text && !w.corrected && !w.checked) {
+        setState(() => _word = w);
+        return;
+      }
+      _at++;
+    }
+    if (mounted) setState(() {});
+  }
 
   /// Saves the answer for the word showing ([text] null: it's right) and
   /// shows the next one.
   Future<void> _answer({String? text}) async {
-    final items = _items, ink = _ink;
-    if (items == null || ink == null || _at >= items.length) return;
+    final items = _items, ink = _ink, w = _word;
+    if (_busy || items == null || ink == null || w == null) return;
+    if (_at >= items.length) return;
     final item = items[_at];
     final messenger = ScaffoldMessenger.of(context);
+    _busy = true;
     try {
-      final pages = await ink.loadText(item.documentId);
-      final json = pages[item.page];
+      final json = (await ink.loadText(item.documentId))[item.page];
       final updated = json == null
           ? null
-          : answerWord(json, item.word.key, text: text);
+          : answerWord(json, item.key, text: text, shown: w.text);
       if (updated != null) {
         await ink.saveText(item.documentId, item.page, updated);
         final t = text?.trim() ?? '';
-        if (t.isNotEmpty && t != item.word.text) {
+        final fixed = t.isNotEmpty && t != w.text;
+        // Putting back what the engine read (the app had swapped it): an
+        // undo, nothing to learn, as in the PDF.
+        final undo = fixed && t == w.engineReading;
+        if (fixed && !undo) {
           final store =
               await (widget.openCorrections ?? SqliteCorrectionStore.open)();
           await store.add(
             CorrectionRecord(
-              recognized: item.word.engineReading,
+              recognized: w.engineReading,
               corrected: t,
-              previousWord: item.word.previousWord,
-              strokes: item.word.ink,
+              previousWord: w.previousWord,
+              strokes: w.ink,
               at: DateTime.now(),
               documentId: item.documentId,
             ),
           );
         }
+        // Logged like answers in the PDF (rule 5).
+        await _log(
+          fixed
+              ? LoggedEvent(
+                  type: 'correction',
+                  at: DateTime.now(),
+                  data: {
+                    'source': 'review',
+                    'page': item.page,
+                    'recognized': w.engineReading,
+                    'shown': w.text,
+                    'corrected': t,
+                    'wasAutoReplaced': w.autoReplaced,
+                    'undo': undo,
+                    'doc': item.documentId,
+                  },
+                )
+              : LoggedEvent(
+                  type: 'accept',
+                  at: DateTime.now(),
+                  data: {
+                    'source': 'review',
+                    'page': item.page,
+                    'text': w.text,
+                    'asked': true,
+                    'doc': item.documentId,
+                  },
+                ),
+        );
         _done++;
       }
     } catch (e) {
@@ -108,15 +195,31 @@ class _ReviewWritingScreenState extends State<ReviewWritingScreen> {
         SnackBar(content: Text("Couldn't save that word: $e")),
       );
       return;
+    } finally {
+      _busy = false;
     }
     if (!mounted) return;
     _typed.clear();
-    setState(() => _at++);
+    _at++;
+    await _show();
+  }
+
+  Future<void> _log(LoggedEvent e) async {
+    try {
+      final log =
+          await (widget.openEventLog ??
+              () async => SqliteEventLog(await AppDatabase.open()))();
+      await log.log(e);
+    } catch (_) {
+      // Logging never stops an answer being saved.
+    }
   }
 
   void _skip() {
+    if (_busy) return;
     _typed.clear();
-    setState(() => _at++);
+    _at++;
+    unawaited(_show());
   }
 
   @override
@@ -127,14 +230,23 @@ class _ReviewWritingScreenState extends State<ReviewWritingScreen> {
       body: _error != null
           ? Center(child: Text("Couldn't read your words: $_error"))
           : items == null
-          ? const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 12),
-                  Text('Gathering the words from your PDFs…'),
-                ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    LinearProgressIndicator(
+                      value: _of == 0 ? null : _read / _of,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _of == 0
+                          ? 'Gathering the words from your PDFs…'
+                          : 'Gathering the words from your PDFs: $_read of $_of…',
+                    ),
+                  ],
+                ),
               ),
             )
           : _at >= items.length
@@ -151,15 +263,16 @@ class _ReviewWritingScreenState extends State<ReviewWritingScreen> {
                 ),
               ),
             )
+          : _word == null
+          ? const Center(child: CircularProgressIndicator())
           : _card(context, items),
     );
   }
 
   Widget _card(BuildContext context, List<ReviewItem> items) {
-    final item = items[_at];
-    final w = item.word;
+    final w = _word!;
     final scheme = Theme.of(context).colorScheme;
-    final unsureLeft = items.skip(_at).where((i) => i.word.unsure).length;
+    final unsureLeft = items.skip(_at).where((i) => i.unsure).length;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
