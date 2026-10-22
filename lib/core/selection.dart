@@ -45,6 +45,7 @@ List<PageStroke> pastedCopies(
         // A text box keeps its text (handwriting copies stay plain ink).
         typedText: s.isTextBox ? s.typedText : null,
         manualWord: s.manualWord == null ? null : '${s.manualWord}@$nowMs',
+        manualLine: s.manualLine == null ? null : '${s.manualLine}@$nowMs',
       ),
   ];
 }

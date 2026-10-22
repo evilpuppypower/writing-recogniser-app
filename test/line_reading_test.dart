@@ -123,6 +123,23 @@ void main() {
     c.dispose();
   });
 
+  testWidgets('strokes marked as a sentence are read in one go, even '
+      'written on two lines', (tester) async {
+    final engine = FakeLineEngine();
+    final c = InkTextController(engine: engine);
+    final page = [
+      ...spaced(100, 2, 0),
+      // A second line, below.
+      for (var i = 0; i < 2; i++) letter(100 + i * 14.0, 660, 2000 + i * 200),
+    ];
+    final marked = [for (final s in page) s.copyWith(manualLine: 'm')];
+    c.inkChanged(1, marked, pause);
+    await tester.pump(pause);
+    await tester.pumpAndSettle();
+    expect(engine.lineCalls.map((l) => l.length), [4]);
+    c.dispose();
+  });
+
   test('the engine\'s words are matched to strokes by their boxes', () {
     // Two strokes on the left, one on the right; 0.5 mm per point.
     const strokes = [

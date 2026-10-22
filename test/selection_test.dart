@@ -67,6 +67,38 @@ void main() {
     expect(words.single.box.right, 146);
   });
 
+  test('"Read as a sentence" is saved and keeps the strokes on one line, '
+      'words left to right', () {
+    // A word above and to the right: a line of its own as written.
+    final up = letter(160, 730, 600);
+    ink.add(1, up);
+    final before = groupStrokes(ink.strokesOn(1)).length;
+    expect(ink.markSentence(1, {a.id, b.id, up.id}), isTrue);
+    expect(
+      ink.markSentence(1, {a.id, b.id, up.id}),
+      isFalse,
+      reason: 'no change',
+    );
+    final back = DocumentInk.fromJson(ink.toJson());
+    final lines = groupStrokes(back.strokesOn(1));
+    expect(lines, hasLength(before - 1));
+    final words = lines.firstWhere((l) => l.words.length > 1).words;
+    expect(words, hasLength(2));
+    expect(words.last.strokes.single, 3, reason: 'the raised word last');
+    expect(back.strokesOn(1).where((s) => s.manualLine != null), hasLength(3));
+  });
+
+  test('a stroke marked as a sentence keeps the mark when rubbed in two', () {
+    expect(ink.markSentence(1, {a.id}), isTrue);
+    final mark = ink.strokesOn(1).first.manualLine;
+    expect(mark, isNotNull);
+    ink.eraseArea(1, 103, 710, 0.5);
+    expect(
+      ink.strokesOn(1).where((s) => s.manualLine == mark).length,
+      greaterThanOrEqualTo(1),
+    );
+  });
+
   test('undo takes a whole drag back in one step', () {
     final c2 = DocumentInkController(ink);
     c2.beginGesture(1);
@@ -299,6 +331,7 @@ void main() {
           body: SelectionBar(
             count: 2,
             onOneWord: () => done.add('word'),
+            onSentence: () => done.add('sentence'),
             onConvert: () => done.add('convert'),
             onColour: () => done.add('colour'),
             onCopy: () => done.add('copy'),
@@ -320,6 +353,7 @@ void main() {
     }
     // The rest are under the three dots.
     for (final label in [
+      'Read as a sentence',
       'Copy text',
       'Colour',
       'Thickness',
@@ -340,6 +374,7 @@ void main() {
       'convert',
       'copy',
       'delete',
+      'sentence',
       'text',
       'colour',
       'thickness',

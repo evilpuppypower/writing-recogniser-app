@@ -230,6 +230,10 @@ class DocumentInkController extends ChangeNotifier {
   void markOneWord(int page, Set<String> ids) =>
       _edit(page, () => ink.markOneWord(page, ids));
 
+  /// The user says strokes [ids] on [page] are one sentence; one undo step.
+  void markSentence(int page, Set<String> ids) =>
+      _edit(page, () => ink.markSentence(page, ids));
+
   /// Runs [change] on [page] as one undo step (or part of the gesture
   /// under way), telling listeners if it changed anything.
   void _edit(int page, bool Function() change) {

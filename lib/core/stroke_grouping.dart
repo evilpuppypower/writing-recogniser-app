@@ -703,7 +703,38 @@ List<InkLine> _group(
     _applyHints(strokes, boxes, result, hints);
   }
   _joinManualWords(strokes, boxes, result);
+  _joinManualLines(strokes, result);
   return result;
+}
+
+/// Words with strokes the user said are one sentence
+/// ([PageStroke.manualLine]) end up on one line: the one holding most of
+/// them, in order along it.
+void _joinManualLines(List<PageStroke> strokes, List<InkLine> lines) {
+  final groups = <String, Set<InkLine>>{};
+  for (final line in lines) {
+    for (final w in line.words) {
+      for (final i in w.strokes) {
+        final g = strokes[i].manualLine;
+        if (g != null) groups.putIfAbsent(g, () => {}).add(line);
+      }
+    }
+  }
+  for (final e in groups.entries) {
+    if (e.value.length < 2) continue;
+    bool marked(InkWord w) =>
+        w.strokes.any((i) => strokes[i].manualLine == e.key);
+    int count(InkLine l) => l.words.where(marked).length;
+    final target = e.value.reduce((a, b) => count(b) > count(a) ? b : a);
+    for (final line in e.value) {
+      if (identical(line, target)) continue;
+      final moving = line.words.where(marked).toList();
+      line.words.removeWhere(moving.contains);
+      target.words.addAll(moving);
+    }
+    target.words.sort((a, c) => a.box.left.compareTo(c.box.left));
+  }
+  lines.removeWhere((l) => l.words.isEmpty);
 }
 
 /// Words the engine found earlier ([hints]: stroke id -> word) stay as it
