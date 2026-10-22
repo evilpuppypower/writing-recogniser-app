@@ -988,3 +988,8 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 - The PDF open at the time is left out (it saves its own words, which would overwrite the answers).
 - Words are gathered one PDF at a time, away from the screen's thread, with a progress bar; only what's needed to list them is kept, and a word's ink is read when it's shown (all of it at once could be too much for a big library).
 - An answer is saved only if the word still reads as it was shown (the page may have been read again since). Picking what the engine itself read, on a word the app had swapped, is an undo: nothing is learned from it, as in the PDF. Answers are logged like answers in the PDF (accepts and corrections, rule 5). Checked words, like fixed ones, are never read over again.
+
+## 2026-10-22 — The selection bar can be moved (owner: "movable without exiting the menu")
+
+- A grab handle on the left of the selection bar (tooltip "Drag to move this bar"): drag it with a finger or the pen to move the bar anywhere on the page, without leaving Select.
+- It stays where it was put for the rest of the time the PDF is open, for later selections too; it starts above what's selected again when the PDF is next opened.

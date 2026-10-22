@@ -374,6 +374,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// tap on an outline fixes it (owner, 2026-10-22).
   final _showWords = ValueNotifier<bool>(false);
 
+  /// Where the user dragged the selection bar to (owner, 2026-10-22: move
+  /// it without leaving Select), in the page's pixels; null: just above
+  /// what's selected. Kept while the PDF is open.
+  final _barAt = ValueNotifier<Offset?>(null);
+
   /// Whether [w]'s ink is converted and the typed text is showing, so its
   /// label is left out.
   bool _shownTyped(int page, RecognizedWord w) =>
@@ -3877,7 +3882,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     // at the top of the page).
     Positioned.fill(
       child: ListenableBuilder(
-        listenable: Listenable.merge([_selection, _ink]),
+        listenable: Listenable.merge([_selection, _ink, _barAt]),
         builder: (context, _) {
           final sel = _selection.value;
           if (sel == null || sel.page != page.pageNumber) {
@@ -3894,14 +3899,21 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           final top = rect.top >= barHeight + 8
               ? rect.top - barHeight - 8
               : rect.bottom + 8;
+          // About as wide as the bar, so it stays on the page.
+          final maxLeft = math.max(0.0, pageRect.width - 620);
+          final maxTop = math.max(0.0, pageRect.height - barHeight);
+          final at = _barAt.value ?? Offset(rect.left.clamp(0, maxLeft), top);
           return Stack(
             clipBehavior: Clip.none,
             children: [
               Positioned(
-                // About as wide as the bar, so it stays on the page.
-                left: rect.left.clamp(0, math.max(0, pageRect.width - 620)),
-                top: top,
+                left: at.dx.clamp(0, maxLeft),
+                top: at.dy.clamp(0, maxTop),
                 child: SelectionBar(
+                  onMove: (by) => _barAt.value = Offset(
+                    (at.dx + by.dx).clamp(0, maxLeft),
+                    (at.dy + by.dy).clamp(0, maxTop),
+                  ),
                   count: sel.ids.length,
                   onOneWord: () => _oneWord(sel),
                   onSentence: () => _readAsSentence(sel),
@@ -4657,6 +4669,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _showTyped.dispose();
     _labelsShown.dispose();
     _showWords.dispose();
+    _barAt.dispose();
     _selection.dispose();
     // The documents the shown pages came from: after the viewer has let go
     // of the pages made from them.
@@ -5621,7 +5634,11 @@ class SelectionBar extends StatelessWidget {
     required this.onStraighten,
     required this.onCopyText,
     required this.onShare,
+    this.onMove,
   });
+
+  /// The bar is dragged by its handle by [delta] (pixels).
+  final void Function(Offset delta)? onMove;
 
   final int count;
   final VoidCallback onOneWord,
@@ -5705,6 +5722,18 @@ class SelectionBar extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (onMove case final move?)
+              Tooltip(
+                message: 'Drag to move this bar',
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onPanUpdate: (d) => move(d.delta),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                    child: Icon(Icons.drag_indicator, size: 20),
+                  ),
+                ),
+              ),
             action(
               Icons.join_full,
               'One word',
