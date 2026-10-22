@@ -401,6 +401,51 @@ void main() {
     expect(find.byTooltip('Read these strokes as one word'), findsOneWidget);
   });
 
+  testWidgets('the selection bar can be dragged by its handle', (tester) async {
+    tester.view.physicalSize = const Size(1600, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    var moved = Offset.zero;
+    void none() {}
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SelectionBar(
+            count: 1,
+            onMove: (by) => moved += by,
+            onOneWord: none,
+            onSentence: none,
+            onConvert: none,
+            onColour: none,
+            onCopy: none,
+            onDelete: none,
+            onNotWriting: none,
+            onClose: none,
+            onCut: none,
+            onDuplicate: none,
+            onThickness: none,
+            onStraighten: none,
+            onCopyText: none,
+            onShare: none,
+          ),
+        ),
+      ),
+    );
+    expect(find.byTooltip('Drag to move this bar'), findsOneWidget);
+    final g = await tester.startGesture(
+      tester.getCenter(find.byIcon(Icons.drag_indicator)),
+    );
+    for (var i = 0; i < 8; i++) {
+      await g.moveBy(const Offset(10, 5));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await g.up();
+    await tester.pump();
+    // All but the first bit (before it counts as a drag).
+    expect(moved.dx, greaterThan(50));
+    expect(moved.dy, greaterThan(25));
+  });
+
   test('Thickness: widths scale, within each tool\'s limits', () {
     (double, double) limits(InkTool t) => t == InkTool.pen
         ? (PenStyle.minPenWidth, PenStyle.maxPenWidth)
