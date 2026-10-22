@@ -28,6 +28,12 @@ class MainActivity : FlutterActivity() {
         window.decorView.requestUnbufferedDispatch(InputDevice.SOURCE_STYLUS)
     }
 
+    override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
+        // The pen coming near gets the line under it ready (see WetInk).
+        wetInk?.onHover(ev)
+        return super.dispatchGenericMotionEvent(ev)
+    }
+
     /**
      * Every pen sample reaches the app, even when Android has gathered
      * several into one event (owner, 2026-10-18: parts of an "o" turned
@@ -36,12 +42,6 @@ class MainActivity : FlutterActivity() {
      * gathered sample is handed on as its own event, with its own time,
      * place and pressure, before the newest one.
      */
-    override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
-        // The pen coming near gets the line under it ready (see WetInk).
-        wetInk?.onHover(ev)
-        return super.dispatchGenericMotionEvent(ev)
-    }
-
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         // The line under the pen is drawn first (see WetInk).
         wetInk?.onTouch(ev)

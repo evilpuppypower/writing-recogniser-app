@@ -162,7 +162,7 @@ class WetInk(private val activity: Activity, messenger: BinaryMessenger) {
 
     /**
      * Puts the layer over the app. It's taken away again when the pen has
-     * been away for a while ([sleep]): an idle see-through layer over the
+     * been away for a while ([sleepCheck]): an idle see-through layer over the
      * whole screen still costs battery, as the screen is put together with
      * it on every frame (owner, 2026-10-22).
      */
