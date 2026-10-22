@@ -16,6 +16,7 @@ class MainActivity : FlutterActivity() {
     private lateinit var fileTransfer: FileTransfer
     private lateinit var backup: BackupChannel
     private var powerReceiver: BroadcastReceiver? = null
+    private var wetInk: WetInk? = null
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -36,6 +37,8 @@ class MainActivity : FlutterActivity() {
      * place and pressure, before the newest one.
      */
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        // The line under the pen is drawn first (see WetInk).
+        wetInk?.onTouch(ev)
         if (ev.actionMasked != MotionEvent.ACTION_MOVE ||
             ev.historySize == 0 ||
             !ev.isFromSource(InputDevice.SOURCE_STYLUS)
@@ -86,6 +89,7 @@ class MainActivity : FlutterActivity() {
         SecretBox(messenger)
         backup = BackupChannel(this, messenger)
         OcrEngine(applicationContext, messenger)
+        wetInk = WetInk(this, messenger)
         // Android's battery saver, for the app's own (owner, 2026-10-17).
         val power = MethodChannel(messenger, "writing_recogniser/power")
         val pm = getSystemService(PowerManager::class.java)

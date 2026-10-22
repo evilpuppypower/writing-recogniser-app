@@ -136,6 +136,7 @@ class AppSettings {
     this.keepInkOnDelete = true,
     this.twoPages = false,
     this.tidyShapes = true,
+    this.fastInk = true,
     this.writingBoxButton = true,
     this.highlightsSummary = true,
     this.batterySaver = false,
@@ -170,7 +171,7 @@ class AppSettings {
   static const defaultArrowHookMs = 70;
 
   static const maxInkLeadMs = 30;
-  static const defaultInkLeadMs = 12;
+  static const defaultInkLeadMs = 18;
 
   static const minRecognitionPauseMs = 300;
   static const maxRecognitionPauseMs = 2000;
@@ -255,6 +256,11 @@ class AppSettings {
   /// ellipse, rectangle or triangle (owner: a switch in Settings).
   final bool tidyShapes;
 
+  /// The line under the pen is drawn straight to the screen by Android
+  /// (see WetInk.kt), a frame or two sooner than the app can (owner,
+  /// 2026-10-21). Off: the app draws it, as before.
+  final bool fastInk;
+
   /// The writing box's button in the PDF's toolbar (owner: users choose
   /// whether they want it).
   final bool writingBoxButton;
@@ -333,6 +339,7 @@ class AppSettings {
     bool? keepInkOnDelete,
     bool? twoPages,
     bool? tidyShapes,
+    bool? fastInk,
     bool? writingBoxButton,
     bool? highlightsSummary,
     bool? batterySaver,
@@ -381,6 +388,7 @@ class AppSettings {
     keepInkOnDelete: keepInkOnDelete ?? this.keepInkOnDelete,
     twoPages: twoPages ?? this.twoPages,
     tidyShapes: tidyShapes ?? this.tidyShapes,
+    fastInk: fastInk ?? this.fastInk,
     writingBoxButton: writingBoxButton ?? this.writingBoxButton,
     highlightsSummary: highlightsSummary ?? this.highlightsSummary,
     batterySaver: batterySaver ?? this.batterySaver,
@@ -419,6 +427,7 @@ class AppSettings {
     'keepInkOnDelete': keepInkOnDelete,
     'twoPages': twoPages,
     'tidyShapes': tidyShapes,
+    'fastInk': fastInk,
     'writingBoxButton': writingBoxButton,
     'highlightsSummary': highlightsSummary,
     'batterySaver': batterySaver,
@@ -463,6 +472,7 @@ class AppSettings {
     final keepInk = m['keepInkOnDelete'];
     final twoPages = m['twoPages'];
     final tidyShapes = m['tidyShapes'];
+    final fastInk = m['fastInk'];
     final writingBoxButton = m['writingBoxButton'];
     final highlightsSummary = m['highlightsSummary'];
     final batterySaver = m['batterySaver'];
@@ -519,6 +529,7 @@ class AppSettings {
       keepInkOnDelete: keepInk is bool ? keepInk : d.keepInkOnDelete,
       twoPages: twoPages is bool ? twoPages : d.twoPages,
       tidyShapes: tidyShapes is bool ? tidyShapes : d.tidyShapes,
+      fastInk: fastInk is bool ? fastInk : d.fastInk,
       writingBoxButton: writingBoxButton is bool
           ? writingBoxButton
           : d.writingBoxButton,
@@ -582,6 +593,7 @@ class AppSettings {
       other.keepInkOnDelete == keepInkOnDelete &&
       other.twoPages == twoPages &&
       other.tidyShapes == tidyShapes &&
+      other.fastInk == fastInk &&
       other.writingBoxButton == writingBoxButton &&
       other.highlightsSummary == highlightsSummary &&
       other.batterySaver == batterySaver &&
@@ -618,6 +630,7 @@ class AppSettings {
     keepInkOnDelete,
     twoPages,
     tidyShapes,
+    fastInk,
     writingBoxButton,
     highlightsSummary,
     batterySaver,

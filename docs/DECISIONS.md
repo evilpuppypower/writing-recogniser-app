@@ -939,3 +939,16 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 - **An older build installed over this one** (every build has the same version number, so Android allows it): it can't see moved pages and sets the database back to version 14. Nothing is lost: the version 15 step can run again, and a page saved by the older build in the old form meanwhile is put together with the moved ink when this build opens it.
 - Opening a PDF reads its ink as one snapshot (a database transaction), so a save meanwhile can't mix two versions.
 - Database version 15. Settings → Storage counts the new tables under "Your writing".
+
+## 2026-10-22 — The line under the pen drawn by Android ("Fast ink"; owner approved androidx.graphics, 2026-10-18)
+
+- **Why:** Flutter shows a pen point a frame or two after it arrives (about 17 ms to draw, then the screen's next refresh). Android's front-buffered drawing (androidx.graphics `CanvasFrontBufferedRenderer`, Google, Apache 2.0, no network use) puts each sample on the screen as it arrives.
+- **How:** a see-through layer sits exactly over the app while a PDF is open (`WetInk.kt`). It sees every pen event before the app does and keeps the stroke's points, but draws only once the app says the stroke is ink ("start", with the colour, width at normal pressure, pressure spread and the page's edges). The app still decides everything:
+  - Not drawn here: the highlighter (see-through, blended with the page), the eraser end or a pen button, the lasso, the Text tool and selections.
+  - "Cancel" (the line goes at once): a stroke straightened or tidied into a shape, the eraser button pressed mid-stroke, a tap on a label, a cancelled touch.
+  - "Release": after the pen lifts, two frames after the app has drawn the stroke itself, so the line never blinks. Anything not released within 3 s goes anyway.
+- **Nothing is saved here:** the saved stroke is still the app's own, from the same pen samples.
+- **Safety:** any error turns the layer off for the rest of the session and the app's own drawing carries on as before; the reason is in the diagnostics (`wetProblem`). Settings → "Fast ink" turns it off.
+- **Measured:** the diagnostics report whether it's on, strokes drawn and cancelled, and the time from a pen sample to its drawing (`wetMedianMs`, `wetP90Ms`).
+- **Ink ahead of the pen:** the default lead is now 18 ms (was 12): build 108's diagnostics showed guesses off by only 0.2 px (0.4 px for 90%).
+- **Not yet known:** whether the tablet's screen rotation is handled by the library as expected (it says it is); to check on the tablet in both orientations.

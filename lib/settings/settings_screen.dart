@@ -656,6 +656,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) => settings.update(s.copyWith(highlightsSummary: v)),
           ),
           SwitchListTile(
+            title: const Text('Fast ink'),
+            subtitle: const Text(
+              'Android draws the line under the pen straight to the '
+              'screen, so it keeps up with the pen. Turn off if lines '
+              'look wrong while writing (the app then draws them, a '
+              'moment later).',
+            ),
+            value: s.fastInk,
+            onChanged: (v) => settings.update(s.copyWith(fastInk: v)),
+          ),
+          SwitchListTile(
             title: const Text('Tidy up shapes'),
             subtitle: const Text(
               'Hold the pen still at the end of a circle, rectangle or '

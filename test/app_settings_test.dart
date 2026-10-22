@@ -34,7 +34,8 @@ void main() {
     expect(s.pressureOn, isTrue);
     expect(s.pressureRangePercent, 40);
     expect(s.arrowHookMs, 70);
-    expect(s.inkLeadMs, 12);
+    expect(s.inkLeadMs, 18);
+    expect(s.fastInk, isTrue);
     expect(s.pressureResponse, const PressureResponse(strength: 1, range: 0.4));
     expect(s.copyWith(pressureOn: false).pressureResponse.factor(1), 1);
     final custom = s.copyWith(pressureRangePercent: 200);
@@ -77,6 +78,7 @@ void main() {
       pressureRangePercent: 120,
       arrowHookMs: 0,
       inkLeadMs: 20,
+      fastInk: false,
       keepInkOnDelete: false,
       textLabels: TextLabelPlace.below,
       textPanel: TextPanelPlace.floating,
