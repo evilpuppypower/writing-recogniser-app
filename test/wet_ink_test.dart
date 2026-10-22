@@ -49,19 +49,22 @@ void main() {
     ink.wetInk = wet;
   });
 
-  Future<Offset> pump(WidgetTester tester) async {
+  Future<Offset> pump(WidgetTester tester, {double zoom = 1}) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Center(
-          child: SizedBox(
-            width: 306,
-            height: 396,
-            child: PageInkLayer(
-              pageNumber: 1,
-              geometry: PageGeometry(width: 612, height: 792),
-              viewWidth: 306,
-              controller: ink,
-              tools: tools,
+          child: Transform.scale(
+            scale: zoom,
+            child: SizedBox(
+              width: 306,
+              height: 396,
+              child: PageInkLayer(
+                pageNumber: 1,
+                geometry: PageGeometry(width: 612, height: 792),
+                viewWidth: 306,
+                controller: ink,
+                tools: tools,
+              ),
             ),
           ),
         ),
@@ -137,5 +140,37 @@ void main() {
     await g.up();
     await tester.pump(const Duration(milliseconds: 100));
     expect(ink.ink.strokesOn(1), hasLength(1));
+  });
+
+  testWidgets('zoomed in, the line is as wide as the app draws it, and '
+      'kept to where the pages show', (tester) async {
+    ink.wetArea = () => const Rect.fromLTRB(0, 0, 800, 300);
+    final at = await pump(tester, zoom: 2);
+    final g = await write(tester, at);
+    final s = wet.starts.single;
+    expect(s.unitPx, closeTo(PenStyle.defaultPen.width * 0.5 * 2 * 3, 1e-6));
+    final page = tester.getRect(find.byType(PageInkLayer));
+    expect(s.clip, page.intersect(const Rect.fromLTRB(0, 0, 800, 300)));
+    await g.up();
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('a see-through pen is drawn by the app alone', (tester) async {
+    tools.value = tools.value.withCurrent(
+      PenStyle.defaultPen.copyWith(colorArgb: 0x80FF0000),
+    );
+    final at = await pump(tester);
+    final g = await write(tester, at);
+    await g.up();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(wet.calls, isEmpty);
+  });
+
+  testWidgets('the page going away mid-stroke cancels it', (tester) async {
+    final at = await pump(tester);
+    await write(tester, at);
+    await tester.pumpWidget(const SizedBox());
+    expect(wet.calls, ['start 5000000', 'cancel 5000000']);
   });
 }

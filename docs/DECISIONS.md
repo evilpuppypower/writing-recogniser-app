@@ -948,6 +948,7 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
   - "Cancel" (the line goes at once): a stroke straightened or tidied into a shape, the eraser button pressed mid-stroke, a tap on a label, a cancelled touch.
   - "Release": after the pen lifts, two frames after the app has drawn the stroke itself, so the line never blinks. Anything not released within 3 s goes anyway.
 - **Nothing is saved here:** the saved stroke is still the app's own, from the same pen samples.
+- **Only where it should be:** the line is kept inside the area where the pages show (never over the toolbars), see-through pen colours are left to the app (their joins would look darker), and the layer is taken away whenever another screen (such as Settings) is on top of the PDF, or the app is closed.
 - **Safety:** any error turns the layer off for the rest of the session and the app's own drawing carries on as before; the reason is in the diagnostics (`wetProblem`). Settings → "Fast ink" turns it off.
 - **Measured:** the diagnostics report whether it's on, strokes drawn and cancelled, and the time from a pen sample to its drawing (`wetMedianMs`, `wetP90Ms`).
 - **Ink ahead of the pen:** the default lead is now 18 ms (was 12): build 108's diagnostics showed guesses off by only 0.2 px (0.4 px for 90%).

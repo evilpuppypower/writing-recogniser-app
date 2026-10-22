@@ -172,6 +172,9 @@ class WetInk(private val activity: Activity, messenger: BinaryMessenger) {
         enabled = true
     }
 
+    /** The activity is going: the layer and its drawing thread go too. */
+    fun close() = disable()
+
     private fun disable() {
         enabled = false
         current = null

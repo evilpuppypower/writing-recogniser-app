@@ -140,6 +140,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        wetInk?.close()
+        wetInk = null
         powerReceiver?.let {
             try {
                 unregisterReceiver(it)

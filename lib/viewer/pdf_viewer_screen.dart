@@ -4026,6 +4026,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _text.penDown = _ink.penDown;
     // How long the pen's ink takes to reach the screen (diagnostics).
     _ink.penTiming = _frames.pen;
+    _ink.wetArea = () {
+      final box = _pageKey.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+      return MatrixUtils.transformRect(
+        box.getTransformTo(null),
+        Offset.zero & box.size,
+      );
+    };
     unawaited(_loadScannedText());
     _frames.start();
     _layoutLoaded = _loadLayout();
@@ -4626,7 +4634,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   @override
   Widget build(BuildContext context) {
     _shownSettings = _docSettings?.value ?? SettingsScope.valueOf(context);
-    _syncWetInk(_shownSettings!.fastInk);
+    // Only while the PDF is the screen showing (not under Settings).
+    _syncWetInk(
+      _shownSettings!.fastInk && (ModalRoute.of(context)?.isCurrent ?? true),
+    );
     final page = _buildPage(context);
     // Always the same shape of tree (so the viewer isn't built again when
     // this document's own settings arrive): its own settings once loaded,

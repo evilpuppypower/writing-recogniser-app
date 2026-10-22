@@ -58,6 +58,10 @@ class DocumentInkController extends ChangeNotifier {
   /// the app draws it alone.
   WetInk? wetInk;
 
+  /// Where the pages show on the screen (not under the toolbars), in
+  /// logical pixels; the platform's line is kept inside it.
+  Rect? Function()? wetArea;
+
   void penOn() => penDown.value = ++_pens > 0;
 
   void penOff() {
@@ -462,14 +466,23 @@ class _PageInkLayerState extends State<PageInkLayer> {
   void _startWet(PointerEvent e) {
     _wetDown = null;
     final wet = widget.controller.wetInk;
-    // Not the highlighter: it's see-through and blended with the page.
-    if (wet == null || _style.tool != InkTool.pen) return;
+    // Not the highlighter (blended with the page) or see-through pens
+    // (their joins would show darker there).
+    if (wet == null ||
+        _style.tool != InkTool.pen ||
+        (_style.colorArgb >>> 24) != 0xFF) {
+      return;
+    }
     final box = context.findRenderObject();
     if (box is! RenderBox || !box.hasSize || !box.attached) return;
     final toScreen = box.getTransformTo(null);
     final zoom = toScreen.getMaxScaleOnAxis();
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final pressure = SettingsScope.valueOf(context).pressureResponse;
+    var clip = MatrixUtils.transformRect(toScreen, Offset.zero & box.size);
+    final area = widget.controller.wetArea?.call();
+    if (area != null) clip = clip.intersect(area);
+    if (clip.isEmpty) return;
     final down = e.timeStamp.inMicroseconds;
     _wetDown = down;
     wet.start(
@@ -481,7 +494,7 @@ class _PageInkLayerState extends State<PageInkLayer> {
       spread:
           pressure.strength.clamp(0.0, 1.0) * pressure.range.clamp(0.0, 10.0),
       thinnest: PressureResponse.thinnest,
-      clip: MatrixUtils.transformRect(toScreen, Offset.zero & box.size),
+      clip: clip,
       devicePixelRatio: dpr,
     );
   }
