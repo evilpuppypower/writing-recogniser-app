@@ -979,3 +979,11 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 - Kept with the ink (`manualLine` on each stroke, like "One word"'s `manualWord`), so it lasts after reopening, and undo takes it back. The strokes also count as writing from then on.
 - A copy of marked strokes gets a sentence of its own, not joined to the original's.
 - Writing already read is read again at once, all together (words the user fixed keep their text). The sentence's words read in the order they were written, so a sentence carried on to the next row comes after the first row, not mixed into it. Sentence strokes always count as writing, even if they looked like drawings.
+
+## 2026-10-22 — "Review my writing" (owner chose both: outlines in the PDF and a review screen)
+
+- Settings → "Review my writing" goes through the words read from all the user's PDFs, one at a time: the ones the app wasn't sure of first, then the rest in page order. Each shows its ink, large, and the reading.
+- **Right** marks the reading as checked (`checked` on the saved word). Typing the word, or tapping one of the other readings, fixes it: the page's saved words are updated and a correction is kept with the word's ink, as fixing it in the PDF does, so the app learns from it. **Skip** leaves it for later.
+- Checked and fixed words are certain, so the training data marks them (`checked`, `corrected`): this is the labelled handwriting from the user's own PDFs. "It's right" on a word with a "?" in the PDF also marks it checked.
+- The PDF open at the time is left out (it saves its own words, which would overwrite the answers).
+- Words are gathered away from the screen's thread, with a loading indicator.

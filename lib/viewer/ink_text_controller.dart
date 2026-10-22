@@ -39,7 +39,12 @@ class RecognizedWord {
     this.byLine = false,
     this.unsure = false,
     this.fromYourWords = false,
+    this.checked = false,
   });
+
+  /// The user said this reading is right ("✓" in Review my writing, or
+  /// "It's right" on a word with a "?"): its text is certain, for training.
+  final bool checked;
 
   /// Worth asking the user about (owner's approved idea 3): shown with a
   /// "?" until they correct it or say it's right.
@@ -104,6 +109,7 @@ class RecognizedWord {
     'engine': ?engineText,
     if (autoReplaced) 'auto': true,
     if (corrected) 'corrected': true,
+    if (checked) 'checked': true,
     if (previousWord.isNotEmpty) 'prev': previousWord,
     'ink': [for (final s in ink) s.toJson()],
     'readings': ?engineReadings,
@@ -145,6 +151,7 @@ class RecognizedWord {
       byLine: j['byLine'] == true,
       unsure: j['unsure'] == true,
       fromYourWords: j['yours'] == true,
+      checked: j['checked'] == true,
       slant: switch (j['slant']) {
         final List v when v.length == 7 => () {
           final n = [for (final x in v) (x as num).toDouble()];
@@ -168,6 +175,7 @@ class RecognizedWord {
     bool? autoReplaced,
     bool? corrected,
     bool? unsure,
+    bool? checked,
     Object? slant = _keep,
   }) => RecognizedWord(
     text: text ?? this.text,
@@ -185,6 +193,8 @@ class RecognizedWord {
     byLine: byLine,
     unsure: unsure ?? this.unsure,
     fromYourWords: (autoReplaced ?? this.autoReplaced) && fromYourWords,
+    // A new reading is no longer the one checked.
+    checked: checked ?? (text == null || text == this.text) && this.checked,
   );
 }
 
@@ -292,7 +302,7 @@ class InkTextController extends ChangeNotifier {
     // opened); nothing to confirm if it now reads differently.
     final now = words?[word.key];
     if (words == null || now == null || now.text != word.text) return;
-    words[word.key] = now.copyWith(unsure: false);
+    words[word.key] = now.copyWith(unsure: false, checked: true);
     _notify();
     _wordsChanged(page);
     feedback.used(word.text, previousWord: word.previousWord);
