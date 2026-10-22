@@ -201,22 +201,58 @@ public final class OcrMath {
      * (with 0, as PaddleOCR does) to [REC_MIN_WIDTH].
      */
     public static Input recognitionInput(int[] argb, int w, int h, Line line, int height, int maxWidth) {
+        return recognitionBatch(argb, w, h, List.of(line), height, maxWidth);
+    }
+
+    /** How wide [line] is for the reader at [height] (before padding). */
+    public static int recognitionWidth(Line line, int height, int maxWidth) {
         int lw = Math.max(1, line.right - line.left), lh = Math.max(1, line.bottom - line.top);
-        int rw = Math.max(1, Math.min(maxWidth, (int) Math.ceil((float) lw * height / lh)));
-        int padded = Math.max(rw, Math.min(maxWidth, REC_MIN_WIDTH));
-        float[] out = new float[3 * height * padded];
-        float sx = (float) lw / rw, sy = (float) lh / height;
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < rw; x++) {
-                float px = line.left + (x + 0.5f) * sx - 0.5f;
-                float py = line.top + (y + 0.5f) * sy - 0.5f;
-                for (int c = 0; c < 3; c++) {
-                    float v = sample(argb, w, h, px, py, c) / 255f;
-                    out[c * height * padded + y * padded + x] = (v - 0.5f) / 0.5f;
+        return Math.max(1, Math.min(maxWidth, (int) Math.ceil((float) lw * height / lh)));
+    }
+
+    /**
+     * Several lines for the reader at once (PaddleOCR reads 6 at a time):
+     * each as [recognitionInput] makes it, all padded on the right to the
+     * widest, one after another. [Input.width] is that width; the batch
+     * holds lines.size() images.
+     */
+    public static Input recognitionBatch(int[] argb, int w, int h, List<Line> lines, int height, int maxWidth) {
+        int padded = Math.min(maxWidth, REC_MIN_WIDTH);
+        for (Line line : lines) padded = Math.max(padded, recognitionWidth(line, height, maxWidth));
+        int each = 3 * height * padded;
+        float[] out = new float[each * lines.size()];
+        for (int n = 0; n < lines.size(); n++) {
+            Line line = lines.get(n);
+            int rw = recognitionWidth(line, height, maxWidth);
+            int lw = Math.max(1, line.right - line.left), lh = Math.max(1, line.bottom - line.top);
+            float sx = (float) lw / rw, sy = (float) lh / height;
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < rw; x++) {
+                    float px = line.left + (x + 0.5f) * sx - 0.5f;
+                    float py = line.top + (y + 0.5f) * sy - 0.5f;
+                    for (int c = 0; c < 3; c++) {
+                        float v = sample(argb, w, h, px, py, c) / 255f;
+                        out[n * each + c * height * padded + y * padded + x] = (v - 0.5f) / 0.5f;
+                    }
                 }
             }
         }
         return new Input(out, padded, height);
+    }
+
+    /**
+     * [lines] in groups of at most [size] to read together, lines of a
+     * like shape (width for their height) in each, so little of a batch is
+     * padding. Each line is in exactly one group.
+     */
+    public static List<List<Line>> batches(List<Line> lines, int size, int height, int maxWidth) {
+        List<Line> byWidth = new ArrayList<>(lines);
+        byWidth.sort(Comparator.comparingInt(l -> recognitionWidth(l, height, maxWidth)));
+        List<List<Line>> out = new ArrayList<>();
+        for (int i = 0; i < byWidth.size(); i += Math.max(1, size)) {
+            out.add(new ArrayList<>(byWidth.subList(i, Math.min(byWidth.size(), i + Math.max(1, size)))));
+        }
+        return out;
     }
 
     /**
@@ -228,6 +264,13 @@ public final class OcrMath {
      * confidence (the average likelihood of the characters kept).
      */
     public static void decode(float[] probs, int steps, int classes, List<String> alphabet, Line line) {
+        decode(probs, 0, steps, classes, alphabet, line);
+    }
+
+    /** As [decode], for the image at [index] of a batch's answer. */
+    public static void decode(float[] probs, int index, int steps, int classes, List<String> alphabet,
+            Line line) {
+        int base = index * steps * classes;
         boolean space = classes == alphabet.size() + 2;
         if (!space && classes != alphabet.size() + 1) {
             throw new IllegalStateException("The model's alphabet file doesn't match it");
@@ -237,9 +280,9 @@ public final class OcrMath {
         int kept = 0, last = -1;
         for (int t = 0; t < steps; t++) {
             int best = 0;
-            float bestP = probs[t * classes];
+            float bestP = probs[base + t * classes];
             for (int c = 1; c < classes; c++) {
-                float p = probs[t * classes + c];
+                float p = probs[base + t * classes + c];
                 if (p > bestP) {
                     bestP = p;
                     best = c;

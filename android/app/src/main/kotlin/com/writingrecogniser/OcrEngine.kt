@@ -50,6 +50,9 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
     private var det: OrtSession? = null
     private var rec: OrtSession? = null
     private var alphabet: List<String> = emptyList()
+    /** Whether the reader model takes several lines at once (found out
+     * the first time it's tried; asked again for each model). */
+    private var batchOk = true
 
     init {
         // Left over if the app was closed mid-download.
@@ -225,6 +228,7 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
         det = null
         rec = null
         loaded = null
+        batchOk = true
     }
 
     private fun load(id: String) {
@@ -291,19 +295,23 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
             }
         }
         val lines = OcrMath.detectionBoxes(prob, input.width, input.height, w, h, 0.3f, 0.6f)
-        // Reading each line.
-        for (line in lines) {
-            val ri = OcrMath.recognitionInput(argb, w, h, line, REC_HEIGHT, REC_MAX_WIDTH)
-            val rs = longArrayOf(1, 3, ri.height.toLong(), ri.width.toLong())
-            OnnxTensor.createTensor(env, FloatBuffer.wrap(ri.data), rs).use { t ->
-                rec!!.run(mapOf(rec!!.inputNames.first() to t)).use { out ->
-                    val v = out[0] as OnnxTensor
-                    val dims = v.info.shape // [1, steps, classes]
-                    val fb = v.floatBuffer
-                    val probs = FloatArray(fb.remaining()).also { fb.get(it) }
-                    OcrMath.decode(probs, dims[1].toInt(), dims[2].toInt(), alphabet, line)
+        // Reading the lines, several at a time (much quicker than one by
+        // one); if this model can't take more than one, one by one.
+        val groups = if (batchOk) OcrMath.batches(lines, REC_BATCH, REC_HEIGHT, REC_MAX_WIDTH)
+            else lines.map { listOf(it) }
+        for (group in groups) {
+            var batchFailed = false
+            if (group.size > 1 && batchOk) {
+                try {
+                    recognise(env, argb, w, h, group)
+                    continue
+                } catch (_: Exception) {
+                    batchFailed = true
                 }
             }
+            for (line in group) recognise(env, argb, w, h, listOf(line))
+            // Only when one at a time works is it the batching that failed.
+            if (batchFailed) batchOk = false
         }
         return lines.filter { it.text.isNotBlank() }.map {
             mapOf(
@@ -314,6 +322,24 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
                 "text" to it.text,
                 "confidence" to it.confidence.toDouble(),
             )
+        }
+    }
+
+    /** Reads [group]'s lines in one go, setting each one's text. */
+    private fun recognise(env: OrtEnvironment, argb: IntArray, w: Int, h: Int, group: List<OcrMath.Line>) {
+        val ri = OcrMath.recognitionBatch(argb, w, h, group, REC_HEIGHT, REC_MAX_WIDTH)
+        val rs = longArrayOf(group.size.toLong(), 3, ri.height.toLong(), ri.width.toLong())
+        OnnxTensor.createTensor(env, FloatBuffer.wrap(ri.data), rs).use { t ->
+            rec!!.run(mapOf(rec!!.inputNames.first() to t)).use { out ->
+                val v = out[0] as OnnxTensor
+                val dims = v.info.shape // [lines, steps, classes]
+                check(dims.size == 3 && dims[0] == group.size.toLong()) { "Unexpected reader answer" }
+                val fb = v.floatBuffer
+                val probs = FloatArray(fb.remaining()).also { fb.get(it) }
+                for ((i, line) in group.withIndex()) {
+                    OcrMath.decode(probs, i, dims[1].toInt(), dims[2].toInt(), alphabet, line)
+                }
+            }
         }
     }
 
@@ -329,5 +355,7 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
         const val DET_MAX_SIDE = 1600
         const val REC_HEIGHT = 48
         const val REC_MAX_WIDTH = 960
+        /** Lines read together, as PaddleOCR does. */
+        const val REC_BATCH = 6
     }
 }
