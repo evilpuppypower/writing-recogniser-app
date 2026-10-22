@@ -158,8 +158,8 @@ class MyScriptOffline(private val context: Context, messenger: BinaryMessenger) 
     }
 
     /**
-     * MyScript's writing/drawing sorter, set up on first use. Classifies
-     * only (no text recognition) and exports each element's bounding box.
+     * MyScript's writing/drawing sorter, set up on first use. Sorts and
+     * recognises text, and exports each element's bounding box.
      */
     private fun ensureRaw(): Recognizer? {
         rawRecognizer?.let { return it }
@@ -169,7 +169,10 @@ class MyScriptOffline(private val context: Context, messenger: BinaryMessenger) 
             val conf = e.configuration
             for (prefix in listOf("", "recognizer.")) {
                 conf.setStringArray("${prefix}raw-content.classification.types", arrayOf("text", "drawing"))
-                conf.setStringArray("${prefix}raw-content.recognition.types", arrayOf<String>())
+                // Text recognised too: with nothing recognised, MyScript's
+                // answer had no groups at all (owner's diagnostics,
+                // 2026-10-22: every answer's "elements" was empty).
+                conf.setStringArray("${prefix}raw-content.recognition.types", arrayOf("text"))
             }
             conf.setBoolean("export.jiix.bounding-box", true)
             conf.setBoolean("export.jiix.strokes", false)
