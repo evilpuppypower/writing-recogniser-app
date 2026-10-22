@@ -9,6 +9,7 @@ import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.os.SystemClock
 import android.view.MotionEvent
+import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
@@ -99,8 +100,16 @@ class WetInk(private val activity: Activity, messenger: BinaryMessenger) {
     @Volatile private var originX = 0f
     @Volatile private var originY = 0f
 
+    /** The layer's surface is ready to draw on (main thread). */
+    private var ready = false
+
+    /** When the pen was last near or on the screen (uptime ms). */
+    private var lastPen = 0L
+
     private val latencies = ArrayList<Long>()
     private var started = 0
+    private var wakes = 0
+    private var missed = 0
     private var cancelled = 0
     private var problem: String? = null
 
@@ -146,6 +155,19 @@ class WetInk(private val activity: Activity, messenger: BinaryMessenger) {
 
     private fun enable() {
         if (failed || enabled) return
+        enabled = true
+        lastPen = SystemClock.uptimeMillis()
+        wake()
+    }
+
+    /**
+     * Puts the layer over the app. It's taken away again when the pen has
+     * been away for a while ([sleepCheck]): an idle see-through layer over the
+     * whole screen still costs battery, as the screen is put together with
+     * it on every frame (owner, 2026-10-22).
+     */
+    private fun wake() {
+        if (failed || !enabled || surface != null) return
         val flutterView = activity.findViewById<View>(FlutterActivity.FLUTTER_VIEW_ID)
         val parent = flutterView?.parent as? ViewGroup ?: return
         val view = SurfaceView(activity).apply {
@@ -169,7 +191,36 @@ class WetInk(private val activity: Activity, messenger: BinaryMessenger) {
         }
         surface = view
         renderer = CanvasFrontBufferedRenderer(view, callback)
-        enabled = true
+        // Added after the renderer's own, so it's set up first. Strokes
+        // that start before this are drawn by the app alone.
+        view.holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {}
+
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                if (surface === view) ready = width > 0 && height > 0
+            }
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                if (surface === view) ready = false
+            }
+        })
+        wakes++
+        main.removeCallbacks(sleepCheck)
+        main.postDelayed(sleepCheck, IDLE_MS)
+    }
+
+    /** Takes the layer away once the pen has been away [IDLE_MS] and
+     * nothing is left on it; it comes back when the pen comes near. */
+    private val sleepCheck = object : Runnable {
+        override fun run() {
+            if (surface == null) return
+            val idle = SystemClock.uptimeMillis() - lastPen
+            if (idle >= IDLE_MS && current == null && shown.isEmpty()) {
+                removeLayer()
+            } else {
+                main.postDelayed(this, maxOf(IDLE_MS - idle, 500L))
+            }
+        }
     }
 
     /** The activity is going: the layer and its drawing thread go too. */
@@ -180,6 +231,12 @@ class WetInk(private val activity: Activity, messenger: BinaryMessenger) {
         current = null
         shown.clear()
         scene = emptyList()
+        removeLayer()
+    }
+
+    private fun removeLayer() {
+        main.removeCallbacks(sleepCheck)
+        ready = false
         try {
             renderer?.release(true)
         } catch (_: Throwable) {}
@@ -235,10 +292,28 @@ class WetInk(private val activity: Activity, messenger: BinaryMessenger) {
     fun onTouch(ev: MotionEvent) {
         if (!enabled || failed) return
         try {
+            penNear(ev)
             handle(ev)
         } catch (e: Throwable) {
             fail(e)
         }
+    }
+
+    /** Pen hover events (MainActivity): the layer is got ready before the
+     * pen touches. */
+    fun onHover(ev: MotionEvent) {
+        if (!enabled || failed) return
+        try {
+            penNear(ev)
+        } catch (e: Throwable) {
+            fail(e)
+        }
+    }
+
+    private fun penNear(ev: MotionEvent) {
+        if ((0 until ev.pointerCount).none { isPen(ev, it) }) return
+        lastPen = SystemClock.uptimeMillis()
+        wake()
     }
 
     private fun isPen(ev: MotionEvent, i: Int) = ev.getToolType(i) == MotionEvent.TOOL_TYPE_STYLUS
@@ -253,6 +328,12 @@ class WetInk(private val activity: Activity, messenger: BinaryMessenger) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val i = ev.actionIndex
                 if (!isPen(ev, i) || erasing(ev, i)) return
+                if (!ready) {
+                    // The layer is still being got ready: the app draws
+                    // this stroke on its own.
+                    missed++
+                    return
+                }
                 // Identified by this event's time: the app uses the same
                 // time for the stroke.
                 val s = Stroke(ev.eventTime, ev.getPointerId(i))
@@ -379,6 +460,8 @@ class WetInk(private val activity: Activity, messenger: BinaryMessenger) {
             "wetOn" to (enabled && !failed),
             "wetStrokes" to started,
             "wetCancelled" to cancelled,
+            "wetWakes" to wakes,
+            "wetMissed" to missed,
         )
         if (lags.isNotEmpty()) {
             out["wetMedianMs"] = lags[lags.size / 2]
@@ -387,6 +470,13 @@ class WetInk(private val activity: Activity, messenger: BinaryMessenger) {
         problem?.let { out["wetProblem"] = it }
         started = 0
         cancelled = 0
+        wakes = 0
+        missed = 0
         return out
+    }
+
+    private companion object {
+        /** How long the pen is away before the layer is taken away. */
+        const val IDLE_MS = 5000L
     }
 }

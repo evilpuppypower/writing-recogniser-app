@@ -998,3 +998,8 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 
 - After the text on a scanned page is found, its lines are read up to 6 at a time instead of one by one, as PaddleOCR itself does. Lines of a like width go together, so little of each batch is blank padding. Shorter lines are padded to the widest in their batch, which can change a reading very slightly (PaddleOCR works the same way); otherwise the text is the same, from fewer, larger runs of the reader.
 - If the reader model can't take several lines at once, the app finds out on the first try (when one line at a time then works) and goes back to one line at a time for that model, so reading still works.
+
+## 2026-10-22 — Fast ink sleeps when the pen is away (battery)
+
+- The Fast ink layer is a see-through layer over the whole screen, and the screen is put together with it on every frame even when it's empty. It's now taken away once the pen has been away from the screen for 5 seconds and nothing is left on it, and put back as soon as the pen comes near (hovering over the screen) or touches it.
+- A stroke that starts before the layer is ready again (a pen that can't be sensed hovering, or a very quick touch) is drawn by the app on its own, as with Fast ink off. The diagnostics count how often the layer came back (`wetWakes`) and how many strokes it missed (`wetMissed`), to check that 5 seconds is right.
