@@ -92,6 +92,7 @@ import '../settings/ocr_models_screen.dart';
 import '../storage/sqlite_scanned_text_store.dart';
 import 'export_options_dialog.dart';
 import 'page_text_labels.dart';
+import 'page_word_outlines.dart';
 import 'page_typed_text.dart';
 import 'pen_toolbar.dart';
 import 'pen_tools_controller.dart';
@@ -367,6 +368,10 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   /// Labels fade 5 s after writing stops, and come back with the pen
   /// near them, a tap, or the labels button (owner's choice C1 + C4).
   final _labelsShown = LabelFade();
+
+  /// "Show words": each word's strokes outlined, its reading shown, and a
+  /// tap on an outline fixes it (owner, 2026-10-22).
+  final _showWords = ValueNotifier<bool>(false);
 
   /// Whether [w]'s ink is converted and the typed text is showing, so its
   /// label is left out.
@@ -3795,11 +3800,34 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         ),
       ),
     ),
+    // Show words: an outline round each word, under its label.
     Positioned.fill(
-      child: Builder(
-        builder: (context) {
+      child: ValueListenableBuilder(
+        valueListenable: _showWords,
+        builder: (context, on, _) => !on
+            ? const SizedBox.shrink()
+            : PageWordOutlines(
+                pageNumber: page.pageNumber,
+                geometry: _geometryOf(page),
+                viewWidth: pageRect.width,
+                text: _text,
+                onTap: (w) => _fixWord(page.pageNumber, w),
+                skip: (w) => _shownTyped(page.pageNumber, w),
+                refresh:
+                    _showTyped, // words change with the text, not every stroke
+              ),
+      ),
+    ),
+    Positioned.fill(
+      child: ValueListenableBuilder(
+        valueListenable: _showWords,
+        builder: (context, showWords, _) {
           final settings = SettingsScope.valueOf(context);
-          final place = settings.textLabels;
+          // Show words always shows the readings, above the words if
+          // labels are off, and keeps them from fading.
+          final place = showWords && settings.textLabels == TextLabelPlace.off
+              ? TextLabelPlace.above
+              : settings.textLabels;
           return place == TextLabelPlace.off
               ? const SizedBox.shrink()
               : PageTextLabels(
@@ -3813,7 +3841,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                   onDoubleTap: (w) => _fixWord(page.pageNumber, w),
                   skip: (w) => _shownTyped(page.pageNumber, w),
                   refresh: Listenable.merge([_ink, _showTyped]),
-                  shown: _labelsShown,
+                  shown: showWords ? null : _labelsShown,
                 );
         },
       ),
@@ -4607,6 +4635,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _tools.dispose();
     _showTyped.dispose();
     _labelsShown.dispose();
+    _showWords.dispose();
     _selection.dispose();
     // The documents the shown pages came from: after the viewer has let go
     // of the pages made from them.
@@ -4933,6 +4962,29 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                               ? 'Hide recognised text over the ink'
                               : 'Show recognised text over the ink',
                           _toggleLabels,
+                        ),
+                      ],
+                    ),
+                    BarItem(
+                      bar: ValueListenableBuilder(
+                        valueListenable: _showWords,
+                        builder: (context, on, _) => IconButton(
+                          tooltip: on
+                              ? 'Stop showing which strokes are each word'
+                              : 'Show which strokes are each word (tap a '
+                                    'word with a finger to fix it)',
+                          isSelected: on,
+                          icon: const Icon(Icons.highlight_alt),
+                          onPressed: () => _showWords.value = !on,
+                        ),
+                      ),
+                      menu: () => [
+                        _menuItem(
+                          Icons.highlight_alt,
+                          _showWords.value
+                              ? 'Stop showing words'
+                              : 'Show which strokes are each word',
+                          () => _showWords.value = !_showWords.value,
                         ),
                       ],
                     ),
