@@ -3813,7 +3813,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                 text: _text,
                 onTap: (w) => _fixWord(page.pageNumber, w),
                 skip: (w) => _shownTyped(page.pageNumber, w),
-                refresh: Listenable.merge([_ink, _showTyped]),
+                refresh:
+                    _showTyped, // words change with the text, not every stroke
               ),
       ),
     ),
