@@ -960,3 +960,8 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 - **Change:** MyScript's sorter now also recognises text (`raw-content.recognition.types: text`, was none). The best guess, since MyScript's documentation can't be reached from here: with nothing recognised, its answer seems to hold no groups at all.
 - **Cost:** sorting takes MyScript longer. It runs on MyScript's own thread, not the pen's, but words are read on the same thread, so they may come a little later after a pause. The diagnostics show both (`medianSortMs`, reading times).
 - **Checked next report:** the diagnostics now count the answer's groups (`groups: N`). If they're still 0, this goes back and the shape check stays.
+
+## 2026-10-22 — Finished ink drawn with fewer points when they'd overlap on screen (owner: smoother scrolling when zoomed out)
+
+- Since every pen sample is kept, a stroke has 3–4 times more points, and zoomed out many of them land within the same pixel. Finished ink is recorded once per page at the width it's shown, and now leaves out points under half a pixel apart there (the first and last of a stroke always stay). The ink being written, exports, thumbnails and the saved strokes keep every point.
+- Zoomed in more than 1.5 times past the width it was recorded at, a page's ink is recorded again, so lines stay smooth up close.
