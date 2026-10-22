@@ -129,6 +129,8 @@ class PageWordOutlines extends StatelessWidget {
         hits: (p) => at(p) != null,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
+          // Each word is its own button for screen readers (the painter's).
+          excludeFromSemantics: true,
           // Fingers only: the pen keeps writing over words.
           supportedDevices: const {PointerDeviceKind.touch},
           onTapUp: (d) {
@@ -141,7 +143,11 @@ class PageWordOutlines extends StatelessWidget {
               [for (final o in outlines) o.at],
               [
                 for (final o in outlines)
-                  (label: o.word.text, onTap: () => onTap(o.word)),
+                  (
+                    label: o.word.text,
+                    onTap: () => onTap(o.word),
+                    word: o.word,
+                  ),
               ],
             ),
           ),
@@ -155,7 +161,7 @@ class _OutlinePainter extends CustomPainter {
   _OutlinePainter(this.outlines, this.words);
 
   final List<WordOutline> outlines;
-  final List<({String label, VoidCallback onTap})> words;
+  final List<({String label, VoidCallback onTap, RecognizedWord word})> words;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -219,7 +225,8 @@ class _OutlinePainter extends CustomPainter {
     if (old.outlines.length != outlines.length) return false;
     for (var i = 0; i < outlines.length; i++) {
       if (old.outlines[i] != outlines[i] ||
-          old.words[i].label != words[i].label) {
+          old.words[i].label != words[i].label ||
+          !identical(old.words[i].word, words[i].word)) {
         return false;
       }
     }
