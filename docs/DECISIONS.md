@@ -993,3 +993,8 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 
 - A grab handle on the left of the selection bar (tooltip "Drag to move this bar"): drag it with a finger or the pen to move the bar anywhere on the page, without leaving Select.
 - It stays where it was put for the rest of the time the PDF is open, for later selections too; it starts above what's selected again when the PDF is next opened.
+
+## 2026-10-22 — Scanned pages read faster: several lines at a time (owner: "sure")
+
+- After the text on a scanned page is found, its lines are read up to 6 at a time instead of one by one, as PaddleOCR itself does. Lines of a like width go together, so little of each batch is blank padding. The text read is the same; only fewer, larger runs of the reader.
+- If the reader model can't take several lines at once, the app finds out on the first try and goes back to one line at a time for that model, so reading still works.
