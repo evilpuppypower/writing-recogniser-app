@@ -28,7 +28,7 @@ Built by one non-specialist owner who makes product decisions and tests on a phy
 
 ## Working agreement
 
-- Work on one task at a time from `docs/PLAN.md`. Create a branch per task: `task/<id>-short-name`. Open a pull request when done. Do not push to `main`.
+- Work on one task at a time from `docs/PLAN.md`. Create a branch per task: `task/<id>-short-name`. Open a pull request when done. Do not push to `main` (except to merge, see "Merging into `main`" below).
 - Each task has "done when" criteria in the plan. Meet them and say how you verified each one.
 - Before opening a PR: `flutter analyze` and `flutter test` must pass. Add tests for new logic, especially the stroke model, coordinate mapping, feedback layer, and storage.
 - Keep PRs small and reviewable. Prefer several small PRs over one large one.
@@ -58,7 +58,7 @@ flutter build apk --release --target-platform android-arm64   # what CI builds a
 
 ## Public repo: privacy check (owner rule, 2026-10-11)
 
-**The owner takes this very seriously, and so must you: anything written to this repo is public and permanent.** If ever in doubt about a push, PR, issue or comment (what it contains, whether it's wanted, or whether it's the right repo or branch), ask the owner first. Never push to `main`.
+**The owner takes this very seriously, and so must you: anything written to this repo is public and permanent.** If ever in doubt about a push, PR, issue or comment (what it contains, whether it's wanted, or whether it's the right repo or branch), ask the owner first. Never push to `main`, except to merge a PR as described in "Merging into `main`" below.
 
 This repository is public. Nothing written to it may identify the owner: no name, email, location, city or time zone, device model, account names other than the GitHub username, or personal files. This covers code, docs, commit messages, PR titles and descriptions, issues and comments.
 
@@ -79,6 +79,22 @@ This repository is public. Nothing written to it may identify the owner: no name
 - **CI output is public too** (logs, check results, artifact names, and the commands GitHub prints for each step). Nothing in it may depend on the owner's time zone, country or identity: the job runs in UTC, file and artifact names use the build number, and anything derived from a secret (like the local-time build label) goes through a file, never a step output, env value or command line.
 - **Never publish the owner's data:** handwriting samples or backups (handwriting identifies a person), exported PDFs, opening-time CSVs, crash details, screenshots or device logs. They can hold document names, timestamps and ink. Summarise numbers instead (e.g. error rates), and check any screenshot for document names, notifications and the status bar first.
 - **Public writes are permanent.** Force-pushing or editing doesn't remove anything: old commits stay downloadable, edit history stays visible, and GitHub's public event feed is copied by archives within minutes. Run the check *before* the first push, not after.
+
+## Merging into `main`: Claude merges, by fast-forward only (owner rule, 2026-10-23)
+
+**The owner never merges, and must never be asked to.** When the owner says to merge a PR, Claude does it, and only as a fast-forward.
+
+**Why:** anything GitHub writes into the history in the owner's name is a new commit with a timestamp, and GitHub's website stamps it with the owner's local time-zone offset. That includes the Merge, Squash and Rebase buttons and web edits, and possibly also `gh pr merge` and the merge API. The repo's original first commit, made on the website, carried it. History is public and permanent, so one merge button press would publish the owner's time zone. A fast-forward makes no new commit: `main` just moves forward to commits Claude already made with `TZ=UTC`, and GitHub marks the PR merged by itself.
+
+How:
+
+1. The owner has said to merge this PR (each time; approval for one PR doesn't cover the next).
+2. The privacy check passes on the PR's head, and CI too when the PR changes the app.
+3. Check the head contains `main`: `git fetch origin && git merge-base --is-ancestor origin/main <head SHA>`. If it doesn't, bring Claude's own branch up to date first (rebase onto `main`, every commit with `TZ=UTC`), push it, and let the checks pass again. Never use a merge commit for this.
+4. Fast-forward: `ALLOW_MAIN_PUSH=1 git push origin <head SHA>:refs/heads/main`. Git refuses anything but a fast-forward. Never `--force`.
+5. Check `main` is at that SHA and the PR shows as merged.
+
+Never use the merge buttons, `gh pr merge` or the merge API, and never tell the owner to merge.
 
 ## Public repo: people who aren't the owner
 
