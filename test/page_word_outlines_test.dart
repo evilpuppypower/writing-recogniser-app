@@ -1,7 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:writing_recogniser/core/page_coordinates.dart';
+import 'package:writing_recogniser/core/stroke_grouping.dart';
 import 'package:writing_recogniser/viewer/ink_text_controller.dart';
 import 'package:writing_recogniser/viewer/page_word_outlines.dart';
 
@@ -35,32 +38,72 @@ void main() {
         ),
       ),
     );
-    final boxes = find.byType(DecoratedBox);
-    expect(boxes, findsNWidgets(2));
+    final g = PageGeometry(width: 612, height: 792);
+    final outlines = [
+      for (final w in words) PageWordOutlines.outlineOf(w, g, 306),
+    ];
     // Neighbouring words in different colours.
-    Color colour(int i) =>
-        ((tester.widget<DecoratedBox>(boxes.at(i)).decoration as BoxDecoration)
-                    .border!
-                as Border)
-            .top
-            .color;
-    expect(colour(0), isNot(colour(1)));
+    expect(PageWordOutlines.colours[0], isNot(PageWordOutlines.colours[1]));
     // Round the word's ink, in the page's pixels (half a pixel a point).
-    final rect = PageWordOutlines.outlineOf(
-      words.first,
-      PageGeometry(width: 612, height: 792),
-      306,
-    );
     final b = words.first.box;
-    expect(rect.left, closeTo(b.left / 2 - 3, 0.01));
-    expect(rect.width, closeTo((b.right - b.left) / 2 + 6, 0.01));
-    await tester.tapAt(tester.getCenter(boxes.at(1)));
+    expect(outlines.first.angle, 0);
+    expect(
+      outlines.first.centre.dx - outlines.first.size.width / 2,
+      closeTo(b.left / 2 - 3, 0.01),
+    );
+    expect(
+      outlines.first.size.width,
+      closeTo((b.right - b.left) / 2 + 6, 0.01),
+    );
+    // One painter for all the words.
+    expect(find.byType(CustomPaint), findsWidgets);
+    await tester.tapAt(outlines[1].centre);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(tapped, [words[1].text]);
+    // Between the words: nothing opens.
+    await tester.tapAt(
+      Offset(
+        (outlines[0].centre.dx +
+                outlines[0].size.width / 2 +
+                outlines[1].centre.dx -
+                outlines[1].size.width / 2) /
+            2,
+        outlines[0].centre.dy,
+      ),
+    );
     await tester.pump(const Duration(milliseconds: 500));
     expect(tapped, [words[1].text]);
     final pen = await tester.createGesture(kind: PointerDeviceKind.stylus);
-    await pen.down(tester.getCenter(boxes.at(0)));
+    await pen.down(outlines[0].centre);
     await pen.up();
     await tester.pump(const Duration(milliseconds: 500));
     expect(tapped, [words[1].text], reason: 'the pen writes, never opens');
+  });
+
+  test('a word written at a slant is outlined along it', () {
+    // 40 x 10 points, turned 30 degrees about its centre.
+    const angle = 30 * math.pi / 180;
+    const w = RecognizedWord(
+      text: 'up',
+      alternatives: [],
+      box: InkBox(80, 80, 120, 120),
+      line: 0,
+      slant: (angle: angle, cx: 100, cy: 100, box: InkBox(80, 95, 120, 105)),
+    );
+    final g = PageGeometry(width: 612, height: 792);
+    final o = PageWordOutlines.outlineOf(w, g, 612);
+    expect(o.size.width, closeTo(40 + 6, 0.01));
+    expect(o.size.height, closeTo(10 + 6, 0.01));
+    expect(o.angle.abs(), closeTo(angle, 0.001));
+    final c = g.toView(const PdfPagePoint(100, 100), 612);
+    expect(o.centre.dx, closeTo(c.x, 0.01));
+    expect(o.centre.dy, closeTo(c.y, 0.01));
+    // Along the slant is inside; the box's level corner isn't.
+    final along = Offset(math.cos(o.angle), math.sin(o.angle)) * 20;
+    expect(PageWordOutlines.contains(o, o.centre + along), isTrue);
+    expect(
+      PageWordOutlines.contains(o, o.centre + const Offset(22, 7)),
+      isFalse,
+    );
   });
 }
