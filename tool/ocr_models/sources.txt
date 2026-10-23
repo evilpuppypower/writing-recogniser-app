@@ -1,0 +1,13 @@
+# PaddleOCR's official inference models that tool/ocr_models/convert.py
+# turns into ONNX for the app's scanned-PDF reader (owner, 2026-10-23:
+# "start" on our own conversion). Each is PaddleOCR's own download, as
+# listed in PaddleOCR's docs (docs/version3.x/module_usage/), Apache 2.0.
+#
+# Each archive's SHA-256 is pinned. An empty fingerprint isn't pinned yet:
+# the workflow prints it and stops without publishing, so it can be
+# checked and pinned here first. A changed fingerprint stops it too.
+#
+# name | kind | address | SHA-256
+PP-OCRv5_mobile_det|det|https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_mobile_det_infer.tar|
+PP-OCRv5_server_det|det|https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_server_det_infer.tar|
+en_PP-OCRv5_mobile_rec|rec|https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/en_PP-OCRv5_mobile_rec_infer.tar|

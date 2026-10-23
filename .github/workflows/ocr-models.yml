@@ -1,0 +1,94 @@
+name: Scanned-PDF reader models
+
+# Our own ONNX copy of PaddleOCR's official models for reading scanned PDFs
+# (owner, 2026-10-23), so the app depends on no one else's copy. Run by
+# hand only (Actions -> "Scanned-PDF reader models" -> Run workflow); it
+# never runs on pushes or PRs. It uses no secrets.
+#
+# "convert" downloads the models (each fingerprint pinned in
+# tool/ocr_models/sources.txt), converts and checks them, with read-only
+# access. "publish" then attaches the files to a new release of this repo;
+# it runs no downloaded code. An existing release is never replaced: bump
+# TAG for a new set.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TAG: ocr-models-1
+
+jobs:
+  convert:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Install the converter (pinned, with fingerprints)
+        run: |
+          python3 -m venv /tmp/ocr-venv
+          /tmp/ocr-venv/bin/pip install --require-hashes --only-binary=:all: \
+            -r tool/ocr_models/requirements.txt
+      - name: Download the models (fingerprints checked)
+        # Python's own parts only: none of the converter's code runs here.
+        run: python3 -I tool/ocr_models/convert.py fetch /tmp/ocr-work
+      - name: Convert and check, as a separate user with no network
+        # The converter reads the downloaded files. It runs as a user who
+        # can't use sudo, can't see this job's tokens, and has no network,
+        # so whatever it does can't reach GitHub (the build cache other
+        # jobs use included) or install anything.
+        run: |
+          sudo useradd --no-create-home --shell /usr/sbin/nologin ocrconv
+          mkdir -p /tmp/ocr-run/home /tmp/ocr-out
+          cp -r tool/ocr_models /tmp/ocr-run/tool
+          chmod -R a+rX /tmp/ocr-venv /tmp/ocr-work /tmp/ocr-run
+          sudo chown ocrconv /tmp/ocr-run/home /tmp/ocr-out
+          cd /tmp/ocr-run
+          sudo unshare --net -- sudo -u ocrconv env -i PATH=/usr/bin:/bin \
+            HOME=/tmp/ocr-run/home PIP_NO_INDEX=1 \
+            /tmp/ocr-venv/bin/python -I tool/convert.py build /tmp/ocr-work /tmp/ocr-out
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          # Public anyway: these are published below.
+          name: ocr-models
+          path: /tmp/ocr-out/
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    needs: convert
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      # To create the release. Only this job, which runs no downloaded code.
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ocr-models
+          path: out
+      - name: Publish as a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd out
+          sha256sum --strict -c SHA256SUMS
+          # Only the expected kinds of file, named as the converter names
+          # them, and nothing else in the folder.
+          files=()
+          while read -r sum name rest; do
+            if [[ -n "$rest" || ! "$sum" =~ ^[0-9a-f]{64}$ ||
+                  ! "$name" =~ ^(det|rec|dict)-[A-Za-z0-9_.-]+\.(onnx|txt)$ ]]; then
+              echo "Unexpected line in SHA256SUMS"; exit 1
+            fi
+            files+=("$name")
+          done < SHA256SUMS
+          [ "$(ls -A | sort)" = "$(printf '%s\n' "${files[@]}" NOTES.md SHA256SUMS | sort)" ] \
+            || { echo "Unexpected files"; exit 1; }
+          # Fails if the release is there already: published files never change.
+          gh release create --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest=false \
+            --title "Scanned-PDF reader models ($TAG)" --notes-file NOTES.md \
+            -- "$TAG" "${files[@]}" SHA256SUMS
