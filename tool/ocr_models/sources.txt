@@ -8,6 +8,6 @@
 # checked and pinned here first. A changed fingerprint stops it too.
 #
 # name | kind | address | SHA-256
-PP-OCRv5_mobile_det|det|https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_mobile_det_infer.tar|
-PP-OCRv5_server_det|det|https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_server_det_infer.tar|
-en_PP-OCRv5_mobile_rec|rec|https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/en_PP-OCRv5_mobile_rec_infer.tar|
+PP-OCRv5_mobile_det|det|https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_mobile_det_infer.tar|50446e5d01ac2a73d5319c89513281f6578414c888c602f9af13f93feefffc58
+PP-OCRv5_server_det|det|https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_server_det_infer.tar|22a33e0ba6a21425ea4192da03bf4395c9a0c67902bd924b7328fc859073045d
+en_PP-OCRv5_mobile_rec|rec|https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/en_PP-OCRv5_mobile_rec_infer.tar|e595b4cf2ffad19fbb5a61ba345d63939577a3ab8717b6e5995642590c9101b4
