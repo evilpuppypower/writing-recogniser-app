@@ -79,8 +79,8 @@ jobs:
             model=$(trim "$model"); file=$(trim "$file"); url=$(trim "$url"); sha=$(trim "$sha")
             case "$model" in ''|'#'*) continue ;; esac
             [ -n "$sha" ] && continue
-            # Only plain names and Hugging Face https addresses are used.
-            if ! [[ $model =~ ^[A-Za-z0-9._-]+$ && $file =~ ^[A-Za-z0-9._-]+$ && $url =~ ^https://huggingface\.co/[A-Za-z0-9._/-]+$ ]]; then
+            # Only plain names and this repo's own release addresses are used.
+            if ! [[ $model =~ ^[A-Za-z0-9._-]+$ && $file =~ ^[A-Za-z0-9._-]+$ && $url =~ ^https://github\.com/evilpuppypower/writing-recogniser-app/releases/download/[A-Za-z0-9._/-]+$ ]]; then
               echo "::warning::A line in assets/ocr_models.txt isn't in the expected form"
               continue
             fi

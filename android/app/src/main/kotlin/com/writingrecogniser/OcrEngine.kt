@@ -63,6 +63,7 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "installed" -> work(result) { installed() }
+                "fingerprints" -> work(result) { fingerprints() }
                 "download" -> {
                     val id = call.argument<String>("id")!!
                     val files = call.argument<List<Map<String, String?>>>("files")!!
@@ -119,6 +120,15 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
         root().listFiles()
             ?.filter { !it.name.endsWith(PARTIAL) && !it.name.endsWith(OLD) && File(it, READY).isFile }
             ?.map { it.name }?.sorted() ?: emptyList()
+
+    /** Each downloaded model's files and their SHA-256, as kept when it
+     * was downloaded, so the app can tell when its list has newer ones. */
+    private fun fingerprints(): Map<String, Map<String, String>> =
+        installed().associateWith { id ->
+            File(modelDir(id), READY).readLines()
+                .mapNotNull { line -> line.split('=', limit = 2).takeIf { it.size == 2 } }
+                .associate { (name, sha) -> name to sha.lowercase() }
+        }
 
     private fun download(id: String, files: List<Map<String, String?>>): Map<String, String> {
         val dir = modelDir(id)

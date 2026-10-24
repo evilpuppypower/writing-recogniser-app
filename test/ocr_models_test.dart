@@ -12,6 +12,7 @@ final _sha = 'A' * 64;
 
 class _FakeReader implements TextReaderService {
   final installedIds = <String>{};
+  final sums = <String, Map<String, String>>{};
   final downloads = <String>[];
   Completer<void>? pending;
   void Function(int, int)? progress;
@@ -19,6 +20,9 @@ class _FakeReader implements TextReaderService {
 
   @override
   Future<Set<String>> installed() async => {...installedIds};
+
+  @override
+  Future<Map<String, Map<String, String>>> fingerprints() async => {...sums};
 
   @override
   Future<void> download(
@@ -30,6 +34,7 @@ class _FakeReader implements TextReaderService {
     final c = pending = Completer<void>();
     await c.future;
     installedIds.add(model.id);
+    sums[model.id] = {for (final f in model.files) f.name: f.sha256!};
   }
 
   @override
@@ -86,13 +91,66 @@ c|C|det.onnx|https://x/det|not-a-hash
           'rec.onnx',
           'dict.txt',
         });
+        // From this repo's own release (owner, 2026-10-23).
         for (final f in m.files) {
-          expect(f.url, startsWith('https://huggingface.co/'));
+          expect(
+            f.url,
+            startsWith(
+              'https://github.com/evilpuppypower/writing-recogniser-app/'
+              'releases/download/ocr-models-1/',
+            ),
+          );
         }
         // Every file's fingerprint is pinned, so each model can be
         // downloaded.
         expect(m.ready, isTrue, reason: m.id);
       }
+    });
+  });
+
+  test('the smaller model uses the mobile text finder, the larger the '
+      'server one, with the same reader', () async {
+    final models = {for (final m in parseOcrModels(await _bundled())) m.id: m};
+    String url(String id, String file) =>
+        models[id]!.files.firstWhere((f) => f.name == file).url;
+    expect(
+      url('en-small', 'det.onnx'),
+      endsWith('/det-PP-OCRv5_mobile_det.onnx'),
+    );
+    expect(
+      url('en-best', 'det.onnx'),
+      endsWith('/det-PP-OCRv5_server_det.onnx'),
+    );
+    for (final file in ['rec.onnx', 'dict.txt']) {
+      expect(url('en-small', file), url('en-best', file));
+    }
+  });
+
+  group('OcrModel.matches', () {
+    final m = OcrModel('a', 'A', [
+      OcrModelFile('det.onnx', 'https://x/det', 'a' * 64),
+      OcrModelFile('rec.onnx', 'https://x/rec', 'b' * 64),
+    ]);
+    test('the same files and fingerprints match, in any case', () {
+      expect(m.matches({'det.onnx': 'A' * 64, 'rec.onnx': 'b' * 64}), isTrue);
+    });
+    test('a different, missing or extra file does not', () {
+      expect(m.matches({'det.onnx': 'c' * 64, 'rec.onnx': 'b' * 64}), isFalse);
+      expect(m.matches({'det.onnx': 'a' * 64}), isFalse);
+      expect(
+        m.matches({
+          'det.onnx': 'a' * 64,
+          'rec.onnx': 'b' * 64,
+          'x.txt': 'd' * 64,
+        }),
+        isFalse,
+      );
+    });
+    test('an unpinned model matches nothing', () {
+      const u = OcrModel('u', 'U', [
+        OcrModelFile('det.onnx', 'https://x', null),
+      ]);
+      expect(u.matches({'det.onnx': 'a' * 64}), isFalse);
     });
   });
 
@@ -182,6 +240,38 @@ c|C|det.onnx|https://x/det|not-a-hash
       await tester.pumpAndSettle();
       expect(find.text('Not downloaded'), findsOneWidget);
       expect(find.text('Download Small'), findsOneWidget);
+    });
+
+    testWidgets('a downloaded model with older files can be updated', (
+      tester,
+    ) async {
+      reader.installedIds.add(recommendedOcrModel);
+      reader.sums[recommendedOcrModel] = {'det.onnx': 'f' * 64};
+      await tester.pumpWidget(screen([ready], choice: recommendedOcrModel));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Downloaded · in use · a newer copy is available'),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('Update Small'), findsOneWidget);
+      await tester.tap(find.text('Update Small'));
+      await tester.pump();
+      expect(reader.downloads, [recommendedOcrModel]);
+      reader.pending!.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('Small is updated.'), findsOneWidget);
+      expect(find.text('Downloaded · in use'), findsOneWidget);
+      expect(find.text('Update Small'), findsNothing);
+    });
+
+    testWidgets('a model whose files are not known is not offered an update', (
+      tester,
+    ) async {
+      reader.installedIds.add(recommendedOcrModel);
+      await tester.pumpWidget(screen([ready], choice: recommendedOcrModel));
+      await tester.pumpAndSettle();
+      expect(find.text('Downloaded · in use'), findsOneWidget);
+      expect(find.byTooltip('Update Small'), findsNothing);
     });
 
     testWidgets('removing the model in use clears the choice', (tester) async {

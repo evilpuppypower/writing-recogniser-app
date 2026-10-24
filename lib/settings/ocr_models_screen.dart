@@ -49,6 +49,10 @@ class OcrModelsScreen extends StatefulWidget {
 class _OcrModelsScreenState extends State<OcrModelsScreen> {
   List<OcrModel>? _models;
   Set<String> _installed = const {};
+
+  /// Downloaded models whose files differ from the app's list now (a newer
+  /// copy is listed): they can be updated.
+  Set<String> _outdated = const {};
   String? _chosen;
 
   /// The model downloading, and how far.
@@ -76,11 +80,22 @@ class _OcrModelsScreenState extends State<OcrModelsScreen> {
     final installed = (await widget.reader.installed().catchError(
       (_) => <String>{},
     )).where(known.contains).toSet();
+    final sums = await widget.reader.fingerprints().catchError(
+      (_) => <String, Map<String, String>>{},
+    );
+    final outdated = {
+      for (final m in models)
+        if (installed.contains(m.id) &&
+            sums[m.id] != null &&
+            !m.matches(sums[m.id]!))
+          m.id,
+    };
     final chosen = await widget.loadChoice().catchError((_) => null);
     if (!mounted) return;
     setState(() {
       _models = models;
       _installed = installed;
+      _outdated = outdated;
       _chosen = installed.contains(chosen)
           ? chosen
           : (installed.isEmpty ? null : installed.first);
@@ -122,7 +137,11 @@ class _OcrModelsScreenState extends State<OcrModelsScreen> {
         _chosen = m.id;
         await widget.saveChoice(m.id);
       }
-      _message('${m.name} is ready.');
+      _message(
+        _outdated.contains(m.id)
+            ? '${m.name} is updated.'
+            : '${m.name} is ready.',
+      );
     } catch (e) {
       final text = '$e';
       if (!text.contains('stopped')) {
@@ -203,7 +222,18 @@ class _OcrModelsScreenState extends State<OcrModelsScreen> {
                     onPressed: recommended.ready
                         ? () => _download(recommended)
                         : null,
-                  ),
+                  )
+                else
+                  for (final m in models)
+                    if (_outdated.contains(m.id) && m.ready)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: FilledButton.icon(
+                          icon: const Icon(Icons.system_update_alt),
+                          label: Text('Update ${m.name}'),
+                          onPressed: () => _download(m),
+                        ),
+                      ),
                 const SizedBox(height: 16),
                 if (context
                         .getInheritedWidgetOfExactType<SettingsScope>()
@@ -257,20 +287,39 @@ class _OcrModelsScreenState extends State<OcrModelsScreen> {
                           subtitle: Text(
                             _installed.contains(m.id)
                                 ? (_chosen == m.id
-                                      ? 'Downloaded · in use'
-                                      : 'Downloaded')
+                                          ? 'Downloaded · in use'
+                                          : 'Downloaded') +
+                                      (_outdated.contains(m.id)
+                                          ? ' · a newer copy is available'
+                                          : '')
                                 : m.ready
                                 ? 'Not downloaded'
                                 : 'Not available yet (its files are still being '
                                       'checked)',
                           ),
                           trailing: _installed.contains(m.id)
-                              ? IconButton(
-                                  tooltip: 'Remove ${m.name}',
-                                  icon: const Icon(Icons.delete_outline),
-                                  onPressed: _downloading == null
-                                      ? () => _remove(m)
-                                      : null,
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (_outdated.contains(m.id))
+                                      IconButton(
+                                        tooltip: 'Update ${m.name}',
+                                        icon: const Icon(
+                                          Icons.system_update_alt,
+                                        ),
+                                        onPressed:
+                                            m.ready && _downloading == null
+                                            ? () => _download(m)
+                                            : null,
+                                      ),
+                                    IconButton(
+                                      tooltip: 'Remove ${m.name}',
+                                      icon: const Icon(Icons.delete_outline),
+                                      onPressed: _downloading == null
+                                          ? () => _remove(m)
+                                          : null,
+                                    ),
+                                  ],
                                 )
                               : IconButton(
                                   tooltip: 'Download ${m.name}',
@@ -285,9 +334,9 @@ class _OcrModelsScreenState extends State<OcrModelsScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Models are PaddleOCR\'s, in a form the tablet can run, '
-                  'from Hugging Face. Each file is checked against its '
-                  'known fingerprint before it\'s kept.',
+                  'Models are PaddleOCR\'s official ones, converted to a form '
+                  'the tablet can run and published with this app. Each file '
+                  'is checked against its known fingerprint before it\'s kept.',
                   style: theme.textTheme.bodySmall,
                 ),
               ],

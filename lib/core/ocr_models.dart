@@ -20,6 +20,14 @@ class OcrModel {
 
   /// Every file's fingerprint is pinned, so it can be downloaded.
   bool get ready => files.isNotEmpty && files.every((f) => f.sha256 != null);
+
+  /// A download holding [fingerprints] (file name -> SHA-256) has exactly
+  /// this model's files, as pinned now. False when the app's list has
+  /// changed since (e.g. a newer copy of the model): it can be updated.
+  bool matches(Map<String, String> fingerprints) =>
+      ready &&
+      fingerprints.length == files.length &&
+      files.every((f) => fingerprints[f.name]?.toLowerCase() == f.sha256);
 }
 
 /// The model the quick button downloads.
