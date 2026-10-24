@@ -50,11 +50,44 @@ jobs:
           sudo unshare --net -- sudo -u ocrconv env -i PATH=/usr/bin:/bin \
             HOME=/tmp/ocr-run/home PIP_NO_INDEX=1 \
             /tmp/ocr-venv/bin/python -I tool/convert.py build /tmp/ocr-work /tmp/ocr-out
+      - name: Take only the converter's own files
+        # Nothing the converter started keeps running, and only plain files
+        # named as it names them are kept, copied into a folder of this
+        # job's own: a link would make the upload read a file the converter
+        # can't, e.g. this job's tokens (security review, 2026-10-24).
+        run: |
+          # Every process of the converter's user, until none is left.
+          for i in $(seq 1 20); do
+            pgrep -u ocrconv > /dev/null || break
+            sudo pkill -KILL -u ocrconv || true
+            sleep 0.5
+          done
+          if pgrep -u ocrconv > /dev/null; then
+            echo '::error::The converter is still running'; exit 1
+          fi
+          # Nothing of the converter's can change the files from here on.
+          sudo chown -R root:root /tmp/ocr-out
+          sudo chmod -R go-w /tmp/ocr-out
+          if [ -n "$(find /tmp/ocr-out -mindepth 1 ! -type f)" ]; then
+            echo '::error::The converter left links, folders or special files'; exit 1
+          fi
+          mkdir /tmp/ocr-upload
+          find /tmp/ocr-out -mindepth 1 -print0 | while IFS= read -r -d '' f; do
+            name=${f#/tmp/ocr-out/}
+            if ! [[ $name =~ ^((det|rec|dict)-[A-Za-z0-9_.-]+\.(onnx|txt)|NOTES\.md|SHA256SUMS)$ ]]; then
+              echo '::error::Unexpected file from the converter'; exit 1
+            fi
+            # Copied as it is (a link is never followed), then checked again.
+            cp -P -- "$f" "/tmp/ocr-upload/$name"
+            if [ -L "/tmp/ocr-upload/$name" ] || [ ! -f "/tmp/ocr-upload/$name" ]; then
+              echo '::error::Unexpected file from the converter'; exit 1
+            fi
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           # Public anyway: these are published below.
           name: ocr-models
-          path: /tmp/ocr-out/
+          path: /tmp/ocr-upload/
           retention-days: 1
           if-no-files-found: error
 

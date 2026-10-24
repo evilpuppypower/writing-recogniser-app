@@ -385,3 +385,8 @@ Owner's answers: (1b) the handwriting is kept and the user can switch between in
 - **Models:** PP-OCRv5 mobile and server text finders, and the English PP-OCRv5 reader, with its alphabet taken from the model's own settings.
 - **Security check:** `tool/security_check.sh` lets only this workflow's publish job have `contents: write` (needed to publish a release), and only while the workflow can be started by hand alone. Triggers are now also read with yq (preinstalled on GitHub's runners), so unusual ways of writing them in YAML can't slip past, and a `#` inside a script no longer hides text from the injection check.
 - **Not yet:** the app still downloads the community copy. Switching it to ours (and whether "smaller, quicker" uses the newer mobile text finder) comes once the release exists, as a separate change.
+
+## 2026-10-24 — Model workflow: only the converter's own files are uploaded (security review)
+
+- The converter runs as a separate user with no network, but it wrote the folder that the upload step (running as the job's own user) then uploaded, and the upload follows links. A bad model or tool could have left a link to a file the converter itself can't read, e.g. the job's own tokens. That would have been uploaded publicly, and the tokens could have changed the build cache the signing build uses.
+- Now, once converting ends, everything the converter started is stopped (until none is left), and its output is made the system's own, so nothing of the converter's can change it any more. The workflow fails if it left anything but plain files, and only files named as the converter names them are copied into a folder of the job's own, which is what gets uploaded.
