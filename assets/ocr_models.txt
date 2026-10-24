@@ -1,14 +1,15 @@
 # Text-reading models for scanned PDFs (owner, 2026-10-17), downloaded by
-# the app only when the user taps. PaddleOCR's models converted to ONNX by
-# the community (Hugging Face monkt/paddleocr-onnx, Apache 2.0), at one
-# fixed version (the commit in each address). Each file's SHA-256 is
-# pinned: the app refuses a file that doesn't match. An empty fingerprint
-# isn't pinned yet: CI prints it, and the app won't download that model.
+# the app only when the user taps. PaddleOCR's official models (Apache 2.0),
+# converted to ONNX by this repo's own hand-run workflow and published as
+# its release ocr-models-1 (owner, 2026-10-23; see tool/ocr_models/). Each
+# file's SHA-256 is pinned: the app refuses a file that doesn't match, and
+# offers to update a downloaded model whose files differ from these. An
+# empty fingerprint isn't pinned yet, and the app won't download that model.
 #
 # model | name in the app | file | address | SHA-256
-en-small|English (smaller, quicker)|det.onnx|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/detection/v3/det.onnx|ee40e80071ba3a320d4efda75f3e22047a7d049e9bf7bcaaf9daea23fc21b935
-en-small|English (smaller, quicker)|rec.onnx|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/languages/english/rec.onnx|4e16deb22c4da6468bdca539b2cd3c8687825538b67109177c47d359ab994cd7
-en-small|English (smaller, quicker)|dict.txt|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/languages/english/dict.txt|e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6
-en-best|English (finds text better, larger)|det.onnx|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/detection/v5/det.onnx|61824840edf6e74581898930b8091b1b2318f4b2705a2e8a40ad3de7ac480133
-en-best|English (finds text better, larger)|rec.onnx|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/languages/english/rec.onnx|4e16deb22c4da6468bdca539b2cd3c8687825538b67109177c47d359ab994cd7
-en-best|English (finds text better, larger)|dict.txt|https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/languages/english/dict.txt|e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6
+en-small|English (smaller, quicker)|det.onnx|https://github.com/evilpuppypower/writing-recogniser-app/releases/download/ocr-models-1/det-PP-OCRv5_mobile_det.onnx|1eb7b4f7ab657ebd1c66d5f79bca7497f29768a2e3c15e52daecbba1a8e4a039
+en-small|English (smaller, quicker)|rec.onnx|https://github.com/evilpuppypower/writing-recogniser-app/releases/download/ocr-models-1/rec-en_PP-OCRv5_mobile_rec.onnx|8a3c1ce7bf0c66e44f7813129274acfdab715ed3318a1116b9d7197143bb3eaa
+en-small|English (smaller, quicker)|dict.txt|https://github.com/evilpuppypower/writing-recogniser-app/releases/download/ocr-models-1/dict-en_PP-OCRv5_mobile_rec.txt|e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6
+en-best|English (finds text better, larger)|det.onnx|https://github.com/evilpuppypower/writing-recogniser-app/releases/download/ocr-models-1/det-PP-OCRv5_server_det.onnx|b8ef16bd1a24fadec10f8cbf51612db72bfdd0e749b2194c8cc3d27d93539451
+en-best|English (finds text better, larger)|rec.onnx|https://github.com/evilpuppypower/writing-recogniser-app/releases/download/ocr-models-1/rec-en_PP-OCRv5_mobile_rec.onnx|8a3c1ce7bf0c66e44f7813129274acfdab715ed3318a1116b9d7197143bb3eaa
+en-best|English (finds text better, larger)|dict.txt|https://github.com/evilpuppypower/writing-recogniser-app/releases/download/ocr-models-1/dict-en_PP-OCRv5_mobile_rec.txt|e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6

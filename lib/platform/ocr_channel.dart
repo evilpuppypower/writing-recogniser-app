@@ -18,6 +18,10 @@ typedef OcrLine = ({
 abstract class TextReaderService {
   Future<Set<String>> installed();
 
+  /// Each downloaded model's files and their SHA-256 (see
+  /// [OcrModel.matches]); a model missing here isn't known to differ.
+  Future<Map<String, Map<String, String>>> fingerprints();
+
   /// Downloads [model]'s files; [progress] gets bytes done and the total
   /// (-1 if unknown). Throws if a file isn't the one expected.
   Future<void> download(
@@ -43,6 +47,15 @@ class AndroidTextReader implements TextReaderService {
   Future<Set<String>> installed() async =>
       ((await _channel.invokeListMethod<String>('installed')) ?? const [])
           .toSet();
+
+  @override
+  Future<Map<String, Map<String, String>>> fingerprints() async {
+    final m = await _channel.invokeMapMethod<String, Object?>('fingerprints');
+    return {
+      for (final e in (m ?? const {}).entries)
+        e.key: Map<String, String>.from(e.value! as Map),
+    };
+  }
 
   @override
   Future<void> download(

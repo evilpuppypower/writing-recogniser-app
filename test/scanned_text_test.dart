@@ -47,6 +47,8 @@ class _Reader implements TextReaderService {
   @override
   Future<Set<String>> installed() async => {'m'};
   @override
+  Future<Map<String, Map<String, String>>> fingerprints() async => const {};
+  @override
   Future<void> download(model, {progress}) async {}
   @override
   Future<void> cancel() async {}

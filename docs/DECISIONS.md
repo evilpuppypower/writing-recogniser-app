@@ -1008,3 +1008,10 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 
 - A word written at a slant (the same slant its label follows) gets an outline turned along it, so it no longer covers its neighbours. Level words are outlined as before.
 - All the outlines on a page are drawn by one painter instead of one box each, so a page with hundreds of words stays smooth with Show words on. A finger tap still opens only the word under it (inside its turned outline); taps between words, and the pen, go through to the page as before.
+
+## 2026-10-24 — The scanned-PDF reader downloads from our own release (owner: "switch")
+
+- The app's model list (`assets/ocr_models.txt`) now points at this repo's release `ocr-models-1` (made by the hand-run workflow, see 2026-10-23), not the community copy on Hugging Face. Every file's fingerprint is pinned as published.
+- **"English (smaller, quicker)"** now uses PaddleOCR's newer PP-OCRv5 mobile text finder (about the same size as the v3 one it replaces). **"English (finds text better, larger)"** keeps the PP-OCRv5 server finder. Both use the English PP-OCRv5 reader; its alphabet is the same file as before, byte for byte, so the reader is the same model.
+- **A model already downloaded keeps working** with its old files. The models screen compares what was downloaded with the list and, when they differ, says "a newer copy is available" with an **Update** button (downloads still happen only when the user taps). Updating replaces the files only once all the new ones have arrived and been checked.
+- CI's check for unpinned model files now accepts only this repo's release addresses.
