@@ -1042,3 +1042,11 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
   - Model and file names can't pose as a half-done download, an old copy or the "ready" mark.
 - **Handwriting-sample backups** keep only the build number, and UTC times throughout (when exported, when each sample was written, and the suggested file name, which ends in Z). The build label holds the owner's local time, which together with the public build times gives away the time zone.
 - **Signing in its own job (owner-approved, 2026-10-24):** a malicious build plugin could also have planted its own copy of the signing tool in the Android tools folder, which the build can write to. So the APK is now signed by a separate short job on a fresh machine, where none of the repo's code or build tools run. The build job hands it over only inside the password zip, kept for a day.
+- **Still open (owner decision):** a malicious build plugin could plant its own copy of the signing tool in the Android tools folder, which the build can write to. Only signing in a separate job, on a fresh machine, closes that.
+
+## 2026-10-24 — Regional English: British by default, changeable (owner: "British English … with the option to follow / change the regional variation")
+
+- **Settings → Recognised text → English:** British (default), American, Canadian, or the tablet's (from its region; British where neither of the others is used).
+- **How:** a step in front of the feedback layer puts each reading into that English's spelling ("color" → "colour", "organize" → "organise"), keeping capitals and punctuation, before the user's own corrections are applied. It works for every engine (rule 2), and what the engine itself read is still kept as it was (rule 4). ML Kit and MyScript Cloud also try the chosen English first. MyScript on the tablet only has its American pack (its British one isn't on MyScript's download server), so for it this step does the work.
+- **The word list:** about 15,000 words with their three spellings, built from VarCon (part of SCOWL, permissive licence, shown in the app's licences page); see tool/spellings/. Words with two meanings spelt differently ("program", "check", "meter", "tire") are left out, so a word is only changed when that's always right.
+- **App text** was already British, except the training file's descriptions ("recogniser" now).

@@ -63,7 +63,7 @@ List<int> encodeTrainingData({
     // So the file explains itself to whoever uses it later.
     'about': {
       'corrections':
-          'Words the recognizer misread and what they really said, with '
+          'Words the recogniser misread and what they really said, with '
           'the word\'s ink. "count" is how many times the same correction '
           'was made; "document" numbers the PDFs (1, 2, ...) without '
           'naming them.',
@@ -73,14 +73,14 @@ List<int> encodeTrainingData({
       'stroke': 'list of [x, y, t, pressure] points, pen-down to pen-up',
       'x, y (corrections)':
           'pixels, from the word\'s top-left corner, scaled so a typical '
-          'letter is about 50 high (as sent to the recognizer)',
+          'letter is about 50 high (as sent to the recogniser)',
       'x, y (samples)': 'logical pixels from the top-left of the writing area',
       't': 'milliseconds since 1970-01-01 UTC',
       'pressure': '0..1 (0.5 if the pen did not report it)',
       'words':
           'Every word read on PDF pages, as last saved: "text" is what it '
-          'shows now, "engine" what the recognizer read, "candidates" the '
-          'recognizer\'s readings, best first (complete only when '
+          'shows now, "engine" what the recogniser read, "candidates" the '
+          'recogniser\'s readings, best first (complete only when '
           '"candidatesComplete"; older words have a partial list). '
           '"corrected" means the user fixed it and "checked" that they '
           'said it was right (either way "text" is certain); '

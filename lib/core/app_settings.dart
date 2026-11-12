@@ -2,9 +2,11 @@
 /// unit-tested; saving and loading lives in `lib/settings/`.
 library;
 
+import 'feedback/regional_spelling.dart';
 import 'pressure_response.dart';
 import 'scanned_text.dart';
 
+export 'feedback/regional_spelling.dart' show EnglishSpelling;
 export 'scanned_text.dart' show ScannedChoice;
 
 /// The app's accent colour: buttons, bars, switches and the scroll tab.
@@ -145,6 +147,7 @@ class AppSettings {
     this.scannedPdfs = ScannedChoice.ask,
     this.suggestTagsFromContents = true,
     this.textLabels = TextLabelPlace.above,
+    this.englishSpelling = EnglishSpelling.british,
     this.textPanel = TextPanelPlace.off,
     this.writingGuide = WritingGuide.grey,
     this.pageColours = PageColours.light,
@@ -290,6 +293,10 @@ class AppSettings {
   /// Recognised text over the handwriting: above, below or off.
   final TextLabelPlace textLabels;
 
+  /// The English handwriting is read in (spellings such as "colour"):
+  /// British by default (owner, 2026-10-24), or the tablet's region's.
+  final EnglishSpelling englishSpelling;
+
   /// The recognised-text panel: off, docked to a side, or floating.
   final TextPanelPlace textPanel;
 
@@ -348,6 +355,7 @@ class AppSettings {
     ScannedChoice? scannedPdfs,
     bool? suggestTagsFromContents,
     TextLabelPlace? textLabels,
+    EnglishSpelling? englishSpelling,
     TextPanelPlace? textPanel,
     WritingGuide? writingGuide,
     PageColours? pageColours,
@@ -399,6 +407,7 @@ class AppSettings {
     suggestTagsFromContents:
         suggestTagsFromContents ?? this.suggestTagsFromContents,
     textLabels: textLabels ?? this.textLabels,
+    englishSpelling: englishSpelling ?? this.englishSpelling,
     textPanel: textPanel ?? this.textPanel,
     writingGuide: writingGuide ?? this.writingGuide,
     pageColours: pageColours ?? this.pageColours,
@@ -436,6 +445,7 @@ class AppSettings {
     'scannedPdfs': scannedPdfs.name,
     'suggestTagsFromContents': suggestTagsFromContents,
     'textLabels': textLabels.name,
+    'englishSpelling': englishSpelling.name,
     'textPanel': textPanel.name,
     'writingGuide': writingGuide.name,
     'pageColours': pageColours.name,
@@ -550,6 +560,11 @@ class AppSettings {
           ? suggestTags
           : d.suggestTagsFromContents,
       textLabels: byName(TextLabelPlace.values, m['textLabels'], d.textLabels),
+      englishSpelling: byName(
+        EnglishSpelling.values,
+        m['englishSpelling'],
+        d.englishSpelling,
+      ),
       textPanel: byName(TextPanelPlace.values, m['textPanel'], d.textPanel),
       writingGuide: byName(
         WritingGuide.values,
@@ -602,6 +617,7 @@ class AppSettings {
       other.scannedPdfs == scannedPdfs &&
       other.suggestTagsFromContents == suggestTagsFromContents &&
       other.textLabels == textLabels &&
+      other.englishSpelling == englishSpelling &&
       other.textPanel == textPanel &&
       other.writingGuide == writingGuide &&
       other.pageColours == pageColours &&
@@ -639,6 +655,7 @@ class AppSettings {
     scannedPdfs,
     suggestTagsFromContents,
     textLabels,
+    englishSpelling,
     textPanel,
     writingGuide,
     pageColours,

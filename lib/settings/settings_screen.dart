@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
 import '../core/app_settings.dart';
+import '../core/feedback/regional_spelling.dart' show settledSpelling;
 import '../core/diagnostics_report.dart';
 import '../core/event_log.dart';
 import '../library/home_screen.dart' show buildStamp;
@@ -755,6 +756,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(),
           const _Header('Recognised text'),
+          ListTile(
+            title: const Text('English'),
+            subtitle: Text(
+              'Your handwriting is read with this English\'s spellings '
+              '(colour or color, organise or organize). '
+              '${s.englishSpelling == EnglishSpelling.tablet ? 'Now: ${settledSpelling(s.englishSpelling, View.maybeOf(context)?.platformDispatcher.locale.countryCode).label}, from the tablet\'s region.' : ''}',
+            ),
+            trailing: DropdownButton<EnglishSpelling>(
+              value: s.englishSpelling,
+              onChanged: (v) {
+                if (v != null) settings.update(s.copyWith(englishSpelling: v));
+              },
+              items: [
+                for (final e in EnglishSpelling.values)
+                  DropdownMenuItem(
+                    value: e,
+                    child: Text(
+                      e == EnglishSpelling.tablet ? "The tablet's" : e.label,
+                    ),
+                  ),
+              ],
+            ),
+          ),
           ListTile(
             title: const Text('Text over your handwriting'),
             subtitle: const Text(
