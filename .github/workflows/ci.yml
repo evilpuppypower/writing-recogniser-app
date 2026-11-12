@@ -1,8 +1,10 @@
 name: CI
 
-# Kept deliberately lean for the GitHub Free plan: one job, one APK
+# Kept deliberately lean for the GitHub Free plan: one build job, one APK
 # (release, 64-bit ARM only), a launch check on an emulator, and no runs for
-# documentation-only changes.
+# documentation-only changes. A second, short job signs the APK on a fresh
+# machine (owner-approved, 2026-10-24), so nothing that ran during the build
+# can get at the signing key.
 on:
   push:
     branches: [main]
@@ -23,6 +25,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      # The build's file name (build-<number>), once its APK is ready to sign.
+      file: ${{ steps.stamp.outputs.file }}
+      ready: ${{ steps.handover.outcome == 'success' }}
     # The secrets can be kept in the "release" environment, which can
     # require the owner's approval before a run may use them (Settings ->
     # Environments). Without that, runs on any branch of this repo get them.
@@ -200,10 +206,10 @@ jobs:
       # Release mode runs at full speed, so this is the APK to test on the
       # tablet. 64-bit ARM only: every Android 16 tablet uses it, and building
       # one CPU type keeps the job small. Built with a throwaway key and
-      # signed with the owner's key in the next step, so the signing key is
-      # never on disk while build tools and plugins run: they're stopped
-      # once the build ends (Gradle and Kotlin otherwise stay running in the
-      # background, and could read the key). Not a Play Store build. The
+      # signed with the owner's key by the separate "sign" job, on a fresh
+      # machine, so the signing key is never anywhere build tools and
+      # plugins run. The build tools are stopped once the build ends (they
+      # otherwise stay running and hold memory). Not a Play Store build. The
       # public log drops any line about the MyScript certificate or the
       # build label (whose value holds the owner's local time).
       - name: Build release APK
@@ -217,42 +223,6 @@ jobs:
             "writing-recogniser-${{ steps.stamp.outputs.file }}.apk"
           (cd android && ./gradlew --stop) > /dev/null 2>&1 || true
           pkill -f 'GradleDaemon|KotlinCompileDaemon|kotlin-daemon' || true
-
-      # The owner's signing key (repo secrets), so each APK installs over the
-      # previous one and keeps the app's data. Only Google's apksigner sees
-      # it, and the key file is deleted as soon as signing ends.
-      - name: Sign APK with the owner's key
-        if: steps.release.outcome == 'success'
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: |
-          apk="writing-recogniser-${{ steps.stamp.outputs.file }}.apk"
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo '::warning::No ANDROID_KEYSTORE_BASE64 secret; this APK uses a throwaway key and will not install over other builds.'
-            exit 0
-          fi
-          # Nothing from the build may still be running while the key is on
-          # disk (it would run as the same user and could read it).
-          for i in 1 2 3 4 5; do
-            pgrep -u "$(id -u)" -f 'java|kotlin|gradle|dart' > /dev/null || break
-            pkill -u "$(id -u)" -f 'GradleDaemon|KotlinCompileDaemon|kotlin-daemon' || true
-            sleep 2
-          done
-          if pgrep -u "$(id -u)" -f 'java|kotlin|gradle|dart' > /dev/null; then
-            echo '::error::Build tools are still running; not signing while they could read the key.'
-            exit 1
-          fi
-          ks="$RUNNER_TEMP/app.jks"
-          trap 'rm -f "$ks"' EXIT
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$ks"
-          signer="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/apksigner"
-          "$signer" sign --ks "$ks" --ks-pass env:KEYSTORE_PASSWORD \
-            --key-pass env:KEYSTORE_PASSWORD --v4-signing-enabled false \
-            --out signed.apk "$apk"
-          "$signer" verify signed.apk > /dev/null
-          mv signed.apk "$apk"
-          echo 'Signed with the owner key.'
 
       # If the build fails, publish the error lines as a separate check
       # ("build-errors") so they can be read without downloading the raw log.
@@ -320,10 +290,6 @@ jobs:
           {
             echo "== APK: $apk ($(du -h "$apk" | cut -f1))"
             echo
-            echo "== Signing certificate"
-            "$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/apksigner" \
-              verify --print-certs "$apk" | grep -E 'SHA-256' || true
-            echo
             echo "== Native libraries"
             unzip -l "$apk" | grep -E 'lib/.*\.so' || true
             echo
@@ -337,10 +303,11 @@ jobs:
           }' | gh api "repos/${{ github.repository }}/check-runs" --input - > /dev/null
 
       # The APK contains MyScript's SDK and the owner's MyScript certificate,
-      # so it is only ever uploaded inside a password-protected zip
-      # (AES-256; password in the APK_ZIP_PASSWORD secret). Never uploaded
-      # without it.
-      - name: Protect APK with a password
+      # so it only ever leaves this job inside a password-protected zip
+      # (AES-256; password in the APK_ZIP_PASSWORD secret), here for the
+      # signing job, kept for a day. Never uploaded without it.
+      - name: Protect APK with a password for signing
+        if: steps.release.outcome == 'success'
         env:
           APK_ZIP_PASSWORD: ${{ secrets.APK_ZIP_PASSWORD }}
         run: |
@@ -355,23 +322,24 @@ jobs:
             exit 1
           fi
           name=writing-recogniser-${{ steps.stamp.outputs.file }}
-          7z a -tzip -mem=AES256 -p"$APK_ZIP_PASSWORD" "$name.zip" "$name.apk" > /dev/null
+          7z a -tzip -mem=AES256 -p"$APK_ZIP_PASSWORD" "to-sign.zip" "$name.apk" > /dev/null
           # No unprotected copy is left for the later steps.
           rm -f "$name.apk"
 
-      - name: Upload APK (password-protected zip)
+      - name: Hand the APK to the signing job
+        id: handover
+        if: steps.release.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: writing-recogniser-${{ steps.stamp.outputs.file }}
-          path: writing-recogniser-${{ steps.stamp.outputs.file }}.zip
+          name: to-sign-${{ steps.stamp.outputs.file }}
+          path: to-sign.zip
           if-no-files-found: error
-          # Kept briefly: anyone can download artifacts from a public repo.
-          retention-days: 7
+          retention-days: 1
 
       # Launch check (owner-approved): open the APK on an Android 16 emulator
       # and make sure it stays open. Its log is published as the
-      # "launch-check" check. The APK is uploaded first so it is available
-      # even if this fails.
+      # "launch-check" check. The APK is handed for signing first, so it is
+      # available even if this fails.
       - name: Enable KVM for the emulator
         if: steps.release.outcome == 'success'
         run: |
@@ -467,3 +435,61 @@ jobs:
             output: {title: "Does the app open on an Android 16 emulator?", summary: "Result and device log", text: $text}
           }' | gh api "repos/${{ github.repository }}/check-runs" --input - > /dev/null
           [ "$c" = success ] || { echo "Launch check failed"; exit 1; }
+
+  # Signs the APK with the owner's key, on a fresh machine: none of the
+  # repo's code, build tools or plugins ever run here, so nothing can read
+  # the key or stand in for the signing tool (security review, 2026-10-24).
+  # Runs even if the launch check failed, so the APK is still there to test.
+  sign:
+    needs: build
+    if: always() && needs.build.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: to-sign-${{ needs.build.outputs.file }}
+
+      # The owner's signing key (repo secrets), so each APK installs over the
+      # previous one and keeps the app's data. Only Google's apksigner sees
+      # it, and the key file is deleted as soon as signing ends.
+      - name: Sign APK with the owner's key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          APK_ZIP_PASSWORD: ${{ secrets.APK_ZIP_PASSWORD }}
+          FILE: ${{ needs.build.outputs.file }}
+        run: |
+          apk="writing-recogniser-$FILE.apk"
+          trap 'rm -f "$RUNNER_TEMP/app.jks" "$apk" signed.apk' EXIT
+          7z x -p"$APK_ZIP_PASSWORD" to-sign.zip > /dev/null
+          rm -f to-sign.zip
+          [ -f "$apk" ] || { echo '::error::The APK to sign is missing'; exit 1; }
+          signer="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/apksigner"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            ks="$RUNNER_TEMP/app.jks"
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$ks"
+            "$signer" sign --ks "$ks" --ks-pass env:KEYSTORE_PASSWORD \
+              --key-pass env:KEYSTORE_PASSWORD --v4-signing-enabled false \
+              --out signed.apk "$apk"
+            rm -f "$ks"
+            "$signer" verify signed.apk > /dev/null
+            mv signed.apk "$apk"
+            echo 'Signed with the owner key.'
+          else
+            echo '::warning::No ANDROID_KEYSTORE_BASE64 secret; this APK uses a throwaway key and will not install over other builds.'
+          fi
+          "$signer" verify --print-certs "$apk" | grep -E 'SHA-256' || true
+          # The APK contains MyScript's SDK and the owner's MyScript
+          # certificate: only uploaded inside the password zip.
+          7z a -tzip -mem=AES256 -p"$APK_ZIP_PASSWORD" "writing-recogniser-$FILE.zip" "$apk" > /dev/null
+
+      - name: Upload APK (password-protected zip)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: writing-recogniser-${{ needs.build.outputs.file }}
+          path: writing-recogniser-${{ needs.build.outputs.file }}.zip
+          if-no-files-found: error
+          # Kept briefly: anyone can download artifacts from a public repo.
+          retention-days: 7
