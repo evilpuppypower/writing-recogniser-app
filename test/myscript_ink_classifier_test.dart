@@ -66,6 +66,7 @@ void main() {
         .setMockMethodCallHandler(channel, (call) async {
           throw PlatformException(code: 'no_classifier', message: 'no files');
         });
+    MyScriptInkClassifier.askAgain();
     final c = MyScriptInkClassifier(channel: channel);
     final kinds = await c.classify([
       const PageStroke(
@@ -77,6 +78,32 @@ void main() {
     ]);
     expect(kinds, [InkKind.writing, InkKind.drawing]);
     expect(c.problem, 'no files');
+  });
+
+  test('after two unusable answers MyScript is not asked again, here or in '
+      'the next PDF, and the shape check sorts', () async {
+    const channel = MethodChannel('test/myscript2');
+    var asked = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          asked++;
+          return '{"type":"Raw Content","elements":[]}';
+        });
+    MyScriptInkClassifier.askAgain();
+    const strokes = [
+      PageStroke(points: [PageInkPoint(0, 700, 0), PageInkPoint(3, 710, 9)]),
+    ];
+    final c = MyScriptInkClassifier(channel: channel);
+    await c.classify(strokes);
+    expect(c.problem, isNot(contains('not asked again')));
+    await c.classify(strokes);
+    expect(c.problem, contains('not asked again'));
+    expect(await c.classify(strokes), [InkKind.writing]);
+    expect(await MyScriptInkClassifier(channel: channel).classify(strokes), [
+      InkKind.writing,
+    ]);
+    expect(asked, 2);
+    MyScriptInkClassifier.askAgain();
   });
 
   test('an unusable answer is described by its shape, never its content', () {

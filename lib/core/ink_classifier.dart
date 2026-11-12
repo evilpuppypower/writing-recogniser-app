@@ -8,6 +8,7 @@ import 'dart:math' as math;
 
 import 'page_ink.dart';
 import 'stroke_grouping.dart';
+import 'stall_tracer.dart';
 
 enum InkKind { writing, drawing }
 
@@ -32,7 +33,7 @@ class ShapeInkClassifier implements InkClassifier {
 
   @override
   Future<List<InkKind>> classify(List<PageStroke> strokes) async =>
-      classifySync(strokes);
+      StallTracer.instance.time('sort writing', () => classifySync(strokes));
 
   List<InkKind> classifySync(List<PageStroke> strokes) {
     final boxes = [

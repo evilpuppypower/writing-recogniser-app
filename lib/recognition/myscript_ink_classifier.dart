@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../core/ink.dart';
@@ -7,6 +8,7 @@ import '../core/ink_classifier.dart';
 import '../core/page_ink.dart';
 import '../core/stroke_grouping.dart';
 import 'myscript_offline_recognizer.dart' show encodeStrokesFlat;
+import '../core/stall_tracer.dart';
 
 /// MyScript's own writing/drawing sorting ("Raw Content", task 2.2b), on
 /// the tablet. Falls back to [fallback] (the shape check) whenever MyScript
@@ -28,17 +30,35 @@ class MyScriptInkClassifier implements InkClassifier, ExplainsFallback {
   @override
   String? problem;
 
+  /// Unusable answers in a row. After [giveUpAfter], MyScript isn't asked
+  /// again until the app is next opened: its answer has so far never
+  /// been usable on the tablet (diagnostics, 2026-10-24: "groups: 0"
+  /// every time), and preparing a heavy page for it, and its own work,
+  /// only slow the app down while the shape check sorts anyway.
+  /// Kept for the app (each PDF makes its own classifier).
+  static var _failures = 0;
+  static const giveUpAfter = 2;
+
+  /// Asks MyScript again (tests).
+  @visibleForTesting
+  static void askAgain() => _failures = 0;
+
   @override
   Future<List<InkKind>> classify(List<PageStroke> strokes) async {
     if (strokes.isEmpty) return const [];
+    if (_failures >= giveUpAfter) return fallback.classify(strokes);
     try {
-      final ink = pageInkForEngine(strokes);
+      final ink = StallTracer.instance.time(
+        'ink for MyScript',
+        () => pageInkForEngine(strokes),
+      );
       final jiix = await channel.invokeMethod<String>('classify', {
         'strokes': encodeStrokesFlat(ink),
       });
       final kinds = jiix == null ? null : kindsFromJiix(jiix, ink);
       if (kinds != null) {
         problem = null;
+        _failures = 0;
         return kinds;
       }
       problem =
@@ -47,10 +67,16 @@ class MyScriptInkClassifier implements InkClassifier, ExplainsFallback {
       problem = e.message ?? e.code;
     } on MissingPluginException {
       problem = 'MyScript is not in this build';
+      _failures = giveUpAfter; // it won't be there later either
+    }
+    if (++_failures >= giveUpAfter && !problem!.endsWith(_notAsked)) {
+      problem = '${problem!}$_notAsked';
     }
     return fallback.classify(strokes);
   }
 }
+
+const _notAsked = ' (not asked again until the app is next opened)';
 
 /// A whole page's strokes for an engine: the right way up (y down) and
 /// about screen size (typical letter about 50 px).

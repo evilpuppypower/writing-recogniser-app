@@ -8,6 +8,7 @@ import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/stroke_grouping.dart' show levelPoint;
 import 'ink_text_controller.dart';
+import '../core/stall_tracer.dart';
 
 /// Where a word's outline is, in the page's pixels: a box [size] big,
 /// centred on [centre], turned by [angle] (radians, clockwise on screen)
@@ -110,7 +111,7 @@ class PageWordOutlines extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: Listenable.merge([text, ?refresh]),
-    builder: (context, _) {
+    builder: (context, _) => StallTracer.instance.time('word outlines', () {
       final words = [
         for (final w in text.wordsOn(pageNumber))
           if (skip == null || !skip!(w)) w,
@@ -153,7 +154,7 @@ class PageWordOutlines extends StatelessWidget {
           ),
         ),
       );
-    },
+    }),
   );
 }
 
