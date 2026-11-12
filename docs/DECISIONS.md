@@ -1022,3 +1022,12 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 - **Cause 1, saving the words:** half a second after each word was read, all the page's words were turned into text to be saved, with all their ink (about 3 MB for that page): 260–340 ms on a desktop, more on the tablet, on the screen's thread. Now each word is turned into text once and kept; a save joins them (5–40 ms). Saved words are also read back in the background when a PDF opens.
 - **Cause 2, the labels:** each time one word changed, all the page's labels were built and painted again (45–90 ms on a desktop). Now a label is kept while its word doesn't change, and each handwritten line's labels are painted on their own, so a change redraws one line (12–20 ms).
 - What's saved is unchanged (the tests check it's the same, byte for byte).
+
+## 2026-10-24 — Diagnostics say what caused each stutter; MyScript sorting stops after it fails (owner: "better diagnostics … the periodic spikes")
+
+- **Spikes by cause:** the heavy jobs on the screen's thread are timed by name: saving words, saving ink, drawing the page's ink and its image, building labels and word outlines, sorting writing from drawing, preparing ink for MyScript, planning the reading, and the diagnostics' own counts. Each "frames" entry now adds:
+  - `spikes`: frames whose building took over 24 ms;
+  - `drawSpikes`: frames whose drawing took over 24 ms;
+  - `stalls`: the screen's thread busy for over 150 ms between frames, found by a light 10-a-second check while a PDF is open.
+  Each comes with its worst time and its causes (count and worst time per job). Spikes with no timed job in them are counted as `…Unexplained`: the system or memory being tidied, which tells us to look elsewhere. Only job names and times are kept.
+- **MyScript's sorting:** its answer has never been usable on the tablet ("groups: 0" in every report since 2026-10-21), and the shape check sorts every time anyway. Preparing a heavy page for MyScript took about 20 ms on the screen's thread, on top of MyScript's own work. After two unusable answers in a row it isn't asked again until the app is next opened (the diagnostics say so in `sortProblem`). Sorting is the same as before; reading words still uses MyScript.

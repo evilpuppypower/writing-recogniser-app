@@ -10,6 +10,7 @@ import '../core/page_coordinates.dart';
 import '../core/page_ink.dart';
 import '../core/stroke_grouping.dart' show levelPoint;
 import 'ink_text_controller.dart';
+import '../core/stall_tracer.dart';
 
 /// The recognised text of one PDF page, as small labels above (or below)
 /// each handwritten word (task 2.3; owner: above by default). Never takes touches, so writing and
@@ -275,6 +276,8 @@ class _PageTextLabelsState extends State<PageTextLabels> {
         }
         _settled = false;
         _settle?.cancel();
+        // Timed for the diagnostics (what a slow frame was doing).
+        final started = StallTracer.instance.now;
         final before = settings == _builtSettings && width == _builtWidth
             ? _labelOf
             : const <RecognizedWord, Widget>{};
@@ -310,6 +313,10 @@ class _PageTextLabelsState extends State<PageTextLabels> {
           clipBehavior: Clip.none,
           children: [for (final l in lineOf.values) l.$2],
         );
+        final ended = StallTracer.instance.now;
+        if (ended - started >= StallTracer.keepMicros) {
+          StallTracer.instance.add('labels', started, ended);
+        }
         return _scaled(1);
       },
     );

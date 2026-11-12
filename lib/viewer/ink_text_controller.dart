@@ -20,6 +20,7 @@ import '../core/page_recognition.dart';
 import '../core/recognition/recognizer.dart';
 import '../core/stroke_grouping.dart';
 import '../core/typed_text.dart';
+import '../core/stall_tracer.dart';
 
 /// A recognised handwritten word on a page.
 class RecognizedWord {
@@ -783,44 +784,47 @@ class InkTextController extends ChangeNotifier {
       final lineEngine = engine is LineRecognizer
           ? engine as LineRecognizer
           : null;
-      final plan = planRecognition(
-        strokes,
-        known,
-        printed: printed,
-        params: GroupingParams(usualLetter: usualLetter),
-        // With an engine that reads whole lines, its words stay as it split
-        // them (each word's key lists its strokes).
-        hints: lineEngine == null
-            ? null
-            : {
-                for (final w in words.values)
-                  if (w.byLine)
-                    for (final id in w.key.split(',')) id: w.key,
-              },
-        // Lines read word by word before (e.g. by an older version) are
-        // read once more as a whole, unless the user corrected a word on
-        // them.
-        lineNeedsReading: lineEngine == null
-            ? null
-            : (keys) {
-                if (_lineFailed.contains(keys.join('|'))) return false;
-                final ws = [for (final k in keys) ?words[k]];
-                return ws.any((w) => !w.byLine) &&
-                    !ws.any((w) => w.corrected || w.checked);
-              },
-        include: (i) =>
-            !strokes[i].notWriting &&
-            (i >= kinds.length || kinds[i] == InkKind.writing) &&
-            (flipped.isEmpty || !flipped.contains(strokes[i].id)),
-        // Read tilted before its slant was noticed (or at another slant):
-        // read again level, unless the user corrected it.
-        reread: (key, w) {
-          final old = words[key];
-          return old != null &&
-              !old.corrected &&
-              !old.checked &&
-              _slantChanged(old.slant, w.slant);
-        },
+      final plan = StallTracer.instance.time(
+        'plan reading',
+        () => planRecognition(
+          strokes,
+          known,
+          printed: printed,
+          params: GroupingParams(usualLetter: usualLetter),
+          // With an engine that reads whole lines, its words stay as it split
+          // them (each word's key lists its strokes).
+          hints: lineEngine == null
+              ? null
+              : {
+                  for (final w in words.values)
+                    if (w.byLine)
+                      for (final id in w.key.split(',')) id: w.key,
+                },
+          // Lines read word by word before (e.g. by an older version) are
+          // read once more as a whole, unless the user corrected a word on
+          // them.
+          lineNeedsReading: lineEngine == null
+              ? null
+              : (keys) {
+                  if (_lineFailed.contains(keys.join('|'))) return false;
+                  final ws = [for (final k in keys) ?words[k]];
+                  return ws.any((w) => !w.byLine) &&
+                      !ws.any((w) => w.corrected || w.checked);
+                },
+          include: (i) =>
+              !strokes[i].notWriting &&
+              (i >= kinds.length || kinds[i] == InkKind.writing) &&
+              (flipped.isEmpty || !flipped.contains(strokes[i].id)),
+          // Read tilted before its slant was noticed (or at another slant):
+          // read again level, unless the user corrected it.
+          reread: (key, w) {
+            final old = words[key];
+            return old != null &&
+                !old.corrected &&
+                !old.checked &&
+                _slantChanged(old.slant, w.slant);
+          },
+        ),
       );
       final before = words.length;
       onLines?.call(strokes, plan.lines);

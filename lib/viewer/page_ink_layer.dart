@@ -23,6 +23,7 @@ import '../core/pen_timing.dart';
 import '../settings/settings_controller.dart';
 import 'dark_pages.dart';
 import 'wet_ink.dart';
+import '../core/stall_tracer.dart';
 
 /// One undoable change: a page's strokes before and after.
 class _InkEdit {
@@ -1667,7 +1668,7 @@ class _PageInkPainter extends CustomPainter {
         ..width = viewWidth;
     }
     if (!identical(cache.strokes, strokes)) {
-      _update(strokes, typedShown);
+      StallTracer.instance.time('page ink', () => _update(strokes, typedShown));
       // The ink changed: a new image once it has stayed the same a
       // moment (not on every move of the eraser).
       cache.restartWait(viewWidth);
@@ -1681,7 +1682,7 @@ class _PageInkPainter extends CustomPainter {
     canvas.restore();
     if (!cache.imageFits(viewWidth, devicePixelRatio)) {
       if (cache.settledAt(viewWidth)) {
-        _makeImage();
+        StallTracer.instance.time('page ink image', _makeImage);
       } else {
         cache.want(viewWidth);
       }

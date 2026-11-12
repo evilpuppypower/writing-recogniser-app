@@ -5,6 +5,7 @@ library;
 import 'dart:async';
 
 import 'page_ink.dart';
+import 'stall_tracer.dart';
 
 /// Where each PDF's ink is kept, per page, in PDF page coordinates. The
 /// source PDF is never changed (CLAUDE.md rule 6).
@@ -72,7 +73,10 @@ class InkAutosaver {
     if (_dirty.isEmpty) return _saving;
     final pages = _dirty.toList()..sort();
     _dirty.clear();
-    final snapshot = {for (final p in pages) p: pageStrokes(p)};
+    final snapshot = StallTracer.instance.time(
+      'save ink',
+      () => {for (final p in pages) p: pageStrokes(p)},
+    );
     _saving = _saving.then((_) async {
       for (final e in snapshot.entries) {
         try {
@@ -125,7 +129,10 @@ class TextAutosaver {
     if (_dirty.isEmpty) return _saving;
     final pages = _dirty.toList()..sort();
     _dirty.clear();
-    final snapshot = {for (final p in pages) p: pageText(p)};
+    final snapshot = StallTracer.instance.time(
+      'save words',
+      () => {for (final p in pages) p: pageText(p)},
+    );
     _saving = _saving.then((_) async {
       for (final e in snapshot.entries) {
         try {
