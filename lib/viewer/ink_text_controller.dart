@@ -535,6 +535,13 @@ class InkTextController extends ChangeNotifier {
     final read = await compute(_readPages, pages);
     if (_disposed) return;
     for (final MapEntry(key: page, value: (words, seen)) in read.entries) {
+      // Already being read (written on while this was reading): its own
+      // reading wins, and the saved ink is read again with it.
+      if (_running.contains(page) ||
+          _pending.containsKey(page) ||
+          (_words[page]?.isNotEmpty ?? false)) {
+        continue;
+      }
       for (final (w, json) in words) {
         _encoded[w] = json;
       }

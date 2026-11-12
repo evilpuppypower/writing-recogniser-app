@@ -63,6 +63,14 @@ void main() {
       final plain = InkTextController(engine: FakeEngine())..restore(1, json);
       expect(c.wordsOn(1), hasLength(380));
       expect(c.pageJson(1), plain.pageJson(1));
+      // As the whole page used to be encoded, byte for byte.
+      expect(
+        c.pageJson(1),
+        jsonEncode({
+          'seen': (jsonDecode(json) as Map)['seen'],
+          'words': [for (final w in c.wordsOn(1)) w.toJson()],
+        }),
+      );
       expect(c.pageJson(2), isNull, reason: 'unreadable: read again');
     });
 
