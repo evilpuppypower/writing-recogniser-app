@@ -29,7 +29,7 @@ class StallTracer {
 
   /// Jobs kept, oldest first (a few seconds' worth is plenty).
   final _jobs = ListQueue<Job>();
-  static const _maxJobs = 400;
+  static const _maxJobs = 3000;
 
   int get now => _now();
 

@@ -46,7 +46,10 @@ class MyScriptInkClassifier implements InkClassifier, ExplainsFallback {
   @override
   Future<List<InkKind>> classify(List<PageStroke> strokes) async {
     if (strokes.isEmpty) return const [];
-    if (_failures >= giveUpAfter) return fallback.classify(strokes);
+    if (_failures >= giveUpAfter) {
+      problem ??= "MyScript's answers couldn't be used$_notAsked";
+      return fallback.classify(strokes);
+    }
     try {
       final ink = StallTracer.instance.time(
         'ink for MyScript',

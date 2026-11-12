@@ -50,6 +50,7 @@ class FrameRecorder {
   static FrameRecorder? _current;
 
   void start() {
+    if (_running) return;
     _running = true;
     _current = this;
     SchedulerBinding.instance.addTimingsCallback(_onTimings);
@@ -85,11 +86,12 @@ class FrameRecorder {
         ));
       }
       if (rasterMs > spikeMs) {
-        // Drawing is slow because of what the frame was built with.
+        // Drawing is slow because of what the frame was built with: put
+        // down to the jobs during its building (later ones can't slow it).
         _drawSpikes.add((
           span: (
             start: t.timestampInMicroseconds(FramePhase.buildStart),
-            end: t.timestampInMicroseconds(FramePhase.rasterFinish),
+            end: t.timestampInMicroseconds(FramePhase.buildFinish),
           ),
           ms: rasterMs,
         ));
@@ -106,12 +108,18 @@ class FrameRecorder {
     final summary = summariseFrames(_frames);
     _frames.clear();
     final writing = pen.summary();
-    // Stalls between frames (a slow frame's build counts as its spike).
+    // Stalls between frames: one that's mostly a slow frame's building
+    // counts as that frame's spike instead.
+    int covered(Span a, Span b) {
+      final start = a.start > b.start ? a.start : b.start;
+      final end = a.end < b.end ? a.end : b.end;
+      return end > start ? end - start : 0;
+    }
+
     final stalls = [
       for (final s in _watch.stalls)
-        if (!_buildSpikes.any(
-          (b) => b.span.start < s.span.end && b.span.end > s.span.start,
-        ))
+        if (_buildSpikes.fold(0, (n, b) => n + covered(s.span, b.span)) * 2 <
+            s.span.end - s.span.start)
           s,
     ];
     final causes = {
@@ -122,6 +130,8 @@ class FrameRecorder {
     _buildSpikes.clear();
     _drawSpikes.clear();
     _watch.stalls.clear();
+    // Jobs from before this stretch can't explain later spikes.
+    _tracer.forgetBefore(_tracer.now - 2000000);
     if (summary == null && writing == null && causes.isEmpty) return null;
     return {
       ...?summary,
@@ -148,6 +158,8 @@ class FrameRecorder {
     if (identical(_current, this)) _current = null;
     _timer?.cancel();
     _ticker?.cancel();
+    _timer = null;
+    _ticker = null;
     SchedulerBinding.instance.removeTimingsCallback(_onTimings);
     // Sent now, while the PDF is closing (no waiting for the refresh rate).
     final taken = _take();

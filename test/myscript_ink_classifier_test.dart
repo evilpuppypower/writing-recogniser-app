@@ -11,6 +11,9 @@ InkStroke s(double x0, double y0, double x1, double y1) =>
     InkStroke([InkPoint(x0, y0, 0), InkPoint(x1, y1, 10)]);
 
 void main() {
+  // The give-up count is kept for the app: each test starts afresh.
+  tearDown(MyScriptInkClassifier.askAgain);
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   // A word (two strokes) on the left and an underline below it, in px.
@@ -99,9 +102,9 @@ void main() {
     await c.classify(strokes);
     expect(c.problem, contains('not asked again'));
     expect(await c.classify(strokes), [InkKind.writing]);
-    expect(await MyScriptInkClassifier(channel: channel).classify(strokes), [
-      InkKind.writing,
-    ]);
+    final next = MyScriptInkClassifier(channel: channel);
+    expect(await next.classify(strokes), [InkKind.writing]);
+    expect(next.problem, contains('not asked again'));
     expect(asked, 2);
     MyScriptInkClassifier.askAgain();
   });
