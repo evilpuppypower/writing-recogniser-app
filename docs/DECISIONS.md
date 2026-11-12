@@ -1015,3 +1015,10 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 - **"English (smaller, quicker)"** now uses PaddleOCR's newer PP-OCRv5 mobile text finder (about the same size as the v3 one it replaces). **"English (finds text better, larger)"** keeps the PP-OCRv5 server finder. Both use the English PP-OCRv5 reader; its alphabet is the same file as before, byte for byte, so the reader is the same model.
 - **A model already downloaded keeps working** with its old files. The models screen compares what was downloaded with the list and, when they differ, says "a newer copy is available" with an **Update** button (downloads still happen only when the user taps). Updating replaces the files only once all the new ones have arrived and been checked.
 - CI's check for unpinned model files now accepts only this repo's release addresses.
+
+## 2026-10-24 — Heavy pages: no more stalls while writing (owner: "still lagging on large files")
+
+- **What the diagnostics showed:** on a page of about 700 strokes and 380 word labels, the screen stopped for up to half a second while writing (light pages: under 50 ms), and some frames took over 110 ms to build. The pen layer itself was fine (1–2 ms).
+- **Cause 1, saving the words:** half a second after each word was read, all the page's words were turned into text to be saved, with all their ink (about 3 MB for that page): 260–340 ms on a desktop, more on the tablet, on the screen's thread. Now each word is turned into text once and kept; a save joins them (5–40 ms). Saved words are also read back in the background when a PDF opens.
+- **Cause 2, the labels:** each time one word changed, all the page's labels were built and painted again (45–90 ms on a desktop). Now a label is kept while its word doesn't change, and each handwritten line's labels are painted on their own, so a change redraws one line (12–20 ms).
+- What's saved is unchanged (the tests check it's the same, byte for byte).

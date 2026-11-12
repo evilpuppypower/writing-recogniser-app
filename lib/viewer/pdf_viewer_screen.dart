@@ -4186,9 +4186,8 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       if (!mounted) return;
       // What the saved ink was read as, before the ink is looked at, so
       // only new or changed handwriting goes to the engine.
-      for (final e in savedText.entries) {
-        _text.restore(e.key, e.value);
-      }
+      await _text.restoreAll(savedText);
+      if (!mounted) return;
       _text.loadVocabularyLater(_vocabularyOf(all));
       final textSaver = TextAutosaver(
         store: store,

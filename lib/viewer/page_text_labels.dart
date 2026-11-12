@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -189,6 +190,16 @@ class _PageTextLabelsState extends State<PageTextLabels> {
   /// only once the zoom has settled a moment (building 300 labels on
   /// every frame of a zoom made it stutter).
   double _builtWidth = 0;
+
+  /// Each word's label as last built, for these settings and width: a
+  /// word that's unchanged keeps its label, so when one word changes only
+  /// its label is built again (owner, 2026-10-24: building all 380 labels
+  /// of a heavy page after every word made writing lag).
+  var _labelOf = <RecognizedWord, Widget>{};
+
+  /// Each handwritten line's labels as last built (painted on their own,
+  /// so a changed word repaints its line, not the whole page).
+  var _lineOf = <int, (List<Widget>, Widget)>{};
   Timer? _settle;
   bool _settled = false;
 
@@ -264,84 +275,108 @@ class _PageTextLabelsState extends State<PageTextLabels> {
         }
         _settled = false;
         _settle?.cancel();
+        final before = settings == _builtSettings && width == _builtWidth
+            ? _labelOf
+            : const <RecognizedWord, Widget>{};
+        final labelOf = HashMap<RecognizedWord, Widget>.identity();
+        for (final w in words) {
+          labelOf[w] = before[w] ?? _label(w, scheme);
+        }
+        _labelOf = labelOf;
+        final byLine = SplayTreeMap<int, List<Widget>>();
+        for (final w in words) {
+          (byLine[w.line] ??= []).add(labelOf[w]!);
+        }
+        final lineOf = <int, (List<Widget>, Widget)>{};
+        for (final MapEntry(key: line, value: labels) in byLine.entries) {
+          final was = _lineOf[line];
+          lineOf[line] = was != null && _sameWidgets(was.$1, labels)
+              ? was
+              : (
+                  labels,
+                  Positioned.fill(
+                    key: ValueKey(line),
+                    child: RepaintBoundary(
+                      child: Stack(clipBehavior: Clip.none, children: labels),
+                    ),
+                  ),
+                );
+        }
+        _lineOf = lineOf;
         _builtWords = words;
         _builtSettings = settings;
         _builtWidth = width;
         _built = Stack(
           clipBehavior: Clip.none,
-          children: [
-            for (final w in words)
-              () {
-                final l = _labelLayout(
-                  w,
-                  widget.geometry,
-                  widget.viewWidth,
-                  widget.above,
-                );
-                final size = l.fontSize;
-                final ask = widget.showUnsure && w.unsure && !w.corrected;
-                final box = DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: scheme.primaryContainer.withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 3),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          w.text,
-                          style: TextStyle(
-                            fontSize: size,
-                            height: 1.15,
-                            color: scheme.onPrimaryContainer,
-                            // Swapped automatically from an earlier
-                            // correction (owner: underlined).
-                            decoration: w.autoReplaced
-                                ? TextDecoration.underline
-                                : null,
-                          ),
-                        ),
-                        if (ask)
-                          Text(
-                            ' ?',
-                            semanticsLabel: 'not sure',
-                            style: TextStyle(
-                              fontSize: size,
-                              height: 1.15,
-                              fontWeight: FontWeight.bold,
-                              color: scheme.tertiary,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                );
-                final tap = widget.onDoubleTap;
-                final label = tap == null
-                    ? IgnorePointer(child: box)
-                    // Takes double-taps but lets everything else (the
-                    // pen writing, fingers scrolling) through to the
-                    // page underneath.
-                    : _PassThrough(
-                        child: GestureDetector(
-                          onDoubleTap: () => tap(w),
-                          // Not sure: one tap asks.
-                          onTap: ask ? () => tap(w) : null,
-                          child: box,
-                        ),
-                      );
-                return Positioned(
-                  left: 0,
-                  top: 0,
-                  child: Transform(transform: _labelTransform(l), child: label),
-                );
-              }(),
-          ],
+          children: [for (final l in lineOf.values) l.$2],
         );
         return _scaled(1);
       },
+    );
+  }
+
+  /// [w]'s label, placed on the page.
+  Widget _label(RecognizedWord w, ColorScheme scheme) {
+    final l = _labelLayout(w, widget.geometry, widget.viewWidth, widget.above);
+    final size = l.fontSize;
+    final ask = widget.showUnsure && w.unsure && !w.corrected;
+    final box = DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              w.text,
+              style: TextStyle(
+                fontSize: size,
+                height: 1.15,
+                color: scheme.onPrimaryContainer,
+                // Swapped automatically from an earlier correction
+                // (owner: underlined).
+                decoration: w.autoReplaced ? TextDecoration.underline : null,
+              ),
+            ),
+            if (ask)
+              Text(
+                ' ?',
+                semanticsLabel: 'not sure',
+                style: TextStyle(
+                  fontSize: size,
+                  height: 1.15,
+                  fontWeight: FontWeight.bold,
+                  color: scheme.tertiary,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    // The callback is looked up when tapped: a label kept from an earlier
+    // build still calls the current one.
+    void tap() => widget.onDoubleTap?.call(w);
+    final label = widget.onDoubleTap == null
+        ? IgnorePointer(child: box)
+        // Takes double-taps but lets everything else (the pen writing,
+        // fingers scrolling) through to the page underneath.
+        : _PassThrough(
+            child: GestureDetector(
+              onDoubleTap: tap,
+              // Not sure: one tap asks.
+              onTap: ask ? tap : null,
+              child: box,
+            ),
+          );
+    return Positioned(
+      // By word, so a label kept stays with its word when others change.
+      key: ObjectKey(w),
+      left: 0,
+      top: 0,
+      child: Transform(transform: _labelTransform(l), child: label),
     );
   }
 
@@ -349,6 +384,14 @@ class _PageTextLabelsState extends State<PageTextLabels> {
   /// stretching doesn't rebuild them).
   Widget _scaled(double by) =>
       Transform.scale(scale: by, alignment: Alignment.topLeft, child: _built);
+}
+
+bool _sameWidgets(List<Widget> a, List<Widget> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (!identical(a[i], b[i])) return false;
+  }
+  return true;
 }
 
 /// Whether [a] and [b] are the same word objects (a word that changes is

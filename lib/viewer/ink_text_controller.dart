@@ -526,17 +526,78 @@ class InkTextController extends ChangeNotifier {
     }
   }
 
+  /// As [restore], for several pages at once ([pages]: page -> saved
+  /// text), read away from the screen's thread: a heavy page's words hold
+  /// megabytes of ink (owner, 2026-10-24: lag on large files). Each word's
+  /// JSON is kept for the next save ([pageJson]) too.
+  Future<void> restoreAll(Map<int, String> pages) async {
+    if (pages.isEmpty) return;
+    final read = await compute(_readPages, pages);
+    if (_disposed) return;
+    for (final MapEntry(key: page, value: (words, seen)) in read.entries) {
+      // Already being read (written on while this was reading): its own
+      // reading wins, and the saved ink is read again with it.
+      if (_running.contains(page) ||
+          _pending.containsKey(page) ||
+          (_words[page]?.isNotEmpty ?? false)) {
+        continue;
+      }
+      for (final (w, json) in words) {
+        _encoded[w] = json;
+      }
+      _words[page] = {
+        for (final (w, _) in words)
+          if (w.key.isNotEmpty) w.key: w,
+      };
+      _seen[page] = seen;
+    }
+    _notify();
+  }
+
+  /// [pages]' saved text read as words (each with its JSON) and the
+  /// strokes read; pages that can't be read are left out (read again).
+  static Map<int, (List<(RecognizedWord, String)>, Set<String>)> _readPages(
+    Map<int, String> pages,
+  ) {
+    final out = <int, (List<(RecognizedWord, String)>, Set<String>)>{};
+    for (final MapEntry(key: page, value: json) in pages.entries) {
+      try {
+        final saved = (jsonDecode(json) as Map).cast<String, Object?>();
+        final words = [
+          for (final w in saved['words']! as List)
+            if (RecognizedWord.fromJson((w as Map).cast<String, Object?>())
+                case final word)
+              (word, jsonEncode(word.toJson())),
+        ];
+        final seen = {
+          for (final id in saved['seen'] as List? ?? const []) '$id',
+        };
+        out[page] = (words, seen);
+      } catch (_) {
+        // Read again instead.
+      }
+    }
+    return out;
+  }
+
   /// [page]'s words as JSON, to save, with the strokes they were read from;
   /// null when there is nothing to keep.
   String? pageJson(int page) {
     final words = _words[page] ?? const {};
     final seen = _seen[page] ?? const <String>{};
     if (words.isEmpty && seen.isEmpty) return null;
-    return jsonEncode({
-      'seen': seen.toList(),
-      'words': [for (final w in words.values) w.toJson()],
-    });
+    // Each word kept as JSON once made (words don't change; a changed
+    // word is a new one): a heavy page's words hold megabytes of ink, too
+    // much to turn into text again on every save (owner, 2026-10-24: lag
+    // on large files).
+    return '{"seen":${jsonEncode(seen.toList())},"words":['
+        '${[for (final w in words.values) _wordJson(w)].join(',')}]}';
   }
+
+  static final _encoded = Expando<String>('word JSON');
+
+  static String _wordJson(RecognizedWord w) =>
+      _encoded[w] ??= jsonEncode(w.toJson());
 
   /// The stroke ids of each page when it was last read in full, to tell
   /// whether its words still match its ink.
