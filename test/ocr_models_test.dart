@@ -154,6 +154,20 @@ c|C|det.onnx|https://x/det|not-a-hash
     });
   });
 
+  test('reads with a model whose files are current, then the chosen one', () {
+    final a = OcrModel('a', 'A', [OcrModelFile('d', 'https://x', 'a' * 64)]);
+    final b = OcrModel('b', 'B', [OcrModelFile('d', 'https://x', 'b' * 64)]);
+    final old = {'d': 'f' * 64};
+    expect(pickOcrModel([a, b], {'a', 'b'}, {}, 'b'), 'b');
+    expect(pickOcrModel([a, b], {'a', 'b'}, {'b': old}, 'b'), 'a');
+    expect(
+      pickOcrModel([a, b], {'b'}, {'b': old}, 'a'),
+      'b',
+      reason: 'only an older one: still read with it',
+    );
+    expect(pickOcrModel([a], {'zz'}, {}, 'zz'), isNull);
+  });
+
   group('OcrModelsScreen', () {
     late _FakeReader reader;
     String? saved;

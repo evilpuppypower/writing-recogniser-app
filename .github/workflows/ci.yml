@@ -139,12 +139,15 @@ jobs:
             [raw-content]='d9ca48a8343cf7dce4b5d7aadfddb7d792c7570531a415019a12b446908bae04'
             [raw-content2]=''
           )
+          # Fails (1) for a file not pinned yet: it's left out of the app,
+          # and its fingerprint printed to check and pin.
           check() { # $1 = file, $2 = name
             local got want
             got=$(sha256sum "$1" | cut -c1-64)
             want=${pin[$2]:-}
             if [ -z "$want" ]; then
-              echo "::warning::MyScript $2 is not pinned yet. SHA-256: $got"
+              echo "::warning::MyScript $2 is not pinned yet, so it's left out. SHA-256: $got"
+              return 1
             elif [ "$got" != "$want" ]; then
               echo "::error::MyScript $2 changed (SHA-256 $got). MyScript may have updated it, or it was tampered with: check before updating the pin."
               exit 1
@@ -152,8 +155,12 @@ jobs:
           }
           for lang in en_GB en_US; do
             if curl -fsSL --retry 3 -o text.zip "$base/myscript-iink-recognition-text-$lang.zip"; then
-              check text.zip "text-$lang"
+              check text.zip "text-$lang" || { rm -f text.zip; continue; }
               unzip -q -o text.zip -d myscript-assets
+              # Plain files only: a link could copy a runner file into the app.
+              if [ -n "$(find myscript-assets ! -type f ! -type d)" ]; then
+                echo "::error::MyScript $lang files hold links or special files"; exit 1
+              fi
               # The folder that holds conf/ and resources/.
               conf=$(find myscript-assets -type d -name conf | head -n 1)
               [ -n "$conf" ] || { echo "::error::MyScript $lang files have no conf folder"; exit 1; }
@@ -173,8 +180,11 @@ jobs:
           # its own shape check instead, so a failed download isn't an error.
           for pack in raw-content raw-content2; do
             if curl -fsSL --retry 3 -o raw.zip "$base/myscript-iink-recognition-$pack.zip"; then
-              check raw.zip "$pack"
+              check raw.zip "$pack" || { rm -f raw.zip; continue; }
               unzip -q -o raw.zip -d myscript-raw
+              if [ -n "$(find myscript-raw ! -type f ! -type d)" ]; then
+                echo "::error::MyScript $pack files hold links or special files"; exit 1
+              fi
               conf=$(find myscript-raw -type d -name conf | head -n 1)
               [ -n "$conf" ] || { echo "::error::MyScript $pack files have no conf folder"; exit 1; }
               root=$(dirname "$conf")
@@ -191,17 +201,23 @@ jobs:
       # tablet. 64-bit ARM only: every Android 16 tablet uses it, and building
       # one CPU type keeps the job small. Built with a throwaway key and
       # signed with the owner's key in the next step, so the signing key is
-      # never on disk while build tools and plugins run. Not a Play Store
-      # build. The log drops any line about the MyScript certificate.
+      # never on disk while build tools and plugins run: they're stopped
+      # once the build ends (Gradle and Kotlin otherwise stay running in the
+      # background, and could read the key). Not a Play Store build. The
+      # public log drops any line about the MyScript certificate or the
+      # build label, and long encoded values.
       - name: Build release APK
         id: release
         run: |
           set -o pipefail
           flutter build apk --release --target-platform android-arm64 \
             --dart-define=BUILD_STAMP="$(cat "$RUNNER_TEMP/build-label")" \
-            2>&1 | { grep -v -i -E 'MyCertificate|com/myscript/certificate|BYTES *=' || true; } | tee build.log
+            2>&1 | { grep -v -i -E 'MyCertificate|com/myscript/certificate|BYTES *=|dart-define' || true; } \
+            | sed -E 's/[A-Za-z0-9+\/=_-]{40,}/[long value removed]/g' | tee build.log
           mv build/app/outputs/flutter-apk/app-release.apk \
             "writing-recogniser-${{ steps.stamp.outputs.file }}.apk"
+          (cd android && ./gradlew --stop) > /dev/null 2>&1 || true
+          pkill -f 'GradleDaemon|KotlinCompileDaemon|kotlin-daemon' || true
 
       # The owner's signing key (repo secrets), so each APK installs over the
       # previous one and keeps the app's data. Only Google's apksigner sees
@@ -216,6 +232,17 @@ jobs:
           if [ -z "$KEYSTORE_BASE64" ]; then
             echo '::warning::No ANDROID_KEYSTORE_BASE64 secret; this APK uses a throwaway key and will not install over other builds.'
             exit 0
+          fi
+          # Nothing from the build may still be running while the key is on
+          # disk (it would run as the same user and could read it).
+          for i in 1 2 3 4 5; do
+            pgrep -u "$(id -u)" -f 'java|kotlin|gradle|dart' > /dev/null || break
+            pkill -u "$(id -u)" -f 'GradleDaemon|KotlinCompileDaemon|kotlin-daemon' || true
+            sleep 2
+          done
+          if pgrep -u "$(id -u)" -f 'java|kotlin|gradle|dart' > /dev/null; then
+            echo '::error::Build tools are still running; not signing while they could read the key.'
+            exit 1
           fi
           ks="$RUNNER_TEMP/app.jks"
           trap 'rm -f "$ks"' EXIT
@@ -362,8 +389,11 @@ jobs:
         env:
           APP_ABIS: x86_64
         run: |
+          set -o pipefail
           flutter build apk --release --target-platform android-x64 \
-            --dart-define=BUILD_STAMP="$(cat "$RUNNER_TEMP/build-label")"
+            --dart-define=BUILD_STAMP="$(cat "$RUNNER_TEMP/build-label")" \
+            2>&1 | { grep -v -i -E 'MyCertificate|com/myscript/certificate|BYTES *=|dart-define' || true; } \
+            | sed -E 's/[A-Za-z0-9+\/=_-]{40,}/[long value removed]/g'
           mv build/app/outputs/flutter-apk/app-release.apk emulator-test.apk
           # Builds are done: remove the MyScript certificate before the
           # third-party emulator steps.

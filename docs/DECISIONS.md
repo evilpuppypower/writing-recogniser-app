@@ -1031,3 +1031,13 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
   - `stalls`: the screen's thread busy for over 150 ms between frames, found by a light 10-a-second check while a PDF is open.
   Each comes with its worst time and its causes (count and worst time per job). Spikes with no timed job in them are counted as `…Unexplained`: the system or memory being tidied, which tells us to look elsewhere. Only job names and times are kept.
 - **MyScript's sorting:** its answer has never been usable on the tablet ("groups: 0" in every report since 2026-10-21), and the shape check sorts every time anyway. Preparing a heavy page for MyScript took about 20 ms on the screen's thread, on top of MyScript's own work. After two unusable answers in a row it isn't asked again until the app is next opened (the diagnostics say so in `sortProblem`). Sorting is the same as before; reading words still uses MyScript.
+
+## 2026-10-24 — Security review fixes (owner: "a security review of all the current code")
+
+- **Signing key and build tools:** Gradle and Kotlin keep running in the background after a build. The key was written to disk for signing while they were still running as the same user, so a bad build plugin or library could have read it. They're now stopped as soon as the release build ends, and signing refuses to start while any build tool is still running.
+- **MyScript files:** a MyScript download whose fingerprint isn't pinned yet is now left out of the app (its fingerprint is still printed, to check and pin), instead of going in with a warning. Downloads holding links or special files stop the build, as a link could copy a file from the build machine into the app.
+- **Public build logs** drop build-label lines and long encoded values in both builds, as the error report already did.
+- **Text-reading models:**
+  - A downloaded model whose files the list has replaced isn't read with while a current one is there (it's still used when it's the only one, until updated).
+  - Model and file names can't pose as a half-done download, an old copy or the "ready" mark.
+- **Handwriting-sample backups** keep only the build number and a UTC time (the build label holds the owner's local time, which with the public build times gives away the time zone).

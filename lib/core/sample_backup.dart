@@ -14,6 +14,7 @@ import 'package:archive/archive.dart';
 
 import 'ink.dart';
 import 'labeled_sample.dart';
+import 'diagnostics_report.dart' show buildNumberOnly;
 
 const sampleBackupFormat = 'writing-recogniser-samples';
 const sampleBackupVersion = 1;
@@ -36,8 +37,11 @@ List<int> encodeSampleBackup(
   final doc = {
     'format': sampleBackupFormat,
     'version': sampleBackupVersion,
-    'exportedAt': exportedAt.toIso8601String(),
-    'appBuild': appBuild,
+    // UTC, and the build number only: the build label holds the owner's
+    // local time, which with the public build times gives away the time
+    // zone (security review, 2026-10-24).
+    'exportedAt': exportedAt.toUtc().toIso8601String(),
+    'appBuild': buildNumberOnly(appBuild),
     // So the file explains itself to whoever uses it later.
     'units': {
       'x, y':

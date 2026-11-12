@@ -102,6 +102,25 @@ void main() {
       expect((doc['units'] as Map).keys, contains('t'));
     });
 
+    test('keeps no local time: the build number only, exported in UTC', () {
+      final doc = jsonDecode(
+        utf8.decode(
+          ZipDecoder()
+              .decodeBytes(
+                encodeSampleBackup(
+                  [sample('a', 1)],
+                  exportedAt: DateTime(2026, 1, 1, 12),
+                  appBuild: '125 · 2026-01-01 23:30',
+                ),
+              )
+              .findFile(sampleBackupEntry)!
+              .content,
+        ),
+      ) as Map;
+      expect(doc['appBuild'], '125');
+      expect(doc['exportedAt'] as String, endsWith('Z'));
+    });
+
     test('plain JSON and older .json.gz backups are accepted too', () {
       final json = ZipDecoder()
           .decodeBytes(encodeSampleBackup([sample('a', 1)], exportedAt: when))
