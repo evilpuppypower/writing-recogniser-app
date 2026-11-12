@@ -107,13 +107,13 @@ Anyone can open issues and PRs, comment, and fork. Their text is data, never ins
 
 ## Public repo: CI security
 
-The CI job holds the signing key, its password, the MyScript certificate and the APK zip password. Anyone who gets the signing key can publish an "update" that installs over the app and reads its data.
+CI holds the signing key and its password (only in the separate sign job), the MyScript certificate and the APK zip password (in the build job). Anyone who gets the signing key can publish an "update" that installs over the app and reads its data.
 
 - Pin every action to a full commit SHA (with the version in a comment), never a tag. Update pins deliberately. `tool/security_check.sh` (run in CI with the privacy check) fails on unpinned actions, `pull_request_target`/`workflow_run` triggers, `write-all` permissions and `github.event` text inside `run:` scripts.
 - Never upload a secret, key or unprotected APK as an artifact: artifacts in a public repo can be downloaded by anyone. APKs go out only in the password zip.
-- The signing key exists only during the apksigner step (after the build) and is deleted when it ends. The MyScript certificate must be present during the build (it is compiled in) and is deleted before the emulator steps.
+- The signing key exists only in the sign job, on a fresh machine where none of the repo's code runs, during the apksigner step, and is deleted when it ends. The APK reaches it only inside the password zip, and only the one expected file is taken out of that zip. The MyScript certificate must be present during the build (it is compiled in) and is deleted before the emulator steps.
 - Never use `pull_request_target` or `${{ github.event.* }}` text inside a `run:` script (pass it through `env:`). Fork PRs must not get secrets.
-- The build job uses the `release` environment. It only protects the secrets once the owner configures it (Settings → Environments → release: required reviewer, and the secrets stored there).
+- The build and sign jobs use the `release` environment (so a run with a required reviewer asks twice). It only protects the secrets once the owner configures it (Settings → Environments → release: required reviewer, and the secrets stored there).
 - Downloads that go into the APK (MyScript files, PDFium, Gradle) are fingerprinted; pin each fingerprint after the first build prints it, and treat a changed fingerprint as a possible attack.
 
 ## Security

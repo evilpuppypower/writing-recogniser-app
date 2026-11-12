@@ -47,7 +47,8 @@ jobs:
           df -h /
 
       # Every action is pinned to an exact commit, not a tag that its owner
-      # could move: this job holds the signing key and MyScript certificate.
+      # could move: this job holds the MyScript certificate and the zip
+      # password (the signing key is only ever in the sign job).
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           # Don't leave the GitHub token in .git/config for later steps.
@@ -437,15 +438,19 @@ jobs:
           [ "$c" = success ] || { echo "Launch check failed"; exit 1; }
 
   # Signs the APK with the owner's key, on a fresh machine: none of the
-  # repo's code, build tools or plugins ever run here, so nothing can read
-  # the key or stand in for the signing tool (security review, 2026-10-24).
-  # Runs even if the launch check failed, so the APK is still there to test.
+  # repo's code, build tools or plugins ever run here, so nothing left by
+  # the build can read the key or stand in for the signing tool (security
+  # review, 2026-10-24). The APK handed over is still treated as untrusted
+  # (see below). Runs even if the launch check failed, so the APK is still
+  # there to test; not for a cancelled run.
   sign:
     needs: build
-    if: always() && needs.build.outputs.ready == 'true'
+    if: ${{ !cancelled() && needs.build.outputs.ready == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release
+    # Needs no access to the repo (artifacts use the run's own token).
+    permissions: {}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -463,9 +468,16 @@ jobs:
         run: |
           apk="writing-recogniser-$FILE.apk"
           trap 'rm -f "$RUNNER_TEMP/app.jks" "$apk" signed.apk' EXIT
-          7z x -p"$APK_ZIP_PASSWORD" to-sign.zip > /dev/null
+          # The handover zip was made by the build job, which runs the repo's
+          # code: only its one expected file is taken, streamed out, so
+          # nothing in it (links, odd paths) is ever created on this machine.
+          list=$(7z l -slt -p"$APK_ZIP_PASSWORD" to-sign.zip)
+          if [ "$(grep -c '^Path = ' <<<"$list")" -ne 2 ] || ! grep -qx "Path = $apk" <<<"$list"; then
+            echo '::error::The handover zip holds something unexpected'; exit 1
+          fi
+          7z e -so -p"$APK_ZIP_PASSWORD" to-sign.zip "$apk" > "$apk"
           rm -f to-sign.zip
-          [ -f "$apk" ] || { echo '::error::The APK to sign is missing'; exit 1; }
+          [ -s "$apk" ] || { echo '::error::The APK to sign is missing'; exit 1; }
           signer="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/apksigner"
           if [ -n "$KEYSTORE_BASE64" ]; then
             ks="$RUNNER_TEMP/app.jks"
