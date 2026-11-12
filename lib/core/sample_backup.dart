@@ -22,11 +22,13 @@ const sampleBackupVersion = 1;
 /// The JSON file inside the zip.
 const sampleBackupEntry = 'samples.json';
 
-/// Suggested file name, e.g. "handwriting-samples-20260101-1200.zip".
+/// Suggested file name, e.g. "handwriting-samples-20260101-1200Z.zip"
+/// (UTC, as the rest of the backup: no local time in it).
 String sampleBackupFileName(DateTime now) {
+  now = now.toUtc();
   String two(int v) => v.toString().padLeft(2, '0');
   return 'handwriting-samples-${now.year}${two(now.month)}${two(now.day)}'
-      '-${two(now.hour)}${two(now.minute)}.zip';
+      '-${two(now.hour)}${two(now.minute)}Z.zip';
 }
 
 List<int> encodeSampleBackup(
@@ -58,7 +60,7 @@ List<int> encodeSampleBackup(
       for (final s in samples)
         {
           'text': s.text,
-          'createdAt': s.createdAt.toIso8601String(),
+          'createdAt': s.createdAt.toUtc().toIso8601String(),
           'canvasWidth': s.canvasWidth,
           'canvasHeight': s.canvasHeight,
           'strokes': strokesToJson(s.strokes),

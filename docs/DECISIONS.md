@@ -1036,8 +1036,9 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
 
 - **Signing key and build tools:** Gradle and Kotlin keep running in the background after a build. The key was written to disk for signing while they were still running as the same user, so a bad build plugin or library could have read it. They're now stopped as soon as the release build ends, and signing refuses to start while any build tool is still running.
 - **MyScript files:** a MyScript download whose fingerprint isn't pinned yet is now left out of the app (its fingerprint is still printed, to check and pin), instead of going in with a warning. Downloads holding links or special files stop the build, as a link could copy a file from the build machine into the app.
-- **Public build logs** drop build-label lines and long encoded values in both builds, as the error report already did.
+- **Public build logs** drop build-label lines in both builds (file paths in build errors are kept).
 - **Text-reading models:**
   - A downloaded model whose files the list has replaced isn't read with while a current one is there (it's still used when it's the only one, until updated).
   - Model and file names can't pose as a half-done download, an old copy or the "ready" mark.
-- **Handwriting-sample backups** keep only the build number and a UTC time (the build label holds the owner's local time, which with the public build times gives away the time zone).
+- **Handwriting-sample backups** keep only the build number, and UTC times throughout (when exported, when each sample was written, and the suggested file name, which ends in Z). The build label holds the owner's local time, which together with the public build times gives away the time zone.
+- **Still open (owner decision):** a malicious build plugin could plant its own copy of the signing tool in the Android tools folder, which the build can write to. Only signing in a separate job, on a fresh machine, closes that.

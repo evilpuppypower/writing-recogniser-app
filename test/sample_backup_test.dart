@@ -42,7 +42,7 @@ LabeledSample sample(String text, int minute) => LabeledSample(
 );
 
 void main() {
-  final when = DateTime(2026, 1, 1, 12, 0);
+  final when = DateTime.utc(2026, 1, 1, 12, 0);
 
   group('backup file', () {
     test('round trip keeps text, time, canvas size and every point', () {
@@ -180,7 +180,7 @@ void main() {
     test('file name uses the date and time', () {
       expect(
         sampleBackupFileName(when),
-        'handwriting-samples-20260101-1200.zip',
+        'handwriting-samples-20260101-1200Z.zip',
       );
     });
   });
@@ -223,7 +223,7 @@ void main() {
       await pump(tester);
       await tester.tap(find.byTooltip('Back up samples to a file'));
       await tester.pumpAndSettle();
-      expect(savedName, 'handwriting-samples-20260101-1200.zip');
+      expect(savedName, 'handwriting-samples-20260101-1200Z.zip');
       expect(decodeSampleBackup(saved!).map((s) => s.text), ['hello', 'world']);
       expect(find.textContaining('Backed up 2 samples'), findsOneWidget);
     });

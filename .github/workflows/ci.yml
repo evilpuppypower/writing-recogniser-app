@@ -205,15 +205,14 @@ jobs:
       # once the build ends (Gradle and Kotlin otherwise stay running in the
       # background, and could read the key). Not a Play Store build. The
       # public log drops any line about the MyScript certificate or the
-      # build label, and long encoded values.
+      # build label (whose value holds the owner's local time).
       - name: Build release APK
         id: release
         run: |
           set -o pipefail
           flutter build apk --release --target-platform android-arm64 \
             --dart-define=BUILD_STAMP="$(cat "$RUNNER_TEMP/build-label")" \
-            2>&1 | { grep -v -i -E 'MyCertificate|com/myscript/certificate|BYTES *=|dart-define' || true; } \
-            | sed -E 's/[A-Za-z0-9+\/=_-]{40,}/[long value removed]/g' | tee build.log
+            2>&1 | { grep -v -i -E 'MyCertificate|com/myscript/certificate|BYTES *=|dart-define' || true; } | tee build.log
           mv build/app/outputs/flutter-apk/app-release.apk \
             "writing-recogniser-${{ steps.stamp.outputs.file }}.apk"
           (cd android && ./gradlew --stop) > /dev/null 2>&1 || true
@@ -392,8 +391,7 @@ jobs:
           set -o pipefail
           flutter build apk --release --target-platform android-x64 \
             --dart-define=BUILD_STAMP="$(cat "$RUNNER_TEMP/build-label")" \
-            2>&1 | { grep -v -i -E 'MyCertificate|com/myscript/certificate|BYTES *=|dart-define' || true; } \
-            | sed -E 's/[A-Za-z0-9+\/=_-]{40,}/[long value removed]/g'
+            2>&1 | { grep -v -i -E 'MyCertificate|com/myscript/certificate|BYTES *=|dart-define' || true; }
           mv build/app/outputs/flutter-apk/app-release.apk emulator-test.apk
           # Builds are done: remove the MyScript certificate before the
           # third-party emulator steps.
