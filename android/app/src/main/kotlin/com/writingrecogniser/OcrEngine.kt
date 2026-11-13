@@ -108,9 +108,13 @@ class OcrEngine(private val context: Context, messenger: BinaryMessenger) {
 
     private fun root() = File(context.filesDir, "ocr").apply { mkdirs() }
 
-    /** Only simple names: a model's files stay in its own folder. */
+    /** Only simple names: a model's files stay in its own folder, and
+     * none can pose as a half-done or old download or as the "ready" mark. */
     private fun safe(name: String): String {
-        require(name.matches(Regex("[A-Za-z0-9._-]{1,64}")) && name != "." && name != "..") { "Bad name" }
+        require(
+            name.matches(Regex("[A-Za-z0-9._-]{1,64}")) && name != "." && name != ".." &&
+                !name.endsWith(PARTIAL) && !name.endsWith(OLD) && name != READY,
+        ) { "Bad name" }
         return name
     }
 

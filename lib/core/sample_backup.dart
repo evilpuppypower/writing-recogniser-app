@@ -14,6 +14,7 @@ import 'package:archive/archive.dart';
 
 import 'ink.dart';
 import 'labeled_sample.dart';
+import 'diagnostics_report.dart' show buildNumberOnly;
 
 const sampleBackupFormat = 'writing-recogniser-samples';
 const sampleBackupVersion = 1;
@@ -21,11 +22,13 @@ const sampleBackupVersion = 1;
 /// The JSON file inside the zip.
 const sampleBackupEntry = 'samples.json';
 
-/// Suggested file name, e.g. "handwriting-samples-20260101-1200.zip".
+/// Suggested file name, e.g. "handwriting-samples-20260101-1200Z.zip"
+/// (UTC, as the rest of the backup: no local time in it).
 String sampleBackupFileName(DateTime now) {
+  now = now.toUtc();
   String two(int v) => v.toString().padLeft(2, '0');
   return 'handwriting-samples-${now.year}${two(now.month)}${two(now.day)}'
-      '-${two(now.hour)}${two(now.minute)}.zip';
+      '-${two(now.hour)}${two(now.minute)}Z.zip';
 }
 
 List<int> encodeSampleBackup(
@@ -36,8 +39,11 @@ List<int> encodeSampleBackup(
   final doc = {
     'format': sampleBackupFormat,
     'version': sampleBackupVersion,
-    'exportedAt': exportedAt.toIso8601String(),
-    'appBuild': appBuild,
+    // UTC, and the build number only: the build label holds the owner's
+    // local time, which with the public build times gives away the time
+    // zone (security review, 2026-10-24).
+    'exportedAt': exportedAt.toUtc().toIso8601String(),
+    'appBuild': buildNumberOnly(appBuild),
     // So the file explains itself to whoever uses it later.
     'units': {
       'x, y':
@@ -54,7 +60,7 @@ List<int> encodeSampleBackup(
       for (final s in samples)
         {
           'text': s.text,
-          'createdAt': s.createdAt.toIso8601String(),
+          'createdAt': s.createdAt.toUtc().toIso8601String(),
           'canvasWidth': s.canvasWidth,
           'canvasHeight': s.canvasHeight,
           'strokes': strokesToJson(s.strokes),

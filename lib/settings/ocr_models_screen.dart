@@ -349,12 +349,42 @@ class _OcrModelsScreenState extends State<OcrModelsScreen> {
 /// Settings, or else any downloaded one in the app's list; null if none.
 Future<String?> chosenOcrModel(TextReaderService reader) async {
   try {
-    final known = {for (final m in await _loadCatalogue()) m.id};
-    final installed = (await reader.installed()).where(known.contains);
-    if (installed.isEmpty) return null;
-    final chosen = await OcrModelsScreen._loadChoice();
-    return installed.contains(chosen) ? chosen : installed.first;
+    final models = await _loadCatalogue();
+    final sums = await reader.fingerprints().catchError(
+      (_) => <String, Map<String, String>>{},
+    );
+    return pickOcrModel(
+      models,
+      await reader.installed(),
+      sums,
+      await OcrModelsScreen._loadChoice(),
+    );
   } catch (_) {
     return null;
   }
+}
+
+/// Which of the [installed] models to read with: those whose files match
+/// the app's list now come first (security review, 2026-10-24: a model the
+/// list has replaced isn't used while a current one is there); within
+/// them the [chosen] one, else the first. A model with older files is
+/// used only when it's the only kind there, so reading carries on until
+/// it's updated. Models not in the list are never used.
+String? pickOcrModel(
+  List<OcrModel> models,
+  Set<String> installed,
+  Map<String, Map<String, String>> fingerprints,
+  String? chosen,
+) {
+  final known = [
+    for (final m in models)
+      if (installed.contains(m.id)) m,
+  ];
+  if (known.isEmpty) return null;
+  final current = [
+    for (final m in known)
+      if (fingerprints[m.id] == null || m.matches(fingerprints[m.id]!)) m.id,
+  ];
+  final pool = current.isNotEmpty ? current : [for (final m in known) m.id];
+  return pool.contains(chosen) ? chosen : pool.first;
 }

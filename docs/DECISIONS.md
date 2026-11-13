@@ -1031,3 +1031,14 @@ The owner's diagnostics (counts and timings only) showed reading after each paus
   - `stalls`: the screen's thread busy for over 150 ms between frames, found by a light 10-a-second check while a PDF is open.
   Each comes with its worst time and its causes (count and worst time per job). Spikes with no timed job in them are counted as `…Unexplained`: the system or memory being tidied, which tells us to look elsewhere. Only job names and times are kept.
 - **MyScript's sorting:** its answer has never been usable on the tablet ("groups: 0" in every report since 2026-10-21), and the shape check sorts every time anyway. Preparing a heavy page for MyScript took about 20 ms on the screen's thread, on top of MyScript's own work. After two unusable answers in a row it isn't asked again until the app is next opened (the diagnostics say so in `sortProblem`). Sorting is the same as before; reading words still uses MyScript.
+
+## 2026-10-24 — Security review fixes (owner: "a security review of all the current code")
+
+- **Signing key and build tools:** Gradle and Kotlin keep running in the background after a build. The key was written to disk for signing while they were still running as the same user, so a bad build plugin or library could have read it. They're now stopped as soon as the release build ends, and signing refuses to start while any build tool is still running.
+- **MyScript files:** a MyScript download whose fingerprint isn't pinned yet is now left out of the app (its fingerprint is still printed, to check and pin), instead of going in with a warning. Downloads holding links or special files stop the build, as a link could copy a file from the build machine into the app.
+- **Public build logs** drop build-label lines in both builds (file paths in build errors are kept).
+- **Text-reading models:**
+  - A downloaded model whose files the list has replaced isn't read with while a current one is there (it's still used when it's the only one, until updated).
+  - Model and file names can't pose as a half-done download, an old copy or the "ready" mark.
+- **Handwriting-sample backups** keep only the build number, and UTC times throughout (when exported, when each sample was written, and the suggested file name, which ends in Z). The build label holds the owner's local time, which together with the public build times gives away the time zone.
+- **Signing in its own job (owner-approved, 2026-10-24):** a malicious build plugin could also have planted its own copy of the signing tool in the Android tools folder, which the build can write to. So the APK is now signed by a separate short job on a fresh machine, where none of the repo's code or build tools run. The build job hands it over only inside the password zip, kept for a day. It starts together with the build, so the run is approved once (owner, 2026-11-13: no second approval), and waits on its own machine until the APK is handed over.
