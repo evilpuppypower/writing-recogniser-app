@@ -25,10 +25,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    outputs:
-      # The build's file name (build-<number>), once its APK is ready to sign.
-      file: ${{ steps.stamp.outputs.file }}
-      ready: ${{ steps.handover.outcome == 'success' }}
     # The secrets can be kept in the "release" environment, which can
     # require the owner's approval before a run may use them (Settings ->
     # Environments). Without that, runs on any branch of this repo get them.
@@ -442,29 +438,57 @@ jobs:
   # the build can read the key or stand in for the signing tool (security
   # review, 2026-10-24). The APK handed over is still treated as untrusted
   # (see below). Runs even if the launch check failed, so the APK is still
-  # there to test; not for a cancelled run.
+  # there to test.
+  #
+  # It starts together with the build (no "needs"), so the owner approves
+  # the run once and both jobs go (owner, 2026-11-13: no second approval),
+  # then waits here, on its own machine, until the build hands the APK over.
   sign:
-    needs: build
-    if: ${{ !cancelled() && needs.build.outputs.ready == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     environment: release
-    # Needs no access to the repo (artifacts use the run's own token).
-    permissions: {}
+    # Only to see this run's own jobs and artifacts.
+    permissions:
+      actions: read
+    env:
+      FILE: build-${{ github.run_number }}
     steps:
+      - name: Wait for the build's APK
+        id: wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          for i in $(seq 1 110); do
+            n=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+              --jq "[.artifacts[] | select(.name == \"to-sign-$FILE\")] | length")
+            if [ "$n" = 1 ]; then echo 'ready=true' >> "$GITHUB_OUTPUT"; exit 0; fi
+            build=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+              --jq '.jobs[] | select(.name == "build") | .status')
+            if [ "$build" = completed ]; then
+              echo 'The build ended without an APK to sign (see the build job).'
+              exit 0
+            fi
+            sleep 30
+          done
+          echo '::error::The build took too long to hand the APK over.'
+          exit 1
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: steps.wait.outputs.ready == 'true'
         with:
-          name: to-sign-${{ needs.build.outputs.file }}
+          name: to-sign-${{ env.FILE }}
 
       # The owner's signing key (repo secrets), so each APK installs over the
       # previous one and keeps the app's data. Only Google's apksigner sees
       # it, and the key file is deleted as soon as signing ends.
       - name: Sign APK with the owner's key
+        if: steps.wait.outputs.ready == 'true'
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           APK_ZIP_PASSWORD: ${{ secrets.APK_ZIP_PASSWORD }}
-          FILE: ${{ needs.build.outputs.file }}
         run: |
           apk="writing-recogniser-$FILE.apk"
           trap 'rm -f "$RUNNER_TEMP/app.jks" "$apk" signed.apk' EXIT
@@ -498,10 +522,11 @@ jobs:
           7z a -tzip -mem=AES256 -p"$APK_ZIP_PASSWORD" "writing-recogniser-$FILE.zip" "$apk" > /dev/null
 
       - name: Upload APK (password-protected zip)
+        if: steps.wait.outputs.ready == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: writing-recogniser-${{ needs.build.outputs.file }}
-          path: writing-recogniser-${{ needs.build.outputs.file }}.zip
+          name: writing-recogniser-${{ env.FILE }}
+          path: writing-recogniser-${{ env.FILE }}.zip
           if-no-files-found: error
           # Kept briefly: anyone can download artifacts from a public repo.
           retention-days: 7
