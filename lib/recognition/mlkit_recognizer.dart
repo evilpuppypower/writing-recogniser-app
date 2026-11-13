@@ -1,5 +1,4 @@
 // The ONLY file that may import ML Kit (CLAUDE.md rule 1).
-import 'dart:ui' as ui;
 
 import 'package:google_mlkit_digital_ink_recognition/google_mlkit_digital_ink_recognition.dart'
     as mlkit;
@@ -7,30 +6,33 @@ import 'package:google_mlkit_digital_ink_recognition/google_mlkit_digital_ink_re
 import '../core/ink.dart';
 import '../core/recognition/recognizer.dart';
 import '../platform/diagnostics.dart';
+import '../core/feedback/regional_spelling.dart';
 
 /// Google ML Kit Digital Ink Recognition. Runs on the tablet; needs a
 /// one-time download of the English model (about 20 MB) from Google.
 /// Only the model is downloaded; ink never leaves the device.
 class MlKitRecognizer implements Recognizer {
-  MlKitRecognizer({List<String>? languageTags})
-    : languageTags =
-          languageTags ?? englishTagsFor(ui.PlatformDispatcher.instance.locale);
+  MlKitRecognizer({this.languageChoice});
+
+  /// Variants to try instead of the English chosen in Settings (tests).
+  final List<String>? languageChoice;
 
   /// Preferred English variants, best first; the first one ML Kit supports
-  /// is used.
-  final List<String> languageTags;
+  /// is used: the English chosen in Settings (see RegionalSpelling).
+  List<String> get languageTags =>
+      languageChoice ?? englishTagsFor(RegionalSpelling.current);
 
-  /// The device's own English variant first (when its language is English),
-  /// then British, US and plain English.
-  static List<String> englishTagsFor(ui.Locale locale) {
-    final country = locale.countryCode ?? '';
-    return {
-      if (locale.languageCode == 'en' && country.isNotEmpty) 'en-$country',
-      'en-GB',
-      'en-US',
-      'en',
-    }.toList();
-  }
+  /// [spelling]'s English first, then British, US and plain English.
+  static List<String> englishTagsFor(EnglishSpelling spelling) => {
+    switch (spelling) {
+      EnglishSpelling.american => 'en-US',
+      EnglishSpelling.canadian => 'en-CA',
+      EnglishSpelling.british || EnglishSpelling.tablet => 'en-GB',
+    },
+    'en-GB',
+    'en-US',
+    'en',
+  }.toList();
 
   final _models = mlkit.DigitalInkRecognizerModelManager();
   mlkit.DigitalInkRecognizer? _recognizer;

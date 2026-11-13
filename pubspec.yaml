@@ -72,6 +72,10 @@ flutter:
   assets:
     # Text-reading models the app can download (addresses and fingerprints).
     - assets/ocr_models.txt
+    # Each word's American, British and Canadian spelling
+    # (from VarCon, see tool/spellings/).
+    - assets/spellings.tsv
+    - assets/spellings_licence.txt
   # assets:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg

@@ -9,6 +9,7 @@ import '../core/ink.dart';
 import '../core/recognition/recognizer.dart';
 import 'jiix.dart';
 import 'myscript_keys.dart';
+import '../core/feedback/regional_spelling.dart';
 
 export 'jiix.dart' show jiixToCandidates;
 
@@ -20,7 +21,7 @@ class MyScriptCloudRecognizer implements Recognizer {
     this.keyStore = const MyScriptKeyStore(),
     http.Client? client,
     this.host = 'cloud.myscript.com',
-    this.languages = const ['en_GB', 'en_US'],
+    this.languageChoice,
     this.timeout = const Duration(seconds: 15),
   }) : _client = client ?? http.Client();
 
@@ -28,8 +29,22 @@ class MyScriptCloudRecognizer implements Recognizer {
   final http.Client _client;
   final String host;
 
-  /// Tried in order; the next is used if MyScript doesn't offer one.
-  final List<String> languages;
+  /// Languages to try instead of the one chosen in Settings (tests).
+  final List<String>? languageChoice;
+
+  /// Tried in order; the next is used if MyScript doesn't offer one: the
+  /// English chosen in Settings first (see RegionalSpelling).
+  List<String> get languages =>
+      languageChoice ??
+      {
+        switch (RegionalSpelling.current) {
+          EnglishSpelling.american => 'en_US',
+          EnglishSpelling.canadian => 'en_CA',
+          EnglishSpelling.british || EnglishSpelling.tablet => 'en_GB',
+        },
+        'en_GB',
+        'en_US',
+      }.toList();
   final Duration timeout;
 
   @override

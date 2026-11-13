@@ -21,6 +21,7 @@ import '../core/recognition/recognizer.dart';
 import '../core/stroke_grouping.dart';
 import '../core/typed_text.dart';
 import '../core/stall_tracer.dart';
+import '../core/feedback/regional_spelling.dart';
 
 /// A recognised handwritten word on a page.
 class RecognizedWord {
@@ -214,7 +215,7 @@ class InkTextController extends ChangeNotifier {
     FeedbackLayer? feedback,
     this.corrections,
     this.documentId,
-  }) : feedback = feedback ?? PersonalWords();
+  }) : feedback = feedback ?? RegionalSpelling(PersonalWords());
 
   /// Re-ranks or swaps the engine's words using the user's corrections.
   final FeedbackLayer feedback;

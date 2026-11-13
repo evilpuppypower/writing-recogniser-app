@@ -1,10 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'platform/power.dart';
 
 import 'core/app_settings.dart';
+import 'core/feedback/regional_spelling.dart';
 import 'library/home_screen.dart';
 import 'platform/system_colours.dart';
 import 'settings/settings_controller.dart';
@@ -32,7 +35,32 @@ Future<void> main() async {
     told = now;
     unawaited(tellBackupsBatterySaver(on: now.$1, withSystem: now.$2));
   });
+  // The English handwriting is read in (Settings), and its spellings.
+  void spelling() => RegionalSpelling.current = settledSpelling(
+    settings.value.englishSpelling,
+    PlatformDispatcher.instance.locale.countryCode,
+  );
+  spelling();
+  settings.addListener(spelling);
+  PlatformDispatcher.instance.onLocaleChanged = spelling;
+  unawaited(_loadSpellings());
   runApp(WritingRecogniserApp(settings: settings, accentArgb: accent));
+}
+
+/// The spelling table (see tool/spellings/), read away from the screen's
+/// thread; until it's there, readings keep the engine's spelling.
+Future<void> _loadSpellings() async {
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(const [
+      'VarCon (regional English spellings)',
+    ], await rootBundle.loadString('assets/spellings_licence.txt'));
+  });
+  try {
+    final text = await rootBundle.loadString('assets/spellings.tsv');
+    RegionalSpelling.loaded = await compute(SpellingTable.parse, text);
+  } catch (_) {
+    // Readings keep the engine's spelling.
+  }
 }
 
 /// Fallback colour when the tablet's Material You colour isn't available.
